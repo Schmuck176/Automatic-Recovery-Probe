@@ -122,6 +122,13 @@ def mount(vhd, readonly=True):
     return n, letter
 
 
+def filesystem(n):
+    """What Windows makes of the exFAT partition: 'exFAT', or 'Unknown'/'RAW' when it cannot open it."""
+    out = ps("Get-Partition -DiskNumber %d | Where-Object { $_.GptType -eq '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}' } | "
+             "Get-Volume | ForEach-Object { $_.FileSystemType }" % n, check=False)
+    return out.strip() or "no volume"
+
+
 def unmount(vhd):
     ps("Dismount-DiskImage -ImagePath '%s' | Out-Null" % vhd, check=False)
 
@@ -199,7 +206,10 @@ def part1(exe, work, case):
     mp = os.path.join(d, "disk.map")
     X.write_mapfile(mp, truth["gpt_disk_size"], [(s, n, st) for s, n, st in case.areas])
     oracle = T.Oracle(truth, img, pristine, [(s, s + n, st) for s, n, st in case.areas])
-    exp = oracle.expected()
+    try:
+        exp = oracle.expected()
+    finally:
+        oracle.close()
 
     # Windows reads the undamaged disk exactly as written.
     vhd = os.path.join(d, "pristine.vhd")
@@ -237,7 +247,10 @@ def part1(exe, work, case):
         diffs = T.compare(exp, got_raw)
         if diffs:
             problems.append("map check on \\\\.\\PhysicalDrive%d differs from the expected answer: %s" % (n, diffs[:4]))
-        if not letter:
+        fs = filesystem(n)
+        if fs.lower() != "exfat":
+            problems.append("Windows cannot open the damaged test disk at all (it sees: %s)" % fs)
+        elif not letter:
             problems.append("Windows gave the damaged test disk no drive letter")
         else:
             got = listing(letter, read=False)
@@ -352,7 +365,8 @@ def part2(exe, work):
     # Damage: two files' data, and a folder record in the middle of "Big folder".
     a_fid, a_size = files["Test\\Photos\\2021\\IMG_0005.JPG"]
     b_fid, b_size = files["Test\\Docs\\document 3.docx"]
-    areas = [(blocks[(a_fid, 40)], 2 * SECTOR), (blocks[(b_fid, (b_size - 1) // SECTOR)], SECTOR)]
+    # (The last block of a file may be too short to hold a whole tag; use the one before.)
+    areas = [(blocks[(a_fid, 40)], 2 * SECTOR), (blocks[(b_fid, (b_size - 1) // SECTOR - 1)], SECTOR)]
     victim = "Test\\Big folder\\file 040 with a fairly long name.bin"
     rec = [o for o in names_at.get(victim, []) if o // SECTOR * SECTOR not in tagged]
     if len(rec) != 1:
@@ -441,6 +455,39 @@ def part2(exe, work):
     return problems
 
 
+def experiments(work):
+    """Which single pieces of damage stop Windows from opening the drive."""
+    disk, exps = T.mount_experiments()
+    d = os.path.join(work, "experiments")
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    size_mib = disk.disk_size // X.MiB
+    pristine = os.path.join(d, "pristine.img")
+    disk.save(pristine)
+    for name, areas in exps:
+        img = os.path.join(d, "disk.img")
+        shutil.copyfile(pristine, img)
+        X.zero_areas(img, areas)
+        vhd = os.path.join(d, "exp.vhd")
+        make_container(vhd, size_mib)
+        put_image(vhd, img)
+        try:
+            n, letter = mount(vhd)
+            fs = filesystem(n)
+            count = len(listing(letter, read=False)) if letter and fs.lower() == "exfat" else 0
+            if fs.lower() == "exfat":
+                log("     damage to %s: Windows opens the drive (%s) and lists %d files and folders" % (name, letter, count))
+            else:
+                log("     damage to %s: Windows CANNOT open the drive (it sees: %s)" % (name, fs))
+        except Exception as e:
+            log("     damage to %s: error %s" % (name, e))
+        finally:
+            unmount(vhd)
+            if os.path.exists(vhd):
+                os.remove(vhd)
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
     exe = os.path.abspath(sys.argv[1])
     work = os.path.abspath(sys.argv[2])
@@ -449,6 +496,9 @@ def main():
              T.bigger_ssd_case()]
     for c in cases:
         c.garbage = []
+        T.keep_mountable(c)
+    log("What stops Windows from opening the drive:")
+    experiments(work)
     failed = 0
     total = 0
     for c in cases:

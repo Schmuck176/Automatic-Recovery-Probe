@@ -20,6 +20,7 @@ pub mod mapcheck;
 pub mod mapfile;
 pub mod probe;
 pub mod report;
+pub mod rescue;
 pub mod sqlite;
 pub mod sys;
 pub mod walk;

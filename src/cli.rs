@@ -283,3 +283,49 @@ pub fn run_map_info(map_path: &str) -> i32 {
     }
     0
 }
+
+/// Copy files straight off the recovered disk, past Windows.
+pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bool) -> i32 {
+    let opts = crate::rescue::Options { disk: disk.to_string(), out_dir: out_dir.to_string(), pick, lost };
+    let mut progress = |s: &str| println!("  {s}");
+    match crate::rescue::run(&opts, &mut progress) {
+        Ok(o) => {
+            println!();
+            println!(
+                "Copied {} files ({}) and {} folders into {}.",
+                commas(o.files),
+                crate::fmt::size(o.bytes),
+                commas(o.folders),
+                out_dir
+            );
+            if o.lost_pieces > 0 {
+                println!(
+                    "Saved {} pieces of data no folder record names ({}) in \"lost data (no name)\".",
+                    commas(o.lost_pieces),
+                    crate::fmt::size(o.lost_bytes)
+                );
+            }
+            if o.already_there > 0 {
+                println!("{} files were already in that folder and were left as they were.", commas(o.already_there));
+            }
+            if !o.partial.is_empty() {
+                println!("{} files could only be copied in part (the missing parts are zeros):", commas(o.partial.len() as u64));
+                for (p, n) in o.partial.iter().take(10) {
+                    println!("  {p}: {n}");
+                }
+            }
+            if !o.failed.is_empty() {
+                println!("{} could not be copied:", commas(o.failed.len() as u64));
+                for (p, n) in o.failed.iter().take(10) {
+                    println!("  {p}: {n}");
+                }
+            }
+            println!("The full list is in {}", o.log);
+            if o.failed.is_empty() { 0 } else { 1 }
+        }
+        Err(e) => {
+            println!("The rescue could not run: {e}");
+            1
+        }
+    }
+}

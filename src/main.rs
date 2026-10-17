@@ -1,6 +1,6 @@
 //! Recovery Probe - the program you double-click.
 
-use recovery_probe::cli::{run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_scan, ScanOpts};
+use recovery_probe::cli::{run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_rescue, run_scan, ScanOpts};
 use recovery_probe::{APP, VERSION};
 
 const USAGE: &str = "\
@@ -15,6 +15,9 @@ Usage:
         Work out which files and folders sit on the places ddrescue never read.
         <disk> is \\\\.\\PhysicalDriveN (needs administrator rights) or a disk image.
         --earlier-map: an earlier attempt's mapfile, if it copied onto the same disk.
+  recovery-probe rescue --disk <disk> --out <folder> [--everything | --path <path>...] [--lost]
+        Copy files straight off the disk, past Windows: by default the ones Windows
+        cannot list. --lost also saves data no folder record names any more.
   recovery-probe map-info <mapfile>
         What a ddrescue mapfile says: how much was read, how much never was.
   recovery-probe list-disks
@@ -85,6 +88,45 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
     })
 }
 
+fn parse_rescue_opts(args: &[String]) -> Result<(String, String, recovery_probe::rescue::Pick, bool), String> {
+    use recovery_probe::rescue::Pick;
+    let (mut disk, mut out) = (None, None);
+    let mut pick = Pick::Hidden;
+    let mut paths = Vec::new();
+    let mut lost = false;
+    let mut i = 0;
+    while i < args.len() {
+        let val = || args.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", args[i]));
+        match args[i].as_str() {
+            "--disk" => {
+                disk = Some(val()?);
+                i += 1;
+            }
+            "--out" => {
+                out = Some(val()?);
+                i += 1;
+            }
+            "--path" => {
+                paths.push(val()?);
+                i += 1;
+            }
+            "--everything" => pick = Pick::Everything,
+            "--lost" => lost = true,
+            s => return Err(format!("unexpected argument {s}")),
+        }
+        i += 1;
+    }
+    if !paths.is_empty() {
+        pick = Pick::Paths(paths);
+    }
+    Ok((
+        disk.ok_or("--disk is needed: the recovered disk, or a disk image")?,
+        out.ok_or("--out is needed: a folder on another drive")?,
+        pick,
+        lost,
+    ))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(|s| s.as_str()) {
@@ -117,6 +159,13 @@ fn main() {
             }
         },
         Some("list-disks") => run_list_disks(),
+        Some("rescue") => match parse_rescue_opts(&args[1..]) {
+            Ok((disk, out, pick, lost)) => run_rescue(&disk, &out, pick, lost),
+            Err(e) => {
+                eprintln!("{e}\n\n{USAGE}");
+                2
+            }
+        },
         Some("map-info") => match args.get(1) {
             Some(p) => run_map_info(p),
             None => {

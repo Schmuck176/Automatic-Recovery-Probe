@@ -569,3 +569,91 @@ pub fn timestamp_string(ts: u32) -> String {
     let year = 1980 + (ts >> 25);
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{min:02}:{sec:02}")
 }
+
+/// Days from 1970-01-01 to a date (proleptic Gregorian calendar).
+pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m as i64 + 9) % 12; // March = 0
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// This PC's offset from UTC right now, in seconds.
+fn local_offset_now() -> i64 {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    match crate::sys::local_time(now) {
+        Some(t) => {
+            let local = days_from_civil(t[0] as i64, t[1] as u32, t[2] as u32) * 86_400
+                + t[3] as i64 * 3600
+                + t[4] as i64 * 60
+                + t[5] as i64;
+            local - now
+        }
+        None => 0,
+    }
+}
+
+/// An exFAT timestamp (with its 10 ms part and UTC offset byte) as Unix
+/// seconds and nanoseconds. exFAT stores local time; with a valid UTC
+/// offset the result is exact, without one this PC's offset is assumed.
+pub fn timestamp_to_unix(ts: u32, ms10: u8, utc: u8) -> Option<(i64, u32)> {
+    let sec = ((ts & 0x1F) * 2) as i64;
+    let min = ((ts >> 5) & 0x3F) as i64;
+    let hour = ((ts >> 11) & 0x1F) as i64;
+    let day = (ts >> 16) & 0x1F;
+    let month = (ts >> 21) & 0x0F;
+    let year = 1980 + (ts >> 25) as i64;
+    if !(1..=12).contains(&month) || day == 0 || hour > 23 || min > 59 || sec > 59 || ms10 > 199 {
+        return None;
+    }
+    let mut t = days_from_civil(year, month, day) * 86_400 + hour * 3600 + min * 60 + sec + (ms10 / 100) as i64;
+    if utc & 0x80 != 0 {
+        let v = (utc & 0x7F) as i64;
+        let quarters = if v & 0x40 != 0 { v - 128 } else { v };
+        t -= quarters * 15 * 60;
+    } else {
+        t -= local_offset_now();
+    }
+    Some((t, (ms10 % 100) as u32 * 10_000_000))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dates_and_offsets() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
+        assert_eq!(days_from_civil(2024, 2, 29), 19_782);
+        // 2023-07-14 10:30:00 at UTC+02:00 (8 quarters) = 08:30:00 UTC.
+        let ts = ((2023 - 1980) << 25) | (7 << 21) | (14 << 16) | (10 << 11) | (30 << 5);
+        let (t, n) = timestamp_to_unix(ts, 150, 0x80 | 8).unwrap();
+        assert_eq!(t, days_from_civil(2023, 7, 14) * 86_400 + 8 * 3600 + 30 * 60 + 1);
+        assert_eq!(n, 500_000_000);
+        // UTC-05:00 = -20 quarters, stored as 7-bit two's complement.
+        let (t2, _) = timestamp_to_unix(ts, 0, 0x80 | (128 - 20) as u8).unwrap();
+        assert_eq!(t2, days_from_civil(2023, 7, 14) * 86_400 + 15 * 3600 + 30 * 60);
+        assert_eq!(timestamp_to_unix(0, 0, 0x80), None);
+    }
+
+    #[test]
+    fn checksums_match_the_spec_examples() {
+        // A set made by exfat_image.py for "x" (verified there against fsck.exfat).
+        let mut set = [0u8; 96];
+        set[0] = 0x85;
+        set[1] = 2;
+        set[32] = 0xC0;
+        set[35] = 1;
+        set[64] = 0xC1;
+        set[66] = b'x';
+        let c = entry_set_checksum(&set);
+        set[2..4].copy_from_slice(&c.to_le_bytes());
+        assert_eq!(entry_set_checksum(&set), c, "bytes 2-3 are not part of the checksum");
+        set[66] = b'y';
+        assert_ne!(entry_set_checksum(&set), c);
+    }
+}

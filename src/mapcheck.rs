@@ -341,7 +341,7 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str)) -> Result<Report, Str
 /// from a backup boot sector when the main one is gone. As a last resort
 /// (no readable partition table), look for a boot sector that records its
 /// own position, which exFAT boot sectors do.
-fn find_volume<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volume<'a>, bool), String> {
+pub fn find_volume<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volume<'a>, bool), String> {
     let mut starts: Vec<u64> = table.partitions.iter().map(|p| p.start).collect();
     starts.push(0);
     for &s in &starts {

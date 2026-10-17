@@ -52,6 +52,23 @@ class Oracle:
         self.heap = self.vo + self.v["heap_offset"]
         self.nodes = {n["path"]: n for n in truth["nodes"]}
 
+    def content(self, path):
+        """What a rescued copy of a found file must hold: the disk's bytes
+        along its clusters up to its valid data, zeros after that and
+        wherever its clusters could not be found."""
+        n, cl, broken, hidden = self.found_nodes[path]
+        dl, vdl = n["data_length"], min(n["vdl"], n["data_length"])
+        out = bytearray()
+        for c in cl:
+            if len(out) >= vdl:
+                break
+            out += self.read(self.coff(c), min(self.cs, vdl - len(out)))
+        return bytes(out[:vdl]) + bytes(dl - min(len(out), vdl))
+
+    def close(self):
+        self.f.close()
+        self.p.close()
+
     def read(self, off, n, pristine=False):
         f = self.p if pristine else self.f
         f.seek(off)
@@ -197,6 +214,8 @@ class Oracle:
             for s in reversed(subdirs):
                 stack.append(s)
 
+        self.found_nodes = found
+        self.root_cl = root_cl
         # Owners of clusters.
         owner = {}
         structures = []
@@ -360,10 +379,15 @@ class Oracle:
 
         # Data in use that nothing found owns.
         lost = 0
+        self.lost_runs = []
         if bm is not None:
             for c in range(2, self.cc + 2):
                 if allocated(c) and c not in owner:
                     lost += 1
+                    if self.lost_runs and self.lost_runs[-1][0] + self.lost_runs[-1][1] == c:
+                        self.lost_runs[-1][1] += 1
+                    else:
+                        self.lost_runs.append([c, 1])
         # Found from records that lie in never-read places.
         unread = []
         for path, (n, ncl, broken, hidden) in found.items():
@@ -456,6 +480,7 @@ class Case:
         self.garbage = garbage  # areas to fill with random bytes (a used SSD's leftovers)
         self.flips = []  # single bytes to change (near-miss corruption)
         self.earlier = None  # what an earlier attempt read onto the same disk: [(start, length)]
+        self.rescue = True  # also check rescuing files from this disk
         self.domain = domain  # mapfile size (default: the GPT's disk size)
         self.extra_args = extra_args
         self.expect = expect or {}
@@ -512,7 +537,14 @@ def run_case(exe, work, case, keep=False):
     with open(os.path.join(out, "map-check.json"), encoding="utf-8") as f:
         got = json.load(f)
     oracle = Oracle(truth, img, pristine, effective)
-    exp = oracle.expected()
+    try:
+        exp = oracle.expected()
+        return finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective)
+    finally:
+        oracle.close()  # Windows cannot delete files that are still open
+
+
+def finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective):
     diffs = compare(exp, got)
     if case.earlier is not None:
         want = sum(e - s for s, e, _ in [(s, s + n, st) for s, n, st in case.areas]) - sum(e - s for s, e, _ in effective)
@@ -532,6 +564,8 @@ def run_case(exe, work, case, keep=False):
                     k, actual, v))
         elif actual != v:
             diffs.append("%s: got %r, expected %r" % (k, actual, v))
+    if case.rescue and not diffs:
+        diffs += check_rescue(exe, d, img, truth, exp, oracle)
     with open(os.path.join(d, "expected.json"), "w") as f:
         json.dump(exp, f, indent=1, default=str)
     # What this case exercised, for the coverage tally.
@@ -549,9 +583,80 @@ def run_case(exe, work, case, keep=False):
         for h in a["hits"]:
             cov["hits on " + h["kind"]] += 1
     if not diffs and not keep:
+        oracle.close()
         for name in ("disk.img", "pristine.img"):
             os.remove(os.path.join(d, name))
     return diffs
+
+
+def check_rescue(exe, d, img, truth, exp, oracle):
+    """Rescue what Windows cannot list, then everything plus the lost data,
+    and check every byte of every copy."""
+    diffs = []
+    for mode, args in (("hidden", []), ("everything", ["--everything", "--lost"])):
+        out = os.path.join(d, "rescued-" + mode)
+        shutil.rmtree(out, ignore_errors=True)
+        p = subprocess.run([exe, "rescue", "--disk", img, "--out", out] + args,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        log = p.stdout.decode("utf-8", "replace")
+        if p.returncode != 0:
+            diffs.append("rescue (%s) failed (exit %d): %s" % (mode, p.returncode, log[-800:]))
+            continue
+        want = set(exp["hidden"]) if mode == "hidden" else set(exp["found"])
+        # A copied file's folders are made too, so it lands where it belongs.
+        for w in list(want):
+            parts = w.split("\\")
+            for k in range(1, len(parts)):
+                want.add("\\".join(parts[:k]))
+        got = set()
+        lost_files = []
+        for base, dirs, files in os.walk(out):
+            rel = os.path.relpath(base, out)
+            rel = "" if rel == "." else rel.replace(os.sep, "\\")
+            for x in dirs:
+                got.add((rel + "\\" if rel else "") + x)
+            for x in files:
+                got.add((rel + "\\" if rel else "") + x)
+        got.discard("rescue-log.csv")
+        lost_dir = "lost data (no name)"
+        lost_files = sorted(g for g in got if g.startswith(lost_dir + "\\"))
+        got = {g for g in got if g != lost_dir and not g.startswith(lost_dir + "\\")}
+        if got != want:
+            diffs.append("rescue (%s) copied different files: only copied: %s; not copied: %s" % (
+                mode, sorted(got - want)[:4], sorted(want - got)[:4]))
+        wrong = []
+        for path in sorted(want & got):
+            if path not in oracle.found_nodes:
+                continue
+            n = oracle.found_nodes[path][0]
+            if n["is_dir"]:
+                continue
+            with open(os.path.join(out, *path.split("\\")), "rb") as f:
+                data = f.read()
+            if data != oracle.content(path):
+                wrong.append(path)
+            elif abs(os.stat(os.path.join(out, *path.split("\\"))).st_mtime - MTIME) > 2:
+                wrong.append(path + " (date)")
+        if wrong:
+            diffs.append("rescue (%s): %d copies differ from the disk, e.g. %s" % (mode, len(wrong), wrong[:3]))
+        if mode == "everything":
+            runs = oracle.lost_runs
+            if len(lost_files) != len(runs):
+                diffs.append("rescue saved %d pieces of lost data, expected %d" % (len(lost_files), len(runs)))
+            else:
+                for (first, count), name in zip(sorted(runs), sorted(lost_files, key=lambda x: int(x.split()[4]))):
+                    with open(os.path.join(out, *name.split("\\")), "rb") as f:
+                        data = f.read()
+                    if data != oracle.read(oracle.coff(first), count * oracle.cs):
+                        diffs.append("lost data piece %s differs from the disk" % name)
+                        break
+        COVERAGE["files rescued and checked byte for byte"] += len(want & got)
+        shutil.rmtree(out, ignore_errors=True)
+    return diffs
+
+
+# exfat_image.py stamps every file 2023-07-14 10:30:00 UTC.
+MTIME = 1689330600
 
 
 def subtract(areas, read):
@@ -810,6 +915,57 @@ def earlier_attempt_case():
     c = Case("earlier-attempt", disk, areas, zero=[(s, e - s, st) for s, e, st in unread])
     c.earlier = earlier
     return c
+
+
+def keep_mountable(case):
+    """Leave out damage that can stop an operating system from opening the
+    drive at all (the boot area, the partition table, the allocation
+    bitmap, the up-case table and the top folder's first records), so a
+    damaged disk can still be compared with what Windows or Linux lists.
+    The map check's own tests cover those; mount_experiments() shows what
+    each of them does to Windows and Linux."""
+    t = case.disk.truth()
+    v = t["volume"]
+    cs = v["cluster_size"]
+    heap = v["offset"] + v["heap_offset"]
+    keep_out = [(0, 34 * 512), (v["offset"], v["offset"] + 24 * 512)]
+    for name in ("bitmap", "upcase"):
+        for first, n in v[name]:
+            keep_out.append((heap + (first - 2) * cs, heap + (first - 2 + n) * cs))
+    root_first = v["root"][0][0]
+    keep_out.append((heap + (root_first - 2) * cs, heap + (root_first - 2) * cs + 512))
+    ok = lambda a: not any(a[0] < e and a[0] + a[1] > s for s, e in keep_out)
+    case.areas = [a for a in case.areas if ok(a)]
+    if case.zero is not None:
+        case.zero = [a for a in case.zero if ok(a)]
+
+
+def mount_experiments():
+    """Single pieces of damage to the disk's own structures, to learn which
+    ones stop Windows and Linux from opening the drive at all: (name, disk,
+    [(start, length)])."""
+    disk = basic_disk(4096, seed=11)
+    t = disk.truth()
+    v = t["volume"]
+    vo = v["offset"]
+    cs = v["cluster_size"]
+    heap = vo + v["heap_offset"]
+    root = heap + (v["root"][0][0] - 2) * cs
+    out = [
+        ("nothing (control)", []),
+        ("the main boot sector", [(vo, SECTOR)]),
+        ("the boot checksum sector", [(vo + 11 * SECTOR, SECTOR)]),
+        ("one backup boot sector", [(vo + 14 * SECTOR, SECTOR)]),
+        ("the whole backup boot region", [(vo + 12 * SECTOR, 12 * SECTOR)]),
+        ("the start of the FAT", [(vo + v["fat_offset"], SECTOR)]),
+        ("one FAT sector further in", [(vo + v["fat_offset"] + 8 * SECTOR, SECTOR)]),
+        ("the top folder's first records (label, bitmap, up-case)", [(root, SECTOR)]),
+        ("one sector of the allocation bitmap", [(heap + (v["bitmap"][0][0] - 2) * cs, SECTOR)]),
+        ("one sector of the up-case table", [(heap + (v["upcase"][0][0] - 2) * cs + SECTOR, SECTOR)]),
+        ("the main partition table", [(0, 34 * SECTOR)]),
+        ("the backup partition table", [(t["gpt_disk_size"] - 33 * SECTOR, 33 * SECTOR)]),
+    ]
+    return disk, out
 
 
 def no_exfat_case():

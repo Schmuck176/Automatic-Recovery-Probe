@@ -17,8 +17,10 @@ Runs on GitHub's Ubuntu machines (needs sudo, losetup and the exfat module):
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import exfat_image as X  # noqa: E402
@@ -27,6 +29,35 @@ import test_mapcheck as T  # noqa: E402
 
 def sh(*cmd):
     return subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode().strip()
+
+
+def dmesg_tail():
+    r = subprocess.run(["dmesg"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    lines = [x for x in r.stdout.decode("utf-8", "replace").splitlines() if "exfat" in x.lower() or "loop" in x]
+    return " / ".join(lines[-3:])
+
+
+def try_mount(dev, mnt):
+    """Mount read-only; return None, or why it failed."""
+    r = subprocess.run(["mount", "-t", "exfat", "-o", "ro", dev, mnt], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if r.returncode == 0:
+        return None
+    return "%s (%s)" % (r.stdout.decode("utf-8", "replace").strip(), dmesg_tail())
+
+
+def wait_for(dev):
+    """The partition's device file appears a moment after the kernel reads
+    the partition table; make it ourselves if udev is slow."""
+    subprocess.run(["udevadm", "settle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        if os.path.exists(dev):
+            return
+        time.sleep(0.1)
+    name = os.path.basename(dev)
+    base = name.split("p")[0]
+    with open("/sys/block/%s/%s/dev" % (base, name)) as f:
+        major, minor = (int(x) for x in f.read().split(":"))
+    os.mknod(dev, stat.S_IFBLK | 0o600, os.makedev(major, minor))
 
 
 def listing(mnt):
@@ -67,6 +98,8 @@ def attach(img, truth):
         problems.append("the kernel reads the partition table as %s, expected %s" % (
             [(s, e) for s, e, _ in found], [(p["start"], p["end"]) for p in want]))
     dev = [d for s, e, d in found if s == truth["volume"]["offset"]]
+    if dev:
+        wait_for(dev[0])
     return loop, (dev[0] if dev else None), problems
 
 
@@ -89,8 +122,10 @@ def check_case(work, case):
     loop, dev, p = attach(pristine, truth)
     problems += p
     try:
-        if dev:
-            sh("mount", "-t", "exfat", "-o", "ro", dev, mnt)
+        why = try_mount(dev, mnt) if dev else None
+        if dev and why:
+            problems.append("Linux will not mount the undamaged disk: %s" % why)
+        elif dev:
             try:
                 got = listing(mnt)
             finally:
@@ -111,15 +146,17 @@ def check_case(work, case):
 
     # 2. The damaged disk: what can Linux still list?
     oracle = T.Oracle(truth, img, pristine, [(s, s + n, st) for s, n, st in case.areas])
-    exp = oracle.expected()
+    try:
+        exp = oracle.expected()
+    finally:
+        oracle.close()
     listable = set(exp["found"]) - set(exp["hidden"])
     loop, dev, _ = attach(img, truth)
     try:
         if dev:
-            try:
-                sh("mount", "-t", "exfat", "-o", "ro", dev, mnt)
-            except subprocess.CalledProcessError as e:
-                problems.append("Linux would not mount the damaged disk: %s" % e.stdout.decode()[-300:])
+            why = try_mount(dev, mnt)
+            if why:
+                problems.append("Linux would not mount the damaged disk: %s" % why)
                 return problems, None
             try:
                 got = listing(mnt)
@@ -137,25 +174,40 @@ def check_case(work, case):
     return problems, hidden
 
 
-def keep_mountable(case):
-    """Linux reads only the main boot sector and needs the partition table,
-    the allocation bitmap, the up-case table and the top folder's first
-    records to mount at all; leave those out of the damage (the map check's
-    own tests cover them)."""
-    t = case.disk.truth()
-    v = t["volume"]
-    cs = v["cluster_size"]
-    heap = v["offset"] + v["heap_offset"]
-    keep_out = [(0, 34 * 512), (v["offset"], v["offset"] + 24 * 512)]
-    for name in ("bitmap", "upcase"):
-        for first, n in v[name]:
-            keep_out.append((heap + (first - 2) * cs, heap + (first - 2 + n) * cs))
-    root_first = v["root"][0][0]
-    keep_out.append((heap + (root_first - 2) * cs, heap + (root_first - 2) * cs + 512))
-    ok = lambda a: not any(a[0] < e and a[0] + a[1] > s for s, e in keep_out)
-    case.areas = [a for a in case.areas if ok(a)]
-    if case.zero is not None:
-        case.zero = [a for a in case.zero if ok(a)]
+def experiments(work):
+    """Which single pieces of damage stop Linux from mounting the drive."""
+    disk, exps = T.mount_experiments()
+    truth = disk.truth()
+    d = os.path.join(work, "experiments")
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    pristine = os.path.join(d, "pristine.img")
+    disk.save(pristine)
+    mnt = os.path.join(d, "mnt")
+    os.makedirs(mnt)
+    for name, areas in exps:
+        img = os.path.join(d, "disk.img")
+        shutil.copyfile(pristine, img)
+        X.zero_areas(img, areas)
+        try:
+            loop, dev, _ = attach(img, truth)
+        except subprocess.CalledProcessError as e:
+            print("     damage to %s: the disk cannot be attached (%s)" % (name, e.stdout.decode()[-200:]))
+            continue
+        try:
+            if not dev:
+                print("     damage to %s: Linux finds no partitions" % name)
+                continue
+            why = try_mount(dev, mnt)
+            if why:
+                print("     damage to %s: Linux will NOT mount the drive: %s" % (name, why))
+            else:
+                n = len(listing(mnt))
+                sh("umount", mnt)
+                print("     damage to %s: Linux mounts the drive and lists %d files and folders" % (name, n))
+        finally:
+            sh("losetup", "-d", loop)
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def main():
@@ -170,11 +222,16 @@ def main():
     cases += [T.random_case(1000 + i) for i in range(int(sys.argv[2]) if len(sys.argv) > 2 else 12)]
     for c in cases:
         c.garbage = []  # zeros only: what unread sectors look like on a new SSD
-        keep_mountable(c)
+        T.keep_mountable(c)
+    print("What stops Linux from opening the drive:")
+    experiments(work)
     failed = 0
     total_hidden = 0
     for c in cases:
-        problems, hidden = check_case(work, c)
+        try:
+            problems, hidden = check_case(work, c)
+        except Exception as e:  # report it and carry on with the next disk
+            problems, hidden = ["error: %r" % e], 0
         total_hidden += hidden or 0
         if problems:
             failed += 1
