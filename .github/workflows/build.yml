@@ -12,6 +12,11 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      # File names in the tests include Japanese and emoji; the Windows
+      # console's own code page cannot print them.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     defaults:
       run:
         shell: bash
@@ -112,7 +117,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          sudo modprobe exfat || true
+          # GitHub's Ubuntu kernel keeps the exFAT driver in the extra modules package.
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe exfat && echo "exfat module loaded" || echo "the exfat module could not be loaded"
           sudo python3 tools/kernel_check.py "$RUNNER_TEMP/kc" 16 2>&1 | tee "$RUNNER_TEMP/report/45-linux-kernel.txt"
           echo "::notice title=Linux kernel::$(tail -n 1 "$RUNNER_TEMP/report/45-linux-kernel.txt")"
       - name: Publish the report to the ci-linux branch

@@ -243,6 +243,7 @@ def part1(exe, work, case):
     n, letter = mount(vhd)
     try:
         listable = set(exp["found"]) - set(exp["hidden"])
+        maybe = set(exp["hidden_maybe"])  # in a folder Windows gives up on, before the damaged record
         got_raw, text = map_check(exe, mp, "\\\\.\\PhysicalDrive%d" % n, os.path.join(d, "out-raw"))
         diffs = T.compare(exp, got_raw)
         if diffs:
@@ -254,8 +255,11 @@ def part1(exe, work, case):
             problems.append("Windows gave the damaged test disk no drive letter")
         else:
             got = listing(letter, read=False)
-            only_win = mine(got) - listable
+            only_win = mine(got) - listable - maybe
             only_map = listable - mine(got)
+            if maybe:
+                log("     of the %d files the map check says Windows may not list, Windows lists %d"
+                    % (len(maybe), len(maybe & mine(got))))
             if flipped:
                 # A record whose checksum is wrong: does Windows still list it (under its changed name)?
                 listed = flipped & only_win
@@ -270,13 +274,15 @@ def part1(exe, work, case):
             if got_raw["volume"]["drive"] is None:
                 problems.append("the map check did not find the volume's drive letter %s" % letter)
             else:
+                # windows_can_see is whether Windows opens the file by its
+                # name (which can work even where listing its folder fails).
                 for it in got_raw["items"] + got_raw["hidden"]:
                     p = it["path"]
                     if not p or p.split("\\")[0] in IGNORE:
                         continue
-                    see = p in got
+                    see = os.path.lexists(letter + "\\" + p)
                     if it["windows_can_see"] != see:
-                        problems.append("windows_can_see for %r is %s, but Windows %s list it" % (
+                        problems.append("windows_can_see for %r is %s, but Windows %s open it by name" % (
                             p, it["windows_can_see"], "does" if see else "does not"))
             log("     damaged: Windows lists %d files and folders; %d are hidden by the damage, as predicted"
                 % (len(mine(got)), len(exp["hidden"])))
@@ -408,6 +414,8 @@ def part2(exe, work):
         with open(os.path.join(d, "map-check-console.txt"), "w", encoding="utf-8") as f:
             f.write(text)
         win = mine(listing(letter, read=False)) if letter else set()
+        by_name = {p for p in files} | {"Test", "Test\\Big folder", "Test\\Photos", "Test\\Photos\\2021", "Test\\Docs"}
+        by_name = {p for p in by_name if letter and os.path.lexists(letter + "\\" + p)}
     finally:
         unmount(vhd)
     got_files = {i["path"]: [[a, b] for a, b, _ in i["ranges"]] for i in got["items"] if not i["is_dir"]}
@@ -445,9 +453,9 @@ def part2(exe, work):
             problems.append("the damage hid nothing on the Windows-formatted disk (the test missed its target)")
         for it in got["items"] + got["hidden"]:
             p = it["path"]
-            if p in all_paths and it["windows_can_see"] != (p in win):
-                problems.append("windows_can_see for %r is %s, but Windows %s list it" % (
-                    p, it["windows_can_see"], "does" if p in win else "does not"))
+            if p in all_paths and it["windows_can_see"] != (p in by_name):
+                problems.append("windows_can_see for %r is %s, but Windows %s open it by name" % (
+                    p, it["windows_can_see"], "does" if p in by_name else "does not"))
         log("     Windows-formatted disk: %d damaged files found exactly; Windows cannot list %d files, "
             "%d of them reported as hidden, %d had their own record destroyed" % (
                 len(got_files), len(not_listed), len(hidden & not_listed), len(destroyed)))
@@ -488,6 +496,71 @@ def experiments(work):
     shutil.rmtree(d, ignore_errors=True)
 
 
+def listing_experiments(work):
+    """How Windows reads a folder of 300 files when one record in it is
+    damaged in a particular way. Logged, not judged: this is what the map
+    check's model of Windows (exfat.rs, Stop) is based on."""
+    d = os.path.join(work, "listing-experiments")
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    v = X.Volume(24 * X.MiB, cluster_size=4096, label="LISTTEST", serial=0x11223344)
+    v.mkdir("Many")
+    for i in range(300):
+        v.add_file("Many/file %03d.txt" % i, X.tagged(i + 1, 1000))
+    v.add_file("after.txt", X.tagged(999, 1000))
+    disk = X.Disk(v, 32 * X.MiB, efi_start_lba=40, efi_size=2 * X.MiB, vol_start_lba=40 + 4096 + 7)
+    t = disk.truth()
+    rec = {n["path"]: n["record_offsets"] for n in t["nodes"]}
+    pristine = os.path.join(d, "pristine.img")
+    disk.save(pristine)
+    victim = rec["Many\\file 150.txt"]
+    exps = [
+        ("one letter of a name changed (checksum wrong)", [(victim[2] + 2 + 2 * 3, b"\x5a")]),
+        ("the name part of a record blanked (a blank inside a record)", [(victim[2], bytes(32))]),
+        ("a record marked deleted, its other parts not (stray parts)", [(victim[0], b"\x05")]),
+        ("a record's first part blanked (a blank record)", [(victim[0], bytes(32))]),
+    ]
+    size_mib = disk.disk_size // X.MiB
+    for name, patches in exps:
+        img = os.path.join(d, "disk.img")
+        shutil.copyfile(pristine, img)
+        with open(img, "r+b") as f:
+            for off, data in patches:
+                f.seek(off)
+                f.write(data)
+        vhd = os.path.join(d, "exp.vhd")
+        make_container(vhd, size_mib)
+        put_image(vhd, img)
+        try:
+            n, letter = mount(vhd)
+            if not letter:
+                log("     %s: no drive letter" % name)
+                continue
+            try:
+                names = sorted(os.listdir(letter + "\\Many"))
+                listed = "Python lists %d of 300" % len(names)
+                if names:
+                    listed += " (%s .. %s)" % (names[0], names[-1])
+            except OSError as e:
+                listed = "Python cannot list the folder (%s)" % e.strerror
+            ps_out = ps("(Get-ChildItem -LiteralPath '%s\\Many' -ErrorAction SilentlyContinue | Measure-Object).Count" % letter,
+                        check=False)
+            cmd = subprocess.run(["cmd", "/c", "dir", "/b", letter + "\\Many"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            cmd_lines = [x for x in cmd.stdout.decode("utf-8", "replace").splitlines() if x.startswith("file ")]
+            opens = ", ".join("%03d:%s" % (k, "yes" if os.path.exists(letter + "\\Many\\file %03d.txt" % k) else "no")
+                              for k in (10, 149, 151, 299))
+            log("     %s: %s; PowerShell %s; dir %d; opening by name %s; the next top-level file %s"
+                % (name, listed, ps_out.strip()[:40], len(cmd_lines), opens,
+                   "opens" if os.path.exists(letter + "\\after.txt") else "does not open"))
+        except Exception as e:
+            log("     %s: error %s" % (name, e))
+        finally:
+            unmount(vhd)
+            if os.path.exists(vhd):
+                os.remove(vhd)
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
     exe = os.path.abspath(sys.argv[1])
     work = os.path.abspath(sys.argv[2])
@@ -499,6 +572,8 @@ def main():
         T.keep_mountable(c)
     log("What stops Windows from opening the drive:")
     experiments(work)
+    log("How Windows lists a folder of 300 files with one damaged record (file 150):")
+    listing_experiments(work)
     failed = 0
     total = 0
     for c in cases:

@@ -151,6 +151,7 @@ def check_case(work, case):
     finally:
         oracle.close()
     listable = set(exp["found"]) - set(exp["hidden"])
+    maybe = set(exp["hidden_maybe"])
     loop, dev, _ = attach(img, truth)
     try:
         if dev:
@@ -162,10 +163,10 @@ def check_case(work, case):
                 got = listing(mnt)
             finally:
                 sh("umount", mnt)
-            if set(got) != listable:
+            if not (listable <= set(got) <= listable | maybe):
                 problems.append("on the damaged disk Linux lists %d files and folders, the map check says %d can be "
                                 "listed; only Linux: %s; only the map check: %s" % (
-                                    len(got), len(listable), sorted(set(got) - listable)[:4],
+                                    len(got), len(listable), sorted(set(got) - listable - maybe)[:4],
                                     sorted(listable - set(got))[:4]))
             hidden = len(exp["hidden"])
     finally:

@@ -172,43 +172,81 @@ class Oracle:
         children = {}
         for n in self.t["nodes"]:
             children.setdefault(n["parent"], []).append(n)
-        stack = [("", root_cl, False)]
+        maybe_of = {}  # path -> Windows may still list it
+        stack = [("", root_cl, False, False)]
         if root_broken:
             problems += 1
         while stack:
-            d, cl, d_hidden = stack.pop()
+            d, cl, d_hidden, d_maybe = stack.pop()
             slots = len(cl) * cs // 32
-            # The first blank slot Windows would stop at.
-            first_blank = slots
-            for k in range(slots):
-                if self.read(self.slot_off(cl, k), 1)[0] == 0:
-                    first_blank = k
-                    break
             subdirs = []
-            intact_heads = set()
+            intact = {}
             for n in sorted(children.get(d, []), key=lambda n: n["slot"]):
                 if n["deleted"]:
                     continue
                 offs = [self.slot_off(cl, n["slot"] + k) for k in range(n["slots"])]
                 if not all(o is not None and self.read(o, 32) == self.read(o, 32, True) for o in offs):
                     continue  # its record is damaged or gone: the file cannot be found
-                intact_heads.add(n["slot"])
+                intact[n["slot"]] = n
             # Every other slot that looks like the start of a file record is a
             # damaged record a reader must report (a damaged set, or garbage).
             for k in range(slots):
-                if k not in intact_heads and self.read(self.slot_off(cl, k), 1)[0] == 0x85:
+                if k not in intact and self.read(self.slot_off(cl, k), 1)[0] == 0x85:
                     problems += 1
-            for n in sorted(children.get(d, []), key=lambda n: n["slot"]):
-                if n["deleted"] or n["slot"] not in intact_heads:
+            # Where Windows stops reading this folder (measured on Windows,
+            # tools/windows_check.py): in order, stepping over intact records,
+            # a blank slot ends the folder quietly - even inside a file's
+            # record - and any other damaged record makes it give up on the
+            # folder, often losing the records it read just before as well.
+            stop_kind, stop_at = None, slots
+            k = 0
+            while k < slots:
+                b = self.read(self.slot_off(cl, k), 32)
+                t = b[0]
+                if t == 0:
+                    stop_kind, stop_at = "blank", k
+                    break
+                if t & 0x80 == 0:
+                    k += 1
                     continue
+                if k in intact:
+                    k += intact[k]["slots"]
+                    continue
+                if t == 0x85:
+                    sc = b[1]
+                    zero_inside = 2 <= sc <= 18 and k + sc < slots and any(
+                        self.read(self.slot_off(cl, k + j), 1)[0] == 0 for j in range(1, sc + 1))
+                    stop_kind, stop_at = ("blank" if zero_inside else "damaged"), k
+                    break
+                if 0xA0 <= t <= 0xBF or t >= 0xE0 or (d == "" and 0x81 <= t <= 0x83):
+                    k += 1  # benign records any reader skips
+                    continue
+                stop_kind, stop_at = "damaged", k
+                problems += 1  # an unexpected record type, reported as such
+                break
+            for n in sorted(intact.values(), key=lambda n: n["slot"]):
                 ncl, broken = self.clusters_of(n)
-                hidden = d_hidden or first_blank < n["slot"]
+                if d_hidden and not d_maybe:
+                    hidden, maybe = True, False
+                elif stop_kind is not None and n["slot"] > stop_at:
+                    hidden, maybe = True, False
+                elif stop_kind == "damaged":
+                    hidden, maybe = True, True
+                elif d_hidden:
+                    hidden, maybe = True, True
+                else:
+                    hidden, maybe = False, False
                 found[n["path"]] = (n, ncl, broken, hidden)
+                maybe_of[n["path"]] = maybe
                 if n["is_dir"]:
                     folders += 1
                     if broken:
                         problems += 1
-                    subdirs.append((n["path"], ncl, hidden))
+                    if d_hidden and (not d_maybe or maybe):
+                        sub = (True, d_maybe)
+                    else:
+                        sub = (hidden, maybe)
+                    subdirs.append((n["path"], ncl) + sub)
                 else:
                     files += 1
             for s in reversed(subdirs):
@@ -244,7 +282,7 @@ class Oracle:
 
         items = {}
 
-        def item_for(path, is_dir, cl, broken, data_length, vdl, hidden):
+        def item_for(path, is_dir, cl, broken, data_length, vdl, hidden, maybe=False):
             pieces = []
             for fpos, dpos, ln in extents(cl):
                 for s, e, _ in self.areas:
@@ -273,6 +311,7 @@ class Oracle:
                 "ranges": merged,
                 "content": self.word(sec, blk),
                 "hidden": hidden,
+                "hidden_maybe": maybe,
                 "broken": broken,
                 "only_past_valid_data": bool(merged) and all(fs >= vdl for fs, _, _ in merged),
             }
@@ -280,7 +319,7 @@ class Oracle:
         item_for("", True, root_cl, root_broken, len(root_cl) * cs, len(root_cl) * cs, False)
         for path, (n, ncl, broken, hidden) in found.items():
             dl = n["data_length"]
-            item_for(path, n["is_dir"], ncl, broken, dl, n["vdl"], hidden)
+            item_for(path, n["is_dir"], ncl, broken, dl, n["vdl"], hidden, maybe_of[path])
 
         # What each area hits.
         bm = self.bitmap()
@@ -400,6 +439,7 @@ class Oracle:
             "unread_records": sorted(unread),
             "items": items,
             "hidden": sorted(p for p, v in found.items() if v[3]),
+            "hidden_maybe": sorted(p for p, m in maybe_of.items() if m),
             "areas": areas_out,
             "lost_clusters": lost,
             "folder_problems": problems,
@@ -423,6 +463,8 @@ def compare(exp, got):
             diffs.append("%r content: got %s, expected %s" % (path, g["content"], e["content"]))
         if g["hidden"] != e["hidden"]:
             diffs.append("%r hidden: got %s, expected %s" % (path, g["hidden"], e["hidden"]))
+        if g.get("hidden_maybe") != e["hidden_maybe"]:
+            diffs.append("%r hidden_maybe: got %s, expected %s" % (path, g.get("hidden_maybe"), e["hidden_maybe"]))
         if g["is_dir"] != e["is_dir"]:
             diffs.append("%r is_dir: got %s" % (path, g["is_dir"]))
         if (g["chain_problem"] is not None) != e["broken"]:
@@ -437,6 +479,10 @@ def compare(exp, got):
         diffs.append("hidden files differ: got %d, expected %d; only got: %s; only expected: %s" % (
             len(gh), len(exp["hidden"]), sorted(set(gh) - set(exp["hidden"]))[:5],
             sorted(set(exp["hidden"]) - set(gh))[:5]))
+    gm = sorted(h["path"] for h in got["hidden"] if h.get("maybe"))
+    if gm != exp["hidden_maybe"]:
+        diffs.append("files Windows may still list differ: only got: %s; only expected: %s" % (
+            sorted(set(gm) - set(exp["hidden_maybe"]))[:5], sorted(set(exp["hidden_maybe"]) - set(gm))[:5]))
     ga = {a["start"]: a for a in got["areas"]}
     if sorted(ga) != sorted(exp["areas"]):
         diffs.append("bad areas differ: got %s, expected %s" % (sorted(ga)[:5], sorted(exp["areas"])[:5]))

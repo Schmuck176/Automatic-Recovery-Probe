@@ -223,6 +223,8 @@ pub struct Item {
     pub ranges: Vec<(u64, u64, u64)>,
     pub chain_problem: Option<String>,
     pub hidden: bool,
+    /// Windows may still list it (see exfat::Entry::hidden_maybe).
+    pub hidden_maybe: bool,
     pub why_hidden: String,
     pub content: Content,
     pub can_see: Option<bool>,
@@ -293,6 +295,10 @@ impl Report {
     }
     pub fn hidden_files(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| !e.is_dir).count()
+    }
+    /// Of the hidden files and folders, how many Windows may still list.
+    pub fn hidden_maybe(&self) -> usize {
+        self.hidden.iter().filter(|(e, _)| e.hidden_maybe).count()
     }
 }
 
@@ -602,6 +608,7 @@ pub fn analyse(
                 ranges: merged,
                 chain_problem: problem,
                 hidden: entry.map(|e| e.hidden_from_windows).unwrap_or(false),
+                hidden_maybe: entry.map(|e| e.hidden_maybe).unwrap_or(false),
                 why_hidden: entry.map(|e| e.why_hidden.clone()).unwrap_or_default(),
                 content,
                 can_see: None,
@@ -894,11 +901,16 @@ pub fn summary(r: &Report) -> Vec<String> {
         }
     ));
     t.push(format!(
-        "  inside folder records      {:>6}  -> {} folders affected; {} files and {} folders Windows cannot list",
+        "  inside folder records      {:>6}  -> {} folders affected; {} files and {} folders Windows cannot list{}",
         commas(in_folders as u64),
         commas(r.folders().count() as u64),
         commas(r.hidden_files() as u64),
-        commas((r.hidden.len() - r.hidden_files()) as u64)
+        commas((r.hidden.len() - r.hidden_files()) as u64),
+        if r.hidden_maybe() > 0 {
+            format!(" (for {} of them: may not list)", commas(r.hidden_maybe() as u64))
+        } else {
+            String::new()
+        }
     ));
     if in_lost > 0 {
         t.push(format!("  in data no file claims     {:>6}  (files whose folder record was lost)", commas(in_lost as u64)));
@@ -993,7 +1005,8 @@ fn item_note(it: &Item) -> String {
         note.push_str(&format!("{p}. "));
     }
     if it.hidden {
-        note.push_str(&format!("Windows cannot list it: {}. ", it.why_hidden));
+        let how = if it.hidden_maybe { "Windows may not list it" } else { "Windows cannot list it" };
+        note.push_str(&format!("{how}: {}. ", it.why_hidden));
     }
     if it.record_unread {
         note.push_str(UNREAD_RECORD_NOTE);
@@ -1048,12 +1061,13 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
 
     if !r.hidden.is_empty() {
         let p = out_dir.join("map-check-hidden-files.csv");
-        let mut body = csv_row(&["kind", "path", "size_bytes", "windows_can_see", "why"]);
+        let mut body = csv_row(&["kind", "path", "size_bytes", "windows_lists_it", "windows_can_see", "why"]);
         for (e, see) in &r.hidden {
             body.push_str(&csv_row(&[
                 if e.is_dir { "FOLDER" } else { "FILE" }.to_string(),
                 e.path.clone(),
                 e.data_length.to_string(),
+                if e.hidden_maybe { "maybe" } else { "no" }.to_string(),
                 yes_no(*see).to_string(),
                 e.why_hidden.clone(),
             ]));
@@ -1167,13 +1181,14 @@ pub fn to_json(r: &Report) -> String {
     );
     let _ = write!(
         s,
-        "\"totals\":{{\"bad_bytes\":{},\"bad_areas\":{},\"files_damaged\":{},\"folders_damaged\":{},\"hidden_files\":{},\"hidden_folders\":{},\"lost_clusters\":{},\"lost_bytes\":{},\"folder_problems\":{}}},\n",
+        "\"totals\":{{\"bad_bytes\":{},\"bad_areas\":{},\"files_damaged\":{},\"folders_damaged\":{},\"hidden_files\":{},\"hidden_folders\":{},\"hidden_maybe\":{},\"lost_clusters\":{},\"lost_bytes\":{},\"folder_problems\":{}}},\n",
         r.bad_bytes(),
         r.areas.len(),
         r.files().count(),
         r.folders().count(),
         r.hidden_files(),
         r.hidden.len() - r.hidden_files(),
+        r.hidden_maybe(),
         r.lost_clusters,
         r.lost_bytes(),
         r.folder_problems.len()
@@ -1216,7 +1231,7 @@ pub fn to_json(r: &Report) -> String {
         let ranges: Vec<String> = it.ranges.iter().map(|(a, b, d)| format!("[{a},{b},{d}]")).collect();
         let _ = write!(
             s,
-            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"valid_data_length\":{},\"ranges\":[{}],\"damaged_bytes\":{},\"content\":{},\"only_past_valid_data\":{},\"chain_problem\":{},\"hidden\":{},\"why_hidden\":{},\"windows_can_see\":{},\"record_unread\":{}}}",
+            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"valid_data_length\":{},\"ranges\":[{}],\"damaged_bytes\":{},\"content\":{},\"only_past_valid_data\":{},\"chain_problem\":{},\"hidden\":{},\"hidden_maybe\":{},\"why_hidden\":{},\"windows_can_see\":{},\"record_unread\":{}}}",
             json_str(&it.path),
             it.is_dir,
             it.size,
@@ -1227,6 +1242,7 @@ pub fn to_json(r: &Report) -> String {
             it.only_past_valid_data(),
             it.chain_problem.as_deref().map(json_str).unwrap_or("null".into()),
             it.hidden,
+            it.hidden_maybe,
             json_str(&it.why_hidden),
             opt_bool(it.can_see),
             it.record_unread
@@ -1239,10 +1255,11 @@ pub fn to_json(r: &Report) -> String {
         }
         let _ = write!(
             s,
-            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"why\":{},\"windows_can_see\":{}}}",
+            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"maybe\":{},\"why\":{},\"windows_can_see\":{}}}",
             json_str(&e.path),
             e.is_dir,
             e.data_length,
+            e.hidden_maybe,
             json_str(&e.why_hidden),
             opt_bool(*see)
         );
