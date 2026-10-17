@@ -1,0 +1,571 @@
+//! A read-only exFAT reader that keeps going where Windows stops.
+//!
+//! Windows lists a folder's files by reading its folder records until the
+//! first blank record, and skips records whose checksum is wrong. On a disk
+//! with unreadable sectors, a blank (zeroed) patch in the middle of a
+//! folder's records therefore hides every file listed after it. This reader
+//! reads every record a folder has room for, checks each one's checksum
+//! itself, and notes which files Windows will not show.
+//!
+//! Layout and checksums follow Microsoft's exFAT specification.
+
+use crate::disk::Source;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+pub const EOC: u32 = 0xFFFF_FFFF;
+pub const BAD_CLUSTER: u32 = 0xFFFF_FFF7;
+
+fn u16le(b: &[u8], o: usize) -> u16 {
+    u16::from_le_bytes([b[o], b[o + 1]])
+}
+fn u32le(b: &[u8], o: usize) -> u32 {
+    u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
+}
+fn u64le(b: &[u8], o: usize) -> u64 {
+    u64::from_le_bytes(b[o..o + 8].try_into().unwrap())
+}
+
+/// The exFAT entry-set checksum (spec 6.3.3): every byte of the set except
+/// bytes 2 and 3 of the first entry.
+pub fn entry_set_checksum(set: &[u8]) -> u16 {
+    let mut c: u16 = 0;
+    for (i, &b) in set.iter().enumerate() {
+        if i == 2 || i == 3 {
+            continue;
+        }
+        c = (if c & 1 != 0 { 0x8000 } else { 0 }) + (c >> 1) + b as u16;
+    }
+    c
+}
+
+/// The boot-region checksum (spec 3.4): sectors 0-10, skipping the volume
+/// flags and percent-in-use bytes of sector 0.
+pub fn boot_checksum(sectors: &[u8]) -> u32 {
+    let mut c: u32 = 0;
+    for (i, &b) in sectors.iter().enumerate() {
+        if i == 106 || i == 107 || i == 112 {
+            continue;
+        }
+        c = (if c & 1 != 0 { 0x8000_0000u32 } else { 0 }).wrapping_add(c >> 1).wrapping_add(b as u32);
+    }
+    c
+}
+
+/// Is there an exFAT boot sector at this disk offset?
+pub fn is_exfat_at(src: &dyn Source, offset: u64) -> bool {
+    matches!(src.read_at(offset, 16), Ok(b) if b.len() >= 11 && &b[3..11] == b"EXFAT   ")
+}
+
+pub struct Volume<'a> {
+    pub src: &'a dyn Source,
+    /// Disk byte offset of the volume (the partition start).
+    pub offset: u64,
+    pub bytes_per_sector: u64,
+    pub cluster_size: u64,
+    pub fat_offset: u64, // bytes from the volume start
+    pub fat_length: u64, // bytes, one FAT
+    pub number_of_fats: u64,
+    pub active_fat: u64,
+    pub heap_offset: u64, // bytes from the volume start
+    pub cluster_count: u32,
+    pub root_cluster: u32,
+    pub volume_length: u64, // bytes
+    pub serial: u32,
+    pub label: String,
+    pub volume_flags: u16,
+    pub boot_checksum_ok: bool,
+    pub bitmap: Vec<u8>,
+    pub bitmap_clusters: ClusterList,
+    pub upcase_clusters: ClusterList,
+    pub root_clusters: ClusterList,
+    fat_cache: Mutex<HashMap<u64, Vec<u32>>>,
+}
+
+/// A file's clusters as runs of consecutive clusters: (first, count).
+#[derive(Clone, Debug, Default)]
+pub struct ClusterList {
+    pub runs: Vec<(u32, u32)>,
+    /// Set when the chain could not be followed to its full length.
+    pub problem: Option<String>,
+}
+
+impl ClusterList {
+    pub fn total(&self) -> u64 {
+        self.runs.iter().map(|r| r.1 as u64).sum()
+    }
+    fn push(&mut self, c: u32) {
+        if let Some(last) = self.runs.last_mut() {
+            if last.0 as u64 + last.1 as u64 == c as u64 {
+                last.1 += 1;
+                return;
+            }
+        }
+        self.runs.push((c, 1));
+    }
+}
+
+const FAT_BLOCK_ENTRIES: u64 = 1 << 18; // 1 MiB of FAT per cache block
+
+impl<'a> Volume<'a> {
+    /// Open the volume whose boot sector is at `offset`.
+    pub fn open(src: &'a dyn Source, offset: u64) -> Result<Volume<'a>, String> {
+        Self::open_from(src, offset, 0)
+    }
+
+    /// Open the volume starting at `offset` from its backup boot sector
+    /// (12 sectors on), for when the main one cannot be read.
+    pub fn open_backup(src: &'a dyn Source, offset: u64, bytes_per_sector: u64) -> Result<Volume<'a>, String> {
+        let v = Self::open_from(src, offset, 12 * bytes_per_sector)?;
+        if v.bytes_per_sector != bytes_per_sector {
+            return Err("the backup boot sector is not where its own sector size says".to_string());
+        }
+        Ok(v)
+    }
+
+    fn open_from(src: &'a dyn Source, offset: u64, boot_at: u64) -> Result<Volume<'a>, String> {
+        let boot = src.read_at(offset + boot_at, 512).map_err(|e| format!("could not read the boot sector: {e}"))?;
+        if boot.len() < 512 || &boot[3..11] != b"EXFAT   " {
+            return Err("no exFAT boot sector here".to_string());
+        }
+        let bps_shift = boot[108] as u32;
+        let spc_shift = boot[109] as u32;
+        if !(9..=12).contains(&bps_shift) || bps_shift + spc_shift > 25 {
+            return Err(format!("implausible exFAT sizes (sector shift {bps_shift}, cluster shift {spc_shift})"));
+        }
+        let bps = 1u64 << bps_shift;
+        let cluster_size = bps << spc_shift;
+        let number_of_fats = boot[110] as u64;
+        let volume_flags = u16le(&boot, 106);
+        let mut v = Volume {
+            src,
+            offset,
+            bytes_per_sector: bps,
+            cluster_size,
+            fat_offset: u32le(&boot, 80) as u64 * bps,
+            fat_length: u32le(&boot, 84) as u64 * bps,
+            number_of_fats,
+            active_fat: if number_of_fats == 2 && volume_flags & 1 != 0 { 1 } else { 0 },
+            heap_offset: u32le(&boot, 88) as u64 * bps,
+            cluster_count: u32le(&boot, 92),
+            root_cluster: u32le(&boot, 96),
+            volume_length: u64le(&boot, 72).saturating_mul(bps),
+            serial: u32le(&boot, 100),
+            label: String::new(),
+            volume_flags,
+            boot_checksum_ok: false,
+            bitmap: Vec::new(),
+            bitmap_clusters: ClusterList::default(),
+            upcase_clusters: ClusterList::default(),
+            root_clusters: ClusterList::default(),
+            fat_cache: Mutex::new(HashMap::new()),
+        };
+        if v.cluster_count == 0 || !v.valid_cluster(v.root_cluster) {
+            return Err("the exFAT boot sector's cluster count or root folder is out of range".to_string());
+        }
+        // Boot checksum: sectors 0-10, compared with sector 11.
+        if let Ok(region) = src.read_at(offset + boot_at, (12 * bps) as usize) {
+            if region.len() as u64 == 12 * bps {
+                let want = boot_checksum(&region[..(11 * bps) as usize]);
+                v.boot_checksum_ok = u32le(&region, (11 * bps) as usize) == want;
+            }
+        }
+        // The root folder holds the allocation bitmap, the up-case table and the label.
+        v.root_clusters = v.chain(v.root_cluster, None);
+        let root = v.read_clusters(&v.root_clusters).map_err(|e| format!("could not read the root folder: {e}"))?;
+        for slot in root.chunks_exact(32) {
+            match slot[0] {
+                0x81 if slot[1] & 1 == 0 && v.bitmap_clusters.runs.is_empty() => {
+                    let len = u64le(slot, 24);
+                    v.bitmap_clusters = v.chain(u32le(slot, 20), Some(len));
+                    if let Ok(mut bm) = v.read_clusters(&v.bitmap_clusters) {
+                        bm.truncate(len as usize);
+                        v.bitmap = bm;
+                    }
+                }
+                0x82 if v.upcase_clusters.runs.is_empty() => {
+                    v.upcase_clusters = v.chain(u32le(slot, 20), Some(u64le(slot, 24)));
+                }
+                0x83 => {
+                    let n = (slot[1] as usize).min(11);
+                    let units: Vec<u16> = (0..n).map(|i| u16le(slot, 2 + i * 2)).collect();
+                    v.label = String::from_utf16_lossy(&units);
+                }
+                _ => {}
+            }
+        }
+        Ok(v)
+    }
+
+    pub fn valid_cluster(&self, c: u32) -> bool {
+        c >= 2 && (c as u64) <= self.cluster_count as u64 + 1
+    }
+
+    /// Disk byte offset of a cluster.
+    pub fn cluster_offset(&self, c: u32) -> u64 {
+        self.offset + self.heap_offset + (c as u64 - 2) * self.cluster_size
+    }
+
+    /// The cluster holding a disk byte offset, if it is inside the cluster heap.
+    pub fn cluster_at(&self, disk_off: u64) -> Option<u32> {
+        let start = self.offset + self.heap_offset;
+        if disk_off < start {
+            return None;
+        }
+        let c = (disk_off - start) / self.cluster_size + 2;
+        if c > self.cluster_count as u64 + 1 {
+            return None;
+        }
+        Some(c as u32)
+    }
+
+    pub fn heap_end(&self) -> u64 {
+        self.offset + self.heap_offset + self.cluster_count as u64 * self.cluster_size
+    }
+
+    pub fn is_allocated(&self, c: u32) -> Option<bool> {
+        if !self.valid_cluster(c) {
+            return None;
+        }
+        let i = (c - 2) as usize;
+        self.bitmap.get(i / 8).map(|b| b & (1 << (i % 8)) != 0)
+    }
+
+    /// One FAT entry (cached in 1 MiB blocks).
+    pub fn fat_entry(&self, c: u32) -> Option<u32> {
+        let block = c as u64 / FAT_BLOCK_ENTRIES;
+        let idx = (c as u64 % FAT_BLOCK_ENTRIES) as usize;
+        let mut cache = self.fat_cache.lock().unwrap();
+        if !cache.contains_key(&block) {
+            if cache.len() > 64 {
+                cache.clear();
+            }
+            let base = self.offset + self.fat_offset + self.active_fat * self.fat_length;
+            let start = block * FAT_BLOCK_ENTRIES * 4;
+            let len = (FAT_BLOCK_ENTRIES * 4).min(self.fat_length.saturating_sub(start));
+            let raw = self.src.read_at(base + start, len as usize).ok()?;
+            let entries: Vec<u32> = raw.chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+            cache.insert(block, entries);
+        }
+        cache.get(&block).and_then(|e| e.get(idx).copied())
+    }
+
+    /// Follow a FAT chain from `first`. With a known byte length, exactly
+    /// that many clusters are followed; without (folders that have no
+    /// length, like the root), until the end-of-chain mark.
+    pub fn chain(&self, first: u32, length: Option<u64>) -> ClusterList {
+        let mut out = ClusterList::default();
+        let want = length.map(|l| l.div_ceil(self.cluster_size));
+        if want == Some(0) {
+            return out;
+        }
+        let limit = want.unwrap_or((256 << 20) / self.cluster_size + 1).min(self.cluster_count as u64);
+        let mut c = first;
+        let mut seen: u64 = 0;
+        loop {
+            if !self.valid_cluster(c) {
+                out.problem = Some(format!("the cluster chain points outside the volume (cluster {c})"));
+                break;
+            }
+            out.push(c);
+            seen += 1;
+            if want.is_some_and(|w| seen >= w) {
+                break;
+            }
+            if seen >= limit {
+                if want.is_some() {
+                    out.problem = Some("the cluster chain is longer than the volume (a loop)".to_string());
+                }
+                break;
+            }
+            let next = match self.fat_entry(c) {
+                Some(n) => n,
+                None => {
+                    out.problem = Some("the FAT could not be read".to_string());
+                    break;
+                }
+            };
+            if next == EOC {
+                if want.is_some() {
+                    out.problem = Some(format!(
+                        "the cluster chain ends after {seen} of {} clusters",
+                        want.unwrap_or(0)
+                    ));
+                }
+                break;
+            }
+            if next == BAD_CLUSTER {
+                out.problem = Some("the cluster chain runs into a cluster marked bad".to_string());
+                break;
+            }
+            c = next;
+        }
+        out
+    }
+
+    /// A file's or folder's clusters from its stream extension.
+    pub fn clusters_of(&self, first: u32, no_fat_chain: bool, length: u64) -> ClusterList {
+        if length == 0 || first == 0 {
+            return ClusterList::default();
+        }
+        if no_fat_chain {
+            let n = length.div_ceil(self.cluster_size);
+            let mut out = ClusterList::default();
+            if !self.valid_cluster(first) || first as u64 + n - 1 > self.cluster_count as u64 + 1 {
+                out.problem = Some("the file's clusters run past the end of the volume".to_string());
+                return out;
+            }
+            out.runs.push((first, n as u32));
+            return out;
+        }
+        self.chain(first, Some(length))
+    }
+
+    /// Read every cluster in a list, in order, as one buffer.
+    pub fn read_clusters(&self, list: &ClusterList) -> std::io::Result<Vec<u8>> {
+        let mut out = Vec::with_capacity((list.total() * self.cluster_size).min(1 << 28) as usize);
+        for &(first, count) in &list.runs {
+            let mut done = 0u64;
+            while done < count as u64 {
+                let n = (count as u64 - done).min((32 << 20) / self.cluster_size.max(1)).max(1);
+                let off = self.cluster_offset(first) + done * self.cluster_size;
+                let data = self.src.read_at(off, (n * self.cluster_size) as usize)?;
+                let short = data.len() < (n * self.cluster_size) as usize;
+                out.extend_from_slice(&data);
+                if short {
+                    return Ok(out);
+                }
+                done += n;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Map a byte position inside a cluster list to a disk offset.
+    pub fn disk_offset_in(&self, list: &ClusterList, pos: u64) -> Option<u64> {
+        let mut base = 0u64;
+        for &(first, count) in &list.runs {
+            let len = count as u64 * self.cluster_size;
+            if pos < base + len {
+                return Some(self.cluster_offset(first) + (pos - base));
+            }
+            base += len;
+        }
+        None
+    }
+}
+
+/// One file or folder found while walking.
+#[derive(Clone, Debug)]
+pub struct Entry {
+    /// Path from the volume root, folders separated by '\'.
+    pub path: String,
+    pub is_dir: bool,
+    pub attributes: u16,
+    pub first_cluster: u32,
+    pub no_fat_chain: bool,
+    pub data_length: u64,
+    pub valid_data_length: u64,
+    pub modified: u32,
+    pub modified_10ms: u8,
+    pub modified_utc: u8,
+    /// Disk offset of the file's folder record.
+    pub record_offset: u64,
+    pub record_len: u64,
+    /// Where the record's slots are on the disk: (start, end) pieces, more
+    /// than one when the record crosses into the folder's next cluster.
+    pub record_extents: Vec<(u64, u64)>,
+    /// Windows will not list it: it sits after a blank record in its folder,
+    /// or anywhere inside a folder Windows cannot see.
+    pub hidden_from_windows: bool,
+    pub why_hidden: String,
+}
+
+/// Something wrong in a folder's records.
+#[derive(Clone, Debug)]
+pub struct FolderIssue {
+    pub folder: String,
+    pub disk_offset: u64,
+    pub what: String,
+}
+
+/// Walk every folder from the root. `visit` gets every file and folder.
+/// Folders whose own record has a bad checksum are reported and not
+/// entered (their cluster numbers cannot be trusted).
+pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<FolderIssue> {
+    let mut issues = Vec::new();
+    // (path, clusters, hidden, why)
+    let mut stack: Vec<(String, ClusterList, bool, String)> = vec![(String::new(), vol.root_clusters.clone(), false, String::new())];
+    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    while let Some((dir, clusters, dir_hidden, dir_why)) = stack.pop() {
+        if let Some(first) = clusters.runs.first() {
+            if !visited.insert(first.0) {
+                issues.push(FolderIssue {
+                    folder: shown(&dir),
+                    disk_offset: vol.cluster_offset(first.0),
+                    what: "two folders claim the same records (a loop) - not followed twice".to_string(),
+                });
+                continue;
+            }
+        }
+        if let Some(p) = &clusters.problem {
+            issues.push(FolderIssue { folder: shown(&dir), disk_offset: 0, what: format!("folder records: {p}") });
+        }
+        let buf = match vol.read_clusters(&clusters) {
+            Ok(b) => b,
+            Err(e) => {
+                issues.push(FolderIssue { folder: shown(&dir), disk_offset: 0, what: format!("could not read the folder: {e}") });
+                continue;
+            }
+        };
+        let slots = buf.len() / 32;
+        let mut i = 0usize;
+        let mut blank_seen = false;
+        let mut subdirs: Vec<(String, ClusterList, bool, String)> = Vec::new();
+        while i < slots {
+            let o = i * 32;
+            let t = buf[o];
+            if t == 0x00 {
+                blank_seen = true;
+                i += 1;
+                continue;
+            }
+            if t != 0x85 {
+                // Deleted records, bitmap/label/up-case records, stray secondaries.
+                i += 1;
+                continue;
+            }
+            let sc = buf[o + 1] as usize;
+            let rec_off = vol.disk_offset_in(&clusters, o as u64).unwrap_or(0);
+            if !(2..=18).contains(&sc) {
+                issues.push(FolderIssue {
+                    folder: shown(&dir),
+                    disk_offset: rec_off,
+                    what: "a damaged file record (impossible entry count) - skipped".to_string(),
+                });
+                i += 1;
+                continue;
+            }
+            if i + sc >= slots {
+                issues.push(FolderIssue {
+                    folder: shown(&dir),
+                    disk_offset: rec_off,
+                    what: "a file record cut off at the end of the folder - skipped".to_string(),
+                });
+                i += 1;
+                continue;
+            }
+            let set = &buf[o..o + 32 * (sc + 1)];
+            let stream = &set[32..64];
+            // Name records first, then any vendor extension records.
+            let name_entries = (stream[3] as usize).div_ceil(15);
+            let structure_ok = stream[0] == 0xC0
+                && stream[3] >= 1
+                && name_entries < sc
+                && (0..name_entries).all(|k| set[64 + k * 32] == 0xC1)
+                && (name_entries..sc - 1).all(|k| set[64 + k * 32] & 0xC0 == 0xC0);
+            let checksum_ok = structure_ok && entry_set_checksum(set) == u16le(set, 2);
+            if !checksum_ok {
+                issues.push(FolderIssue {
+                    folder: shown(&dir),
+                    disk_offset: rec_off,
+                    what: format!(
+                        "a damaged file record ({}) - the file it described cannot be identified; Windows will skip it",
+                        if structure_ok { "checksum wrong" } else { "parts missing" }
+                    ),
+                });
+                i += 1;
+                continue;
+            }
+            let name_len = stream[3] as usize;
+            let mut units: Vec<u16> = Vec::with_capacity(name_len);
+            for k in 0..name_entries {
+                let e = &set[64 + k * 32..96 + k * 32];
+                for u in 0..15 {
+                    if units.len() < name_len {
+                        units.push(u16le(e, 2 + u * 2));
+                    }
+                }
+            }
+            let name = String::from_utf16_lossy(&units);
+            let attributes = u16le(set, 4);
+            let is_dir = attributes & 0x10 != 0;
+            let path = if dir.is_empty() { name.clone() } else { format!("{dir}\\{name}") };
+            let (hidden, why) = if dir_hidden {
+                (true, dir_why.clone())
+            } else if blank_seen {
+                (true, "listed after a blank (never-read) record in its folder, so Windows stops before reaching it".to_string())
+            } else {
+                (false, String::new())
+            };
+            let mut record_extents: Vec<(u64, u64)> = Vec::new();
+            for k in 0..=sc {
+                if let Some(d) = vol.disk_offset_in(&clusters, (o + 32 * k) as u64) {
+                    match record_extents.last_mut() {
+                        Some(last) if last.1 == d => last.1 = d + 32,
+                        _ => record_extents.push((d, d + 32)),
+                    }
+                }
+            }
+            let entry = Entry {
+                path,
+                is_dir,
+                attributes,
+                first_cluster: u32le(stream, 20),
+                no_fat_chain: stream[1] & 2 != 0,
+                data_length: u64le(stream, 24),
+                valid_data_length: u64le(stream, 8),
+                modified: u32le(set, 12),
+                modified_10ms: set[21],
+                modified_utc: set[23],
+                record_offset: rec_off,
+                record_len: 32 * (sc as u64 + 1),
+                record_extents,
+                hidden_from_windows: hidden,
+                why_hidden: why,
+            };
+            let clist = if stream[1] & 1 != 0 {
+                vol.clusters_of(entry.first_cluster, entry.no_fat_chain, entry.data_length)
+            } else {
+                ClusterList::default()
+            };
+            visit(&entry, &clist);
+            if is_dir {
+                // Name the outermost folder Windows cannot see.
+                let sub_why = if dir_hidden {
+                    dir_why.clone()
+                } else if entry.hidden_from_windows {
+                    format!("inside the folder {}, which Windows cannot see", shown(&entry.path))
+                } else {
+                    String::new()
+                };
+                subdirs.push((entry.path.clone(), clist, entry.hidden_from_windows, sub_why));
+            }
+            i += sc + 1;
+        }
+        // Depth-first, in the order the folder lists them.
+        for s in subdirs.into_iter().rev() {
+            stack.push(s);
+        }
+    }
+    issues
+}
+
+fn shown(path: &str) -> String {
+    if path.is_empty() {
+        "(the top folder)".to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+/// An exFAT timestamp as "YYYY-MM-DD HH:MM:SS" (local time as stored).
+pub fn timestamp_string(ts: u32) -> String {
+    let sec = (ts & 0x1F) * 2;
+    let min = (ts >> 5) & 0x3F;
+    let hour = (ts >> 11) & 0x1F;
+    let day = (ts >> 16) & 0x1F;
+    let month = (ts >> 21) & 0x0F;
+    let year = 1980 + (ts >> 25);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{min:02}:{sec:02}")
+}

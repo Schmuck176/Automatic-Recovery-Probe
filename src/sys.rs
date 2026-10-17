@@ -154,3 +154,64 @@ impl Library {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Which drive letter a volume has, found by its serial number (the number
+// Windows shows with `vol D:`). Used to check whether Windows can see a file.
+// ---------------------------------------------------------------------------
+
+#[cfg(windows)]
+pub fn drive_for_serial(serial: u32) -> Option<String> {
+    extern "system" {
+        fn GetLogicalDrives() -> u32;
+        fn GetVolumeInformationW(
+            root: *const u16,
+            name: *mut u16,
+            name_len: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            fs_name: *mut u16,
+            fs_name_len: u32,
+        ) -> i32;
+        fn SetThreadErrorMode(mode: u32, old: *mut u32) -> i32;
+    }
+    // No "insert a disk" pop-ups for empty card readers while asking.
+    let mut old = 0u32;
+    unsafe { SetThreadErrorMode(0x0001, &mut old) };
+    let mask = unsafe { GetLogicalDrives() };
+    let mut found = None;
+    for i in 0..26u32 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i as u8) as char;
+        let root: Vec<u16> = format!("{letter}:\\").encode_utf16().chain(std::iter::once(0)).collect();
+        let mut s = 0u32;
+        let mut fs = [0u16; 32];
+        let ok = unsafe {
+            GetVolumeInformationW(
+                root.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                &mut s,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                fs.as_mut_ptr(),
+                fs.len() as u32,
+            )
+        };
+        let fs_name = String::from_utf16_lossy(&fs[..fs.iter().position(|&c| c == 0).unwrap_or(fs.len())]);
+        if ok != 0 && s == serial && fs_name.eq_ignore_ascii_case("exFAT") {
+            found = Some(format!("{letter}:"));
+            break;
+        }
+    }
+    unsafe { SetThreadErrorMode(old, std::ptr::null_mut()) };
+    found
+}
+
+#[cfg(not(windows))]
+pub fn drive_for_serial(_serial: u32) -> Option<String> {
+    None
+}

@@ -174,3 +174,112 @@ pub fn run_probe_jsonl(target: &str, opts: &ScanOpts) -> i32 {
     let _ = w.flush();
     0
 }
+
+/// The console map check.
+pub fn run_map_check(map_path: &str, earlier: &[String], disk: &str, out_dir: &str) -> i32 {
+    let opts = crate::mapcheck::Options {
+        map_path: map_path.to_string(),
+        earlier_maps: earlier.to_vec(),
+        disk: disk.to_string(),
+        out_dir: out_dir.to_string(),
+    };
+    let mut progress = |s: &str| println!("  {s}");
+    match crate::mapcheck::run(&opts, &mut progress) {
+        Ok(report) => {
+            println!();
+            for line in crate::mapcheck::summary(&report) {
+                println!("{line}");
+            }
+            println!();
+            println!("Files written:");
+            for w in &report.written {
+                println!("  {w}");
+            }
+            0
+        }
+        Err(e) => {
+            println!("The map check could not finish: {e}");
+            1
+        }
+    }
+}
+
+/// Every disk this computer can see.
+pub fn run_list_disks() -> i32 {
+    let disks = crate::disk::list_disks();
+    if disks.is_empty() {
+        println!("No disks found (listing disks only works on Windows).");
+        return 1;
+    }
+    for d in disks {
+        match &d.error {
+            Some(e) => println!("  {}  -  {}", d.spec, e),
+            None => println!(
+                "  {}  {:>9}  {}{}",
+                d.spec,
+                crate::fmt::size(d.size),
+                d.model,
+                if d.bus.is_empty() { String::new() } else { format!(" ({})", d.bus) }
+            ),
+        }
+    }
+    0
+}
+
+/// What a mapfile says, in plain words.
+pub fn run_map_info(map_path: &str) -> i32 {
+    let text = match std::fs::read(map_path) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("Could not read {map_path}: {e}");
+            return 1;
+        }
+    };
+    let m = match crate::mapfile::parse(&String::from_utf8_lossy(&text)) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("{map_path} is not a ddrescue mapfile I can read: {e}");
+            return 1;
+        }
+    };
+    let bad = m.bad_areas();
+    let bad_bytes: u64 = bad.iter().map(|a| a.len()).sum();
+    println!("Mapfile:      {map_path}");
+    println!("ddrescue:     {}", if m.version.is_empty() { "?" } else { &m.version });
+    println!("Started:      {}", m.start_time);
+    println!("Last saved:   {}", m.current_time);
+    println!("Finished:     {}", if m.finished { "yes" } else { "no - the copy was stopped before the end" });
+    println!(
+        "Drive copied: {} bytes ({}), from byte {}",
+        commas(m.domain_size()),
+        crate::fmt::size(m.domain_size()),
+        commas(m.domain_start)
+    );
+    println!("Read:         {} bytes", commas(m.rescued_bytes()));
+    println!(
+        "Never read:   {} bytes ({}) in {} places",
+        commas(bad_bytes),
+        crate::fmt::size(bad_bytes),
+        commas(bad.len() as u64)
+    );
+    let mut by_status: Vec<(char, u64, u64)> = Vec::new();
+    for a in &bad {
+        match by_status.iter_mut().find(|s| s.0 == a.status) {
+            Some(s) => {
+                s.1 += 1;
+                s.2 += a.len();
+            }
+            None => by_status.push((a.status, 1, a.len())),
+        }
+    }
+    for (st, n, bytes) in by_status {
+        println!("  {:<13} {:>7} places, {:>15} bytes", crate::mapfile::status_name(st), commas(n), commas(bytes));
+    }
+    if let (Some(first), Some(last)) = (bad.first(), bad.last()) {
+        println!("They lie between byte {} and byte {}.", commas(first.start), commas(last.end));
+    }
+    for w in &m.warnings {
+        println!("Note: {w}");
+    }
+    0
+}

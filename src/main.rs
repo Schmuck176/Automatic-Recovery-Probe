@@ -1,6 +1,6 @@
 //! Recovery Probe - the program you double-click.
 
-use recovery_probe::cli::{run_probe_jsonl, run_scan, ScanOpts};
+use recovery_probe::cli::{run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_scan, ScanOpts};
 use recovery_probe::{APP, VERSION};
 
 const USAGE: &str = "\
@@ -11,6 +11,14 @@ Usage:
         Check every file in a folder and write the results CSV files.
   recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
         One line of JSON per file (used to compare with the Python version).
+  recovery-probe map-check --map <mapfile> --disk <disk> [--earlier-map <mapfile>] [--out <folder>]
+        Work out which files and folders sit on the places ddrescue never read.
+        <disk> is \\\\.\\PhysicalDriveN (needs administrator rights) or a disk image.
+        --earlier-map: an earlier attempt's mapfile, if it copied onto the same disk.
+  recovery-probe map-info <mapfile>
+        What a ddrescue mapfile says: how much was read, how much never was.
+  recovery-probe list-disks
+        Show the disks this computer can see.
   recovery-probe --version
 ";
 
@@ -47,6 +55,36 @@ fn parse_opts(args: &[String]) -> Result<(Option<String>, ScanOpts), String> {
     Ok((target, opts))
 }
 
+struct MapOpts {
+    map: String,
+    earlier: Vec<String>,
+    disk: String,
+    out: String,
+}
+
+fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
+    let (mut map, mut disk, mut out) = (None, None, None);
+    let mut earlier = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let val = || args.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", args[i]));
+        match args[i].as_str() {
+            "--map" => map = Some(val()?),
+            "--earlier-map" => earlier.push(val()?),
+            "--disk" => disk = Some(val()?),
+            "--out" => out = Some(val()?),
+            s => return Err(format!("unexpected argument {s}")),
+        }
+        i += 2;
+    }
+    Ok(MapOpts {
+        map: map.ok_or("--map is needed: the ddrescue mapfile of the final attempt")?,
+        earlier,
+        disk: disk.ok_or("--disk is needed: the recovered disk, or a disk image")?,
+        out: out.unwrap_or_else(|| "map-check".to_string()),
+    })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(|s| s.as_str()) {
@@ -68,6 +106,21 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
+                2
+            }
+        },
+        Some("map-check") => match parse_map_opts(&args[1..]) {
+            Ok(o) => run_map_check(&o.map, &o.earlier, &o.disk, &o.out),
+            Err(e) => {
+                eprintln!("{e}\n\n{USAGE}");
+                2
+            }
+        },
+        Some("list-disks") => run_list_disks(),
+        Some("map-info") => match args.get(1) {
+            Some(p) => run_map_info(p),
+            None => {
+                eprintln!("Which mapfile?\n\n{USAGE}");
                 2
             }
         },

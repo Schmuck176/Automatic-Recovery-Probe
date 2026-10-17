@@ -1,59 +1,59 @@
 name: Build and test
-
-# Every change is built and tested on a real Windows machine. The program
-# and the full test output are published to the `ci-windows` branch (one
-# commit, replaced each time), and also kept as a download.
-
 on:
   push:
-    branches-ignore: [ci-windows]
+    branches-ignore: [ci-windows, ci-linux]
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   windows:
     name: Windows (the real target)
     runs-on: windows-latest
     permissions:
-      contents: write # to publish the program and the report to ci-windows
+      contents: write
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-
       - name: Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           mkdir -p "$RUNNER_TEMP/report"
           { rustc --version; python --version; } 2>&1 | tee "$RUNNER_TEMP/report/00-versions.txt"
-
       - name: Build the program
         run: |
           set -o pipefail
           cargo build --release --locked 2>&1 | tee "$RUNNER_TEMP/report/10-build.txt"
-
       - name: Unit tests
         run: |
           set -o pipefail
           cargo test --release --locked 2>&1 | tee "$RUNNER_TEMP/report/20-unit-tests.txt"
-
       - name: Compare with the Python version, file by file
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           python tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
           python tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
           python tools/compare_with_python.py target/release/recovery-probe.exe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee "$RUNNER_TEMP/report/30-compare.txt"
           echo "::notice title=Compared with Python::$(tail -n 1 "$RUNNER_TEMP/report/30-compare.txt")"
-
+      - name: Map check on test disks with known damage
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          python tools/test_mapcheck.py target/release/recovery-probe.exe "$RUNNER_TEMP/mc" --random 30 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
+          echo "::notice title=Map check tests::$(tail -n 1 "$RUNNER_TEMP/report/40-map-check-tests.txt")"
+      - name: Map check against Windows itself (virtual disks)
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          python tools/windows_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/wc" 2>&1 | tee "$RUNNER_TEMP/report/50-windows-disks.txt"
+          echo "::notice title=Windows disks::$(tail -n 1 "$RUNNER_TEMP/report/50-windows-disks.txt")"
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push'
         run: |
@@ -69,29 +69,63 @@ jobs:
           git add -A
           git commit -q -m "Windows build of ${GITHUB_SHA::7} (${{ job.status }})"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-windows
-
       - name: Keep the program as a download
         uses: actions/upload-artifact@v7
         with:
           name: recovery-probe-windows
           path: target/release/recovery-probe.exe
           if-no-files-found: error
-
   linux:
-    name: Linux (quick checks)
+    name: Linux (more checks)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
-
       - name: Build and unit tests
         run: |
-          cargo build --release --locked
-          cargo test --release --locked
-
+          mkdir -p "$RUNNER_TEMP/report"
+          set -o pipefail
+          { cargo build --release --locked && cargo test --release --locked; } 2>&1 | tee "$RUNNER_TEMP/report/20-build-and-unit-tests.txt"
       - name: Compare with the Python version, file by file
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           python3 tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
           python3 tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
-          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee compare.txt
-          echo "::notice title=Compared with Python (Linux)::$(tail -n 1 compare.txt)"
+          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee "$RUNNER_TEMP/report/30-compare.txt"
+          echo "::notice title=Compared with Python (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/30-compare.txt")"
+      - name: Tools that check the test disks independently
+        if: ${{ !cancelled() }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs
+          python3 -m pip install --break-system-packages -q dissect.fat
+          { fsck.exfat -V; python3 -c "import dissect.fat; print('dissect.fat', getattr(dissect.fat, '__version__', 'installed'))"; } 2>&1 | tee "$RUNNER_TEMP/report/35-tools.txt"
+      - name: Map check on test disks with known damage
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          python3 tools/test_mapcheck.py target/release/recovery-probe "$RUNNER_TEMP/mc" --random 80 --fsck "$(command -v fsck.exfat)" --dissect installed 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
+          echo "::notice title=Map check tests (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/40-map-check-tests.txt")"
+      - name: Test disks against the Linux kernel's exFAT driver
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          sudo modprobe exfat || true
+          sudo python3 tools/kernel_check.py "$RUNNER_TEMP/kc" 16 2>&1 | tee "$RUNNER_TEMP/report/45-linux-kernel.txt"
+          echo "::notice title=Linux kernel::$(tail -n 1 "$RUNNER_TEMP/report/45-linux-kernel.txt")"
+      - name: Publish the report to the ci-linux branch
+        if: always() && github.event_name == 'push'
+        run: |
+          out="$RUNNER_TEMP/publish"
+          mkdir -p "$out"
+          cp -r "$RUNNER_TEMP/report/." "$out/" 2>/dev/null || true
+          printf 'commit %s\nrun %s\nresult %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "${{ job.status }}" > "$out/BUILD-INFO.txt"
+          cd "$out"
+          git init -q -b ci-linux
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Linux checks of ${GITHUB_SHA::7} (${{ job.status }})"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-linux

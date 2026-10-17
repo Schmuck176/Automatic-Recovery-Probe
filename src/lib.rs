@@ -10,9 +10,14 @@
 
 pub mod checks;
 pub mod cli;
+pub mod disk;
+pub mod exfat;
 pub mod fmt;
 pub mod formats;
+pub mod gpt;
 pub mod holes;
+pub mod mapcheck;
+pub mod mapfile;
 pub mod probe;
 pub mod report;
 pub mod sqlite;
