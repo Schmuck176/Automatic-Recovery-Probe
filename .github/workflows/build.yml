@@ -1,10 +1,12 @@
 name: Build and test
 
-# Every change is built and tested on a real Windows machine, and the
-# Windows program is kept as a download ("recovery-probe-windows").
+# Every change is built and tested on a real Windows machine. The program
+# and the full test output are published to the `ci-windows` branch (one
+# commit, replaced each time), and also kept as a download.
 
 on:
   push:
+    branches-ignore: [ci-windows]
   pull_request:
   workflow_dispatch:
 
@@ -15,6 +17,11 @@ jobs:
   windows:
     name: Windows (the real target)
     runs-on: windows-latest
+    permissions:
+      contents: write # to publish the program and the report to ci-windows
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
@@ -26,19 +33,42 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustc --version
+          mkdir -p "$RUNNER_TEMP/report"
+          { rustc --version; python --version; } 2>&1 | tee "$RUNNER_TEMP/report/00-versions.txt"
 
       - name: Build the program
-        run: cargo build --release --locked
+        run: |
+          set -o pipefail
+          cargo build --release --locked 2>&1 | tee "$RUNNER_TEMP/report/10-build.txt"
 
       - name: Unit tests
-        run: cargo test --release --locked
+        run: |
+          set -o pipefail
+          cargo test --release --locked 2>&1 | tee "$RUNNER_TEMP/report/20-unit-tests.txt"
 
       - name: Compare with the Python version, file by file
         run: |
-          python tools/make_fixtures.py edge "$env:RUNNER_TEMP\fx\edge"
-          python tools/make_fixtures.py mutate tests/seeds "$env:RUNNER_TEMP\fx\mut" --seed 1
-          python tools/compare_with_python.py target/release/recovery-probe.exe tests/seeds "$env:RUNNER_TEMP\fx\edge" "$env:RUNNER_TEMP\fx\mut"
+          set -o pipefail
+          python tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
+          python tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
+          python tools/compare_with_python.py target/release/recovery-probe.exe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee "$RUNNER_TEMP/report/30-compare.txt"
+          echo "::notice title=Compared with Python::$(tail -n 1 "$RUNNER_TEMP/report/30-compare.txt")"
+
+      - name: Publish the program and the report to the ci-windows branch
+        if: always() && github.event_name == 'push'
+        run: |
+          out="$RUNNER_TEMP/publish"
+          mkdir -p "$out"
+          cp -r "$RUNNER_TEMP/report/." "$out/" 2>/dev/null || true
+          if [ -f target/release/recovery-probe.exe ]; then cp target/release/recovery-probe.exe "$out/"; fi
+          printf 'commit %s\nrun %s\nresult %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "${{ job.status }}" > "$out/BUILD-INFO.txt"
+          cd "$out"
+          git init -q -b ci-windows
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Windows build of ${GITHUB_SHA::7} (${{ job.status }})"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-windows
 
       - name: Keep the program as a download
         uses: actions/upload-artifact@v7
@@ -49,7 +79,7 @@ jobs:
 
   linux:
     name: Linux (quick checks)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -60,6 +90,8 @@ jobs:
 
       - name: Compare with the Python version, file by file
         run: |
+          set -o pipefail
           python3 tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
           python3 tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
-          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut"
+          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee compare.txt
+          echo "::notice title=Compared with Python (Linux)::$(tail -n 1 compare.txt)"
