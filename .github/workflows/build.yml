@@ -1,0 +1,65 @@
+name: Build and test
+
+# Every change is built and tested on a real Windows machine, and the
+# Windows program is kept as a download ("recovery-probe-windows").
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (the real target)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Build the program
+        run: cargo build --release --locked
+
+      - name: Unit tests
+        run: cargo test --release --locked
+
+      - name: Compare with the Python version, file by file
+        run: |
+          python tools/make_fixtures.py edge "$env:RUNNER_TEMP\fx\edge"
+          python tools/make_fixtures.py mutate tests/seeds "$env:RUNNER_TEMP\fx\mut" --seed 1
+          python tools/compare_with_python.py target/release/recovery-probe.exe tests/seeds "$env:RUNNER_TEMP\fx\edge" "$env:RUNNER_TEMP\fx\mut"
+
+      - name: Keep the program as a download
+        uses: actions/upload-artifact@v7
+        with:
+          name: recovery-probe-windows
+          path: target/release/recovery-probe.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux (quick checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and unit tests
+        run: |
+          cargo build --release --locked
+          cargo test --release --locked
+
+      - name: Compare with the Python version, file by file
+        run: |
+          python3 tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
+          python3 tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
+          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut"

@@ -1,0 +1,18 @@
+[package]
+name = "recovery-probe"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+description = "Recovery Probe: finds damage in files recovered with ddrescue, and maps a ddrescue mapfile onto the recovered disk."
+
+# No dependencies, on purpose. Everything is built from Rust's own standard
+# library, so no third-party code ever runs over the recovered files, and the
+# whole program can be read in this one repository.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "debuginfo"

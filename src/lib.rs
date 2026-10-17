@@ -1,0 +1,24 @@
+//! Recovery Probe.
+//!
+//! Finds damage in files recovered with ddrescue - the kind that opens fine
+//! and looks normal - and sorts every file into damaged, not testable or
+//! clean. A Rust port of recovery_probe.py (kept in `reference/`), checked
+//! against it file by file.
+//!
+//! Only Rust's standard library is used: no third-party code runs over the
+//! recovered files.
+
+pub mod checks;
+pub mod cli;
+pub mod fmt;
+pub mod formats;
+pub mod holes;
+pub mod probe;
+pub mod report;
+pub mod sqlite;
+pub mod sys;
+pub mod walk;
+
+pub const APP: &str = "Recovery Probe";
+/// Shown in the window and console, so you can always tell which copy is running.
+pub const VERSION: &str = "2026-10-17";
