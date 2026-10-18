@@ -72,7 +72,7 @@ reached from the development workspace. The Windows build of each commit is
 - Not delivered yet (harmless, cosmetic): the mapfile chip on the page reads
   "bad sector: 167 places, 610,816 bytes" instead of "167 bad sector (...)".
 
-## Pre-flight audit (in progress, started 2026-10-18 15:30 BST)
+## Pre-flight audit (done 2026-10-18 16:50 BST; delivered)
 
 The user asked, before plugging in the recovered SSD: is the program right,
 and will it cause no problems, since the whole process should be done once.
@@ -121,8 +121,15 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
       the disk before being kept (a power cut can leave zeros); the scan stops
       when the checked folder goes away (walk.rs GONE); the list is kept on
       disk, not in memory (1M files: ~100 MB on a first run).
-- [ ] 7. CI green, deliver the exe (only while the program is closed: ask).
-- [ ] 8. Walk Phase 1 against the program; update checklist; answer the user.
+- [x] 7. CI green for 05717a4 (Windows: self-test, map check tests 42/42,
+      Windows checks 18/18, disk protection 16/16, unplugged mid-copy 30/30,
+      page 24/24; Linux success). Delivered to C:\RECOVERY-TOOLS\recovery-probe.exe
+      (sha256 eb2af91b..., version "2026-10-18 (2)"), checked byte for byte.
+      LESSON: device_commit_files from a reused /mnt/user-data/outputs name
+      delivered the OLD file once; always stage under a fresh name and check
+      the size/hash on the PC afterwards.
+- [x] 8. Checklist Phase 1 steps 7-12 updated in the user's copy (35 ticks
+      kept, verified). Fallback scheduled tasks deleted.
 
 ## Next
 
