@@ -72,6 +72,29 @@ reached from the development workspace. The Windows build of each commit is
 - Not delivered yet (harmless, cosmetic): the mapfile chip on the page reads
   "bad sector: 167 places, 610,816 bytes" instead of "167 bad sector (...)".
 
+## Pre-flight audit (in progress, started 2026-10-18 15:30 BST)
+
+The user asked, before plugging in the recovered SSD: is the program right,
+and will it cause no problems, since the whole process should be done once.
+They are waiting for Claude's answer before plugging in. "Take all the time
+you need; pause and resume automatically if usage runs out."
+
+Checks (tick here as they are done, push after each):
+- [ ] 1. Nothing can write to the SSD (disk handles, IOCTLs, every page step).
+- [ ] 2. Copying right for a Mac-made exFAT (runs, NoFatChain, valid data
+      length, >4 GB, timestamps, NFD names, forbidden characters, long paths).
+- [ ] 3. Long copy: stop cleanly when the SSD stops answering (now every
+      remaining file is logged "failed"); resume must keep "partly copied"
+      notes (now a same-size partial copy is "skipped" on resume and the new
+      rescue-log.csv overwrites the old one, losing the note).
+- [ ] 4. Scale: step 4/5/6 time and memory with ~1M files.
+- [ ] 5. Join: damaged files found under safe names, " (2)" names, and in
+      PHOTOSLIB\N after the libraries are moved.
+- [ ] 6. Disk protection with a real USB disk: removable media, drop-out and
+      return mid-copy (policy already restored), 4 KB sector bridges.
+- [ ] 7. CI green, deliver the exe (only while the program is closed: ask).
+- [ ] 8. Walk Phase 1 against the program; update checklist; answer the user.
+
 ## Next
 
 1. The user runs Phase -1 E (double-click, Yes, step 1 self-test), then
