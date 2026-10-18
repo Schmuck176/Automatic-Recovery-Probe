@@ -498,7 +498,7 @@ def compare(exp, got):
             sorted(set(exp["hidden"]) - set(gh))[:5]))
     gm = sorted(h["path"] for h in got["hidden"] if h.get("maybe"))
     if gm != exp["hidden_maybe"]:
-        diffs.append("files Windows may still list differ: only got: %s; only expected: %s" % (
+        diffs.append("files Windows still opens by full path differ: only got: %s; only expected: %s" % (
             sorted(set(gm) - set(exp["hidden_maybe"]))[:5], sorted(set(exp["hidden_maybe"]) - set(gm))[:5]))
     ga = {a["start"]: a for a in got["areas"]}
     if sorted(ga) != sorted(exp["areas"]):

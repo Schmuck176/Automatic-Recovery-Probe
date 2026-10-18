@@ -296,7 +296,7 @@ impl Report {
     pub fn hidden_files(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| !e.is_dir).count()
     }
-    /// Of the hidden files and folders, how many Windows may still list.
+    /// Of the hidden files and folders, how many Windows still opens by full path.
     pub fn hidden_maybe(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| e.hidden_maybe).count()
     }
