@@ -78,6 +78,16 @@ jobs:
           set -o pipefail
           python tools/guard_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/gc" 2>&1 | tee "$RUNNER_TEMP/report/60-disk-protection.txt"
           echo "::notice title=Disk protection::$(tail -n 1 "$RUNNER_TEMP/report/60-disk-protection.txt")"
+      - name: The recovered disk unplugged in the middle of copying it (virtual disks, through the page)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: |
+          set +e -o pipefail
+          python tools/dropout_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/dc" 2>&1 | tee "$RUNNER_TEMP/report/65-unplugged.txt"
+          status=$?
+          cp "$RUNNER_TEMP/dc/home/server-output.txt" "$RUNNER_TEMP/report/65-unplugged-server-output.txt" 2>/dev/null || true
+          echo "::notice title=Unplugged mid-copy::$(tail -n 1 "$RUNNER_TEMP/report/65-unplugged.txt")"
+          exit $status
       - name: The step-by-step page, in a real browser
         if: ${{ !cancelled() }}
         run: |

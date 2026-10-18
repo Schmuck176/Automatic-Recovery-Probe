@@ -314,6 +314,7 @@ function lines(arr) { return (arr || []).map(esc).join("\n"); }
 let S = null;          // the program's state
 let mapInfo = null;    // the chosen mapfile, read
 let disks = [];        // the disks, last asked
+let pickedByHand = ""; // the disk last clicked in the list on this page
 let mapfiles = null;   // mapfiles found in the program's folder
 let lastJobId = 0;
 const notes = {};      // short messages per step, from actions
@@ -421,11 +422,15 @@ function renderTop() {
   else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 5 cannot run"; }
   $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
   const b = $("restore-banner");
-  if (S.policy_to_restore) {
-    b.innerHTML = `<div class="banner"><p>Windows is still set to leave newly plugged-in disks switched off (step 3 changed this). Put it back once the recovered SSD is protected.</p>
+  const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue");
+  if (S.policy_to_restore && reading) {
+    const h = `<div class="banner"><p>While this step reads the recovered SSD, Windows leaves newly plugged-in disks switched off, so the SSD stays protected even if it comes unplugged. The setting is put back when the step ends.</p></div>`;
+    if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; }
+  } else if (S.policy_to_restore) {
+    const h = `<div class="banner"><p>Windows is still set to leave newly plugged-in disks switched off (the program changed this). Plug the recovered SSD in now if it is not, and protect it in step 3; put the setting back when you have finished with it.</p>
       <button id="b-restore-top">Put Windows' setting back</button>${noteHtml("restore")}</div>`;
-    $("b-restore-top").onclick = restorePolicy;
-  } else b.innerHTML = "";
+    if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; $("b-restore-top").onclick = restorePolicy; }
+  } else if (b.dataset.html) { b.innerHTML = ""; b.dataset.html = ""; }
 }
 
 function renderTest() {
@@ -485,6 +490,12 @@ function renderMapStep() {
   $("r-map").innerHTML = r;
 }
 
+// The copy ddrescue made (its partition table was made for the mapfile's disk).
+function isCopy(d) { return !!(d && d.detail && d.detail.matches_mapfile); }
+// Could be the recovered SSD: the copy, or a disk with an exFAT volume.
+// Such a disk is only ever switched on read-only.
+function couldBeCopy(d) { return !!(d && (!d.detail || d.detail.matches_mapfile || d.detail.volume || d.detail.error)); }
+
 function diskLine(d) {
   const det = d.detail || {};
   const bits = [];
@@ -538,7 +549,14 @@ function renderConnect() {
   // Protected means: marked read-only by this page, and still read-only.
   // (A disk Windows keeps switched off is read-only too, but only for now.)
   const isProtected = sel && (sel.test || (protectedHere.has(sel.spec) && sel.read_only));
-  if (sel && !sel.test && S.elevated) {
+  if (sel && !sel.test && S.elevated && !couldBeCopy(sel)) {
+    // Another drive (SPARE, say): nothing to protect.
+    h += `<p class="small">Disk ${sel.number} is not the copy ddrescue made, so it needs no protecting: the recovered SSD is the disk marked “the copy ddrescue made”.</p>`;
+    if (sel.offline || sel.read_only) {
+      h += `<p class="small soft">It is ${sel.offline ? "switched off (it was plugged in while Windows was set to leave new disks switched off)" : "read-only"}. To copy onto it, switch it on:</p>
+        <div class="row"><button class="second" id="b-release">Switch disk ${sel.number} on, writable</button></div>`;
+    }
+  } else if (sel && !sel.test && S.elevated) {
     h += `<div class="row">`;
     if (!isProtected) h += `<button id="b-protect">Protect disk ${sel.number}</button>`;
     else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
@@ -555,9 +573,10 @@ function renderConnect() {
   void protectedDisk;
   if (el.dataset.html !== h) {
     el.innerHTML = h; el.dataset.html = h;
-    el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => save({ disk: r.value }).then(loadDisks));
+    el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => { pickedByHand = r.value; save({ disk: r.value }).then(loadDisks); });
     if ($("b-prepare")) $("b-prepare").onclick = prepare;
     if ($("b-protect")) $("b-protect").onclick = () => protect(sel);
+    if ($("b-release")) $("b-release").onclick = () => release(sel);
     if ($("b-online")) $("b-online").onclick = () => switchDisk(sel, true);
     if ($("b-offline")) $("b-offline").onclick = () => switchDisk(sel, false);
     $("b-look").onclick = loadDisks;
@@ -751,6 +770,11 @@ async function protect(d) {
   } catch (e) { note("connect", "err", e.message); }
   await refresh(); await loadDisks();
 }
+async function release(d) {
+  try { const r = await act({ action: "guard-release", disk: d.spec }); note("connect", "ok", r.message); }
+  catch (e) { note("connect", "err", e.message); }
+  await loadDisks();
+}
 async function switchDisk(d, on) {
   try { await act({ action: "guard-online", disk: d.spec, on: on ? "1" : "0" }); note("connect", "ok", `Disk ${d.number} is switched ${on ? "on (read-only)" : "off"}.`); }
   catch (e) { note("connect", "err", e.message); }
@@ -845,6 +869,13 @@ async function updateSpace() {
 
 async function loadDisks() {
   try { disks = await get("api/disks"); } catch { disks = []; }
+  // Disk numbers change as drives come and go: when exactly one disk is the
+  // copy ddrescue made, that is the one chosen.
+  const copies = disks.filter((d) => isCopy(d) && !d.system);
+  const cur = disks.find((d) => d.spec === setting("disk"));
+  if (copies.length === 1 && !isCopy(cur) && (!cur || pickedByHand !== cur.spec)) {
+    try { await save({ disk: copies[0].spec }); } catch { /* chosen by hand then */ }
+  }
   render();
 }
 let watchUntil = 0;
@@ -857,7 +888,9 @@ async function refresh() {
   try { S = await get("api/state"); } catch {
     if (!lost) {
       lost = true;
-      $("restore-banner").innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Recovery Probe to start it again; what the steps found is kept.</p></div>`;
+      const b = $("restore-banner");
+      b.innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Recovery Probe to start it again; what the steps found is kept.</p></div>`;
+      b.dataset.html = b.innerHTML;
     }
     return;
   }

@@ -1008,9 +1008,23 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 )
             })
         }),
-        "guard-online" => need_admin(app)
-            .and_then(|_| disk_number("disk"))
-            .and_then(|n| crate::guard::set_online(n, on("on")).map(|_| String::new())),
+        "guard-online" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
+            if on("on") && !crate::guard::state(n)?.read_only && could_be_recovered(app, n) {
+                return Err(format!(
+                    "Disk {n} could be the recovered SSD and is not marked read-only, so it stays switched off: \
+                     protect it first."
+                ));
+            }
+            crate::guard::set_online(n, on("on")).map(|_| String::new())
+        }),
+        "guard-release" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
+            if could_be_recovered(app, n) {
+                return Err(format!("Disk {n} could be the recovered SSD, so it stays as it is."));
+            }
+            crate::guard::release(n).map(|_| {
+                format!("\"message\":{}", json_str(&format!("Disk {n} is switched on, and can be written to.")))
+            })
+        }),
         "selftest" => start_job(app, "selftest", "Checking the program works on this PC", |ctx| {
             crate::selftest::run(&mut |s: &str| ctx.line(s), &ctx.stop)
         })
@@ -1031,6 +1045,45 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
 
 fn is_test_disk(app: &Arc<Mutex<App>>, spec: &str) -> bool {
     lock(app).test_disks.iter().any(|t| t == spec)
+}
+
+/// Could disk `n` be the recovered SSD? (Its partition table was made for
+/// the mapfile's disk, or it holds an exFAT volume, or it cannot be read.)
+/// Such a disk is never made writable, nor switched on unless read-only.
+fn could_be_recovered(app: &Arc<Mutex<App>>, n: u32) -> bool {
+    let map = lock(app).setting("mapfile");
+    let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{n}")) else { return true };
+    let table = crate::gpt::read(&*src, &[]);
+    if let (Some(made_for), Some((s, e))) = (table.original_disk_size(), mapfile_domain(&map)) {
+        if made_for == e - s {
+            return true;
+        }
+    }
+    crate::mapcheck::find_volume_quick(&*src, &table).is_ok()
+}
+
+/// While steps 4 and 5 read the recovered SSD, Windows is set to leave new
+/// disks switched off: if the SSD comes unplugged and is plugged in again
+/// (a cable knocked, a USB hiccup), it arrives switched off, not open for
+/// Windows to write to. True when this job changed the setting (and so puts
+/// it back at the end).
+fn keep_new_disks_off(ctx: &Ctx, guard: bool) -> bool {
+    if !guard || crate::cli::policy_to_restore().is_some() {
+        return false;
+    }
+    match crate::cli::guard_prepare() {
+        Ok(_) => {
+            ctx.line(
+                "While this runs, Windows leaves newly plugged-in disks switched off, so the recovered SSD stays \
+                 protected even if it is unplugged and plugged in again.",
+            );
+            true
+        }
+        Err(e) => {
+            ctx.line(&format!("(Could not set Windows to leave new disks switched off while this runs: {e})"));
+            false
+        }
+    }
 }
 
 fn check_disk(app: &Arc<Mutex<App>>, spec: &str) -> Result<(), String> {
@@ -1074,8 +1127,17 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
         out_dir: out.display().to_string(),
     };
     let app2 = app.clone();
+    let guard = cfg!(windows) && !is_test_disk(app, disk);
     start_job(app, "mapcheck", "Finding what the damage touched", move |ctx| {
-        let report = crate::mapcheck::run(&opts, &mut |s: &str| ctx.line(s))?;
+        let set_here = keep_new_disks_off(ctx, guard);
+        let report = crate::mapcheck::run(&opts, &mut |s: &str| ctx.line(s));
+        // Put Windows' setting back - unless the SSD stopped answering:
+        // then it stays, so the SSD arrives switched off when plugged back in.
+        let lost = matches!(&report, Err(e) if e.starts_with("The recovered SSD stopped answering"));
+        if set_here && !lost {
+            let _ = crate::cli::guard_restore();
+        }
+        let report = report?;
         {
             let mut a = lock(&app2);
             a.settings.insert("last_map_check".to_string(), opts.out_dir.clone());
@@ -1099,7 +1161,9 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
     }
     let opts_disk = disk.to_string();
     let opts_out = out.to_string();
+    let guard = cfg!(windows) && !is_test_disk(app, disk);
     start_job(app, "rescue", "Copying everything off the recovered SSD", move |ctx| {
+        let set_here = keep_new_disks_off(ctx, guard);
         let opts = crate::rescue::Options {
             disk: opts_disk,
             out_dir: opts_out.clone(),
@@ -1108,7 +1172,17 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             stop: Some(ctx.stop.clone()),
             stop_after_files: None,
         };
-        let o = crate::rescue::run(&opts, &mut |s: &str| ctx.line(s), &mut |d, t| ctx.amount(d, t))?;
+        let o = crate::rescue::run(&opts, &mut |s: &str| ctx.line(s), &mut |d, t| ctx.amount(d, t));
+        // Put Windows' setting back - unless the SSD stopped answering:
+        // then it stays, so the SSD arrives switched off when plugged back in.
+        let lost = match &o {
+            Ok(o) => o.disk_lost.is_some(),
+            Err(e) => e.starts_with("The recovered SSD stopped answering"),
+        };
+        if set_here && !lost {
+            let _ = crate::cli::guard_restore();
+        }
+        let o = o?;
         let mut summary = vec![format!(
             "Copied {} files ({}) and {} folders into {}.",
             commas(o.files),

@@ -28,17 +28,31 @@ FAT_OFFSET = 128  # sectors
 MTIME = X.exfat_timestamp(2023, 7, 14, 10, 30, 0)
 
 
+def png(w, h, rgb):
+    """A small valid PNG, made without any imaging library."""
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 def contents():
-    from PIL import Image
     out = []
     for i, (w, h) in enumerate([(16, 16), (24, 12), (8, 30)]):
-        img = Image.new("RGB", (w, h), (i * 60, 120, 200 - i * 50))
-        b = io.BytesIO()
-        img.save(b, "JPEG", quality=80)
-        out.append(("jpg", b.getvalue()))
-        b = io.BytesIO()
-        img.save(b, "PNG")
-        out.append(("png", b.getvalue()))
+        rgb = (i * 60, 120, 200 - i * 50)
+        out.append(("png", png(w, h, rgb)))
+        try:
+            from PIL import Image
+            img = Image.new("RGB", (w, h), rgb)
+            b = io.BytesIO()
+            img.save(b, "JPEG", quality=80)
+            out.append(("jpg", b.getvalue()))
+        except ImportError:
+            pass
     out.append(("txt", b"just some words\r\n" * 20))
     assert all(len(c) <= CS for _, c in out)
     return out

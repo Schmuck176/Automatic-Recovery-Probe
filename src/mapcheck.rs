@@ -257,6 +257,8 @@ pub struct Report {
     pub map_domain: (u64, u64),
     pub map_shift: i128,
     pub map_warnings: Vec<String>,
+    /// Reads of the disk that failed while it still answered.
+    pub disk_warnings: Vec<String>,
     pub earlier: Vec<Earlier>,
     pub vol_offset: u64,
     pub vol_label: String,
@@ -338,9 +340,34 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str)) -> Result<Report, Str
             format!("could not open {}: {e}", opts.disk)
         }
     })?;
-    let mut report = analyse(&*src, &map, &earlier, &opts.map_path, progress)?;
+    // The recovered SSD holds a copy and is itself healthy: a read that
+    // fails means it stopped answering (then the results would leave things
+    // out, so there are none), or that it has a bad spot of its own.
+    let watched = crate::disk::Watched::new(&*src);
+    let mut report = analyse(&watched, &map, &earlier, &opts.map_path, progress)?;
+    if watched.errors() > 0 {
+        if !watched.answers(report.vol_offset) {
+            return Err(disk_lost_text(&watched.last_error()));
+        }
+        report.disk_warnings.push(format!(
+            "{} reads of this disk failed although it still answers (the last: {}). Folders that could not be read \
+             are listed with the problems below.",
+            commas(watched.errors()),
+            watched.last_error()
+        ));
+    }
     write_outputs(&mut report, Path::new(&opts.out_dir))?;
     Ok(report)
+}
+
+/// What to tell someone whose recovered disk stopped answering during the check.
+pub fn disk_lost_text(err: &str) -> String {
+    format!(
+        "The recovered SSD stopped answering during the check (Windows said: {err}), so it gives no results: they \
+         would leave things out. Check its cable is in firmly. If it came out, plug it back in: it arrives switched \
+         off, as Windows is still set to leave new disks switched off. Then choose it again in step 3, click \
+         Protect, and run this step again."
+    )
 }
 
 /// Find the exFAT volume: in a partition, at the start of the disk, or
@@ -781,6 +808,7 @@ pub fn analyse(
         map_domain: (map.domain_start, map.domain_end),
         map_shift: map.output_shift,
         map_warnings: map.warnings.clone(),
+        disk_warnings: Vec::new(),
         earlier: earlier_info,
         vol_offset: vol.offset,
         vol_label: vol.label.clone(),
@@ -825,6 +853,9 @@ pub fn summary(r: &Report) -> Vec<String> {
     t.push(format!("MAP CHECK - {} version {}", crate::APP, crate::VERSION));
     t.push(String::new());
     t.push(format!("Disk:     {}", r.disk));
+    for w in &r.disk_warnings {
+        t.push(format!("          note: {w}"));
+    }
     t.push(format!(
         "Mapfile:  {}  (ddrescue {}, {})",
         r.map_path,

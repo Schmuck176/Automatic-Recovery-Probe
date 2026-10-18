@@ -10,8 +10,12 @@
 //!  2. the SSD arrives switched off (offline): no volume, nothing mounted,
 //!     nothing that could write to it;
 //!  3. the program marks that disk read-only and puts the policy back the
-//!     way it was (Windows forgets the read-only mark when the disk is
-//!     unplugged, so this is done every time it is plugged in);
+//!     way it was (Windows forgets the read-only mark of a virtual disk when
+//!     it is unplugged - a real disk's it may remember - so this is done
+//!     every time it is plugged in);
+//!  3a. while steps 4 and 5 read the SSD, the policy is set to "leave new
+//!     disks switched off" again, so a SSD that comes unplugged and is
+//!     plugged in again arrives switched off (web.rs, keep_new_disks_off);
 //!  4. if the person wants to browse it, the disk is switched on: Windows
 //!     mounts it read-only.
 //!
@@ -200,6 +204,10 @@ mod imp {
         set(n, DISK_ATTRIBUTE_READ_ONLY, DISK_ATTRIBUTE_READ_ONLY, true)
     }
 
+    pub fn clear_read_only(n: u32) -> Result<(), String> {
+        set(n, 0, DISK_ATTRIBUTE_READ_ONLY, true)
+    }
+
     pub fn set_online(n: u32, online: bool) -> Result<(), String> {
         set(n, if online { 0 } else { DISK_ATTRIBUTE_OFFLINE }, DISK_ATTRIBUTE_OFFLINE, false)
     }
@@ -263,6 +271,9 @@ mod imp {
     pub fn set_online(_n: u32, _online: bool) -> Result<(), String> {
         Err(ONLY.to_string())
     }
+    pub fn clear_read_only(_n: u32) -> Result<(), String> {
+        Err(ONLY.to_string())
+    }
     pub fn san_policy() -> Result<SanPolicy, String> {
         Err(ONLY.to_string())
     }
@@ -274,7 +285,25 @@ mod imp {
     }
 }
 
-pub use imp::{san_policy, san_policy_registry, set_online, set_read_only, set_san_policy, state};
+pub use imp::{clear_read_only, san_policy, san_policy_registry, set_online, set_read_only, set_san_policy, state};
+
+/// For a disk that is not the recovered SSD (the drive the copies go to,
+/// plugged in after "Get Windows ready", or protected by mistake): switch
+/// it on and make it writable again. The caller checks which disk it is.
+pub fn release(n: u32) -> Result<DiskState, String> {
+    clear_read_only(n)?;
+    let s = state(n)?;
+    if !s.offline {
+        // Switched off and on again, so Windows mounts it writable.
+        set_online(n, false)?;
+    }
+    set_online(n, true)?;
+    let s = state(n)?;
+    if s.read_only || s.offline {
+        return Err(format!("disk {n} is still switched off or read-only (Windows says: {s:?})"));
+    }
+    Ok(s)
+}
 
 /// Mark a disk read-only, then switch it on if asked.
 /// Checks each step took.
