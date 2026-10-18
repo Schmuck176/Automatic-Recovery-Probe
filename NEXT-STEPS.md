@@ -48,11 +48,18 @@ reached from the development workspace. The Windows build of each commit is
 - The mapfiles are in "C:\RECOVERY-TOOLS\My DDRESCUE map files and
   screenshots.zip" on the user's PC (never in this repository).
 
+## Delivered
+
+- 2026-10-18 ~07:00 UTC: the Windows build of 4efff72 (every check green on
+  GitHub's Windows machine), the final mapfile, and docs/recovery-checklist.md
+  and docs/download-manifest.md were written into C:\RECOVERY-TOOLS on the
+  user's PC ("biggamer"). The older Python files are still there (harmless).
+
 ## Next
 
-1. When Windows CI passes: put `recovery-probe.exe`, the final mapfile and
-   the two documents into C:\RECOVERY-TOOLS on the user's PC, and tell the
-   user to run Phase -1 E (the self-test) and then Phase 1.
+1. The user runs Phase -1 E (double-click, Yes, step 1 self-test), then
+   Phase 1 when ready to plug in the SSD. Help if anything on their PC
+   differs from GitHub's Windows machine.
 2. When the user plugs the SSD in: help read step 4's results (map check).
 3. Phase 6 sorting helper (the checklist promises one): reads the scan CSVs,
    rescue-log.csv and sips-failures.txt, moves files from WORK into GOOD /
