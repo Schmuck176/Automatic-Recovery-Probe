@@ -395,3 +395,127 @@ pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bo
         }
     }
 }
+
+/// The folder this program is in (where its notes and results go), or the
+/// temporary folder if that cannot be written to.
+pub fn home_dir() -> std::path::PathBuf {
+    let dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(std::env::temp_dir);
+    let probe = dir.join(".recovery-probe-write-test");
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            dir
+        }
+        Err(_) => std::env::temp_dir(),
+    }
+}
+
+/// Where the program notes a Windows setting it changed, so it can always
+/// be put back - also after the program was closed in between.
+pub fn settings_note() -> std::path::PathBuf {
+    home_dir().join("recovery-probe-windows-settings.txt")
+}
+
+/// The SAN policy that was in force before `prepare`, if the program changed it.
+pub fn policy_to_restore() -> Option<crate::guard::SanPolicy> {
+    let text = std::fs::read_to_string(settings_note()).ok()?;
+    text.lines()
+        .find_map(|l| l.strip_prefix("san-policy-before\t"))
+        .and_then(crate::guard::SanPolicy::from_keyword)
+}
+
+/// Set Windows to leave new disks switched off, noting how it was.
+pub fn guard_prepare() -> Result<String, String> {
+    use crate::guard::{san_policy, set_san_policy, SanPolicy};
+    let now = san_policy()?;
+    if policy_to_restore().is_none() {
+        std::fs::write(
+            settings_note(),
+            format!(
+                "san-policy-before\t{}\r\nThis note is written by Recovery Probe: it changed how Windows treats newly \
+                 plugged-in disks and will put it back. Delete it only after running: recovery-probe disk-guard restore\r\n",
+                now.keyword()
+            ),
+        )
+        .map_err(|e| format!("could not write {}: {e}", settings_note().display()))?;
+    }
+    set_san_policy(SanPolicy::OfflineAll)?;
+    let after = san_policy()?;
+    if after != SanPolicy::OfflineAll {
+        return Err(format!("Windows still says: {}", after.describe()));
+    }
+    Ok(format!("Before: {}. Now: {}.", now.describe(), after.describe()))
+}
+
+/// Put back the SAN policy `guard_prepare` changed.
+pub fn guard_restore() -> Result<String, String> {
+    use crate::guard::{san_policy, set_san_policy};
+    let Some(old) = policy_to_restore() else {
+        return Ok("Nothing to put back: the program has not changed this setting.".to_string());
+    };
+    set_san_policy(old)?;
+    let now = san_policy()?;
+    if now != old {
+        return Err(format!("Windows still says: {}", now.describe()));
+    }
+    let _ = std::fs::remove_file(settings_note());
+    Ok(format!("Put back: {}.", now.describe()))
+}
+
+/// `disk-guard status | prepare | protect <disk> [--online] | online <disk> | offline <disk> | restore`
+pub fn run_disk_guard(args: &[String]) -> i32 {
+    use crate::guard::{protect, san_policy, san_policy_registry, set_online, state};
+    let disk_arg = |i: usize| -> Result<u32, String> {
+        args.get(i)
+            .and_then(|s| s.trim_start_matches(r"\\.\PhysicalDrive").parse().ok())
+            .ok_or_else(|| "which disk? (its number, as list-disks shows it)".to_string())
+    };
+    let r: Result<String, String> = match args.first().map(|s| s.as_str()) {
+        Some("status") => {
+            let mut t = String::new();
+            match san_policy() {
+                Ok(p) => t.push_str(&format!("SAN policy: {} ({})\n", p.keyword(), p.describe())),
+                Err(e) => t.push_str(&format!("SAN policy: unknown ({e})\n")),
+            }
+            t.push_str(&format!("SAN policy in the registry: {:?}\n", san_policy_registry()));
+            if let Some(p) = policy_to_restore() {
+                t.push_str(&format!("To put back afterwards: {}\n", p.keyword()));
+            }
+            for d in crate::win::disks() {
+                match state(d.number) {
+                    Ok(s) => t.push_str(&format!(
+                        "disk {}: offline {}, read-only {}, writable {:?}\n",
+                        d.number, s.offline, s.read_only, s.writable
+                    )),
+                    Err(e) => t.push_str(&format!("disk {}: {e}\n", d.number)),
+                }
+            }
+            Ok(t)
+        }
+        Some("prepare") => guard_prepare(),
+        Some("restore") => guard_restore(),
+        Some("protect") => disk_arg(1).and_then(|n| {
+            protect(n, args.iter().any(|a| a == "--online"))
+                .map(|s| format!("disk {n}: read-only {}, offline {}, writable {:?}", s.read_only, s.offline, s.writable))
+        }),
+        Some(w @ ("online" | "offline")) => {
+            let on = w == "online";
+            disk_arg(1).and_then(|n| set_online(n, on)).map(|_| format!("disk switched {}", if on { "on" } else { "off" }))
+        }
+        _ => Err("disk-guard status | prepare | protect <disk> [--online] | online <disk> | offline <disk> | restore"
+            .to_string()),
+    };
+    match r {
+        Ok(t) => {
+            println!("{}", t.trim_end());
+            0
+        }
+        Err(e) => {
+            println!("{e}");
+            1
+        }
+    }
+}

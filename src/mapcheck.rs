@@ -925,12 +925,16 @@ pub fn summary(r: &Report) -> Vec<String> {
     t.push(format!("  in free or unused space    {:>6}  -> nothing lost", commas(harmless as u64)));
     t.push(String::new());
     let zero = count(&|a| a.content.word() == "zeros");
-    t.push(format!(
-        "On the disk now, {} of the {} places hold only zeros: nothing was ever copied there, so what",
-        commas(zero as u64),
-        commas(r.areas.len() as u64)
-    ));
-    t.push("the old disk held in those places is missing from the copy.".to_string());
+    if r.areas.is_empty() {
+        t.push("The mapfile names no place that was never read: ddrescue read the whole disk.".to_string());
+    } else {
+        t.push(format!(
+            "On the disk now, {} of the {} places hold only zeros: nothing was ever copied there, so what",
+            commas(zero as u64),
+            commas(r.areas.len() as u64)
+        ));
+        t.push("the old disk held in those places is missing from the copy.".to_string());
+    }
     if zero < r.areas.len() {
         let other = commas((r.areas.len() - zero) as u64);
         if r.earlier.is_empty() {

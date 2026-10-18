@@ -24,6 +24,10 @@ Usage:
         What a ddrescue mapfile says: how much was read, how much never was.
   recovery-probe list-disks
         Show the disks this computer can see.
+  recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
+        Keep Windows from writing to the recovered disk: prepare (before plugging
+        it in) makes Windows leave new disks switched off; protect marks the disk
+        read-only (and --online switches it on); restore puts the setting back.
   recovery-probe --version
 ";
 
@@ -171,6 +175,7 @@ fn main() {
             }
         },
         Some("list-disks") => run_list_disks(),
+        Some("disk-guard") => recovery_probe::cli::run_disk_guard(&args[1..]),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
             Ok((disk, out, pick, lost, status)) => run_rescue(&disk, &out, pick, lost, &Status::new(status)),
             Err(e) => {

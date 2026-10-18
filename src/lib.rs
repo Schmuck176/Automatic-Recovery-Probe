@@ -15,6 +15,7 @@ pub mod exfat;
 pub mod fmt;
 pub mod formats;
 pub mod gpt;
+pub mod guard;
 pub mod holes;
 pub mod join;
 pub mod mapcheck;

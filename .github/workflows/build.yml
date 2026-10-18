@@ -59,6 +59,12 @@ jobs:
           set -o pipefail
           python tools/windows_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/wc" 2>&1 | tee "$RUNNER_TEMP/report/50-windows-disks.txt"
           echo "::notice title=Windows disks::$(tail -n 1 "$RUNNER_TEMP/report/50-windows-disks.txt")"
+      - name: Keeping Windows from writing to the recovered disk (virtual disks)
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          python tools/guard_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/gc" 2>&1 | tee "$RUNNER_TEMP/report/60-disk-protection.txt"
+          echo "::notice title=Disk protection::$(tail -n 1 "$RUNNER_TEMP/report/60-disk-protection.txt")"
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push'
         run: |
