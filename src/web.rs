@@ -922,10 +922,13 @@ fn find_mapfiles_json(app: &Arc<Mutex<App>>) -> String {
                 if len == 0 || len > 64 << 20 {
                     continue;
                 }
-                let Ok(text) = std::fs::read(&p) else { continue };
-                if !text.starts_with(b"# Mapfile") && !text.starts_with(b"# Rescue Logfile") {
+                // Look at the start first: most files here are not mapfiles.
+                let mut head = [0u8; 16];
+                let n = std::fs::File::open(&p).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
+                if !head[..n].starts_with(b"# Mapfile") && !head[..n].starts_with(b"# Rescue Logf") {
                     continue;
                 }
+                let Ok(text) = std::fs::read(&p) else { continue };
                 if let Ok(m) = crate::mapfile::parse(&String::from_utf8_lossy(&text)) {
                     let bad: u64 = m.bad_areas().iter().map(|a| a.len()).sum();
                     found.push((p.display().to_string(), m.domain_end.saturating_sub(m.domain_start), m.finished, bad));
