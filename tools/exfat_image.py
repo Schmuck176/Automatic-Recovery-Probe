@@ -73,9 +73,13 @@ def make_upcase():
     m = []
     for c in range(0x10000):
         u = c
-        if not 0xD800 <= c <= 0xDFFF:
+        # Only blocks whose letters have long been in Unicode: newer Pythons
+        # know newer Unicode versions (3.14 added capitals 3.13 lacks), and
+        # the tables must come out the same on every Python version.
+        settled = lambda x: x < 0x1C80 or 0x1D00 <= x < 0x2C00 or 0xFF00 <= x < 0xFFF0
+        if settled(c):
             up = chr(c).upper()
-            if len(up) == 1 and ord(up) <= 0xFFFF:
+            if len(up) == 1 and settled(ord(up)):
                 u = ord(up)
         m.append(u)
     out = []
