@@ -16,6 +16,7 @@ pub mod fmt;
 pub mod formats;
 pub mod gpt;
 pub mod holes;
+pub mod join;
 pub mod mapcheck;
 pub mod mapfile;
 pub mod probe;
@@ -24,6 +25,7 @@ pub mod rescue;
 pub mod sqlite;
 pub mod sys;
 pub mod walk;
+pub mod win;
 
 pub const APP: &str = "Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.

@@ -172,7 +172,7 @@ class Oracle:
         children = {}
         for n in self.t["nodes"]:
             children.setdefault(n["parent"], []).append(n)
-        maybe_of = {}  # path -> Windows may still list it
+        maybe_of = {}  # path -> not listed, but Windows still opens it by its full path
         stack = [("", root_cl, False, False)]
         if root_broken:
             problems += 1
@@ -197,7 +197,8 @@ class Oracle:
             # tools/windows_check.py): in order, stepping over intact records,
             # a blank slot ends the folder quietly - even inside a file's
             # record - and any other damaged record makes it give up on the
-            # folder, often losing the records it read just before as well.
+            # whole folder (it lists none of it, but still opens what comes
+            # before the damage when given the full path).
             stop_kind, stop_at = None, slots
             k = 0
             while k < slots:
@@ -218,8 +219,8 @@ class Oracle:
                         self.read(self.slot_off(cl, k + j), 1)[0] == 0 for j in range(1, sc + 1))
                     stop_kind, stop_at = ("blank" if zero_inside else "damaged"), k
                     break
-                if 0xA0 <= t <= 0xBF or t >= 0xE0 or (d == "" and 0x81 <= t <= 0x83):
-                    k += 1  # benign records any reader skips
+                if t >= 0xA0 or (d == "" and 0x81 <= t <= 0x83):
+                    k += 1  # records any reader skips (incl. parts whose first part is gone)
                     continue
                 stop_kind, stop_at = "damaged", k
                 problems += 1  # an unexpected record type, reported as such
@@ -635,6 +636,27 @@ def finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective):
     return diffs
 
 
+RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+
+
+def safe_name(name):
+    """The name the rescue gives a copy (rescue.rs, safe_name): Windows
+    cannot use names ending in a space or a dot, or the old device names."""
+    s = "".join("_" if ord(c) < 32 or c in '<>:"/\\|?*' else c for c in name)
+    if s.endswith((" ", ".")):
+        s = s[:-1] + "_"
+    if not s:
+        s = "_"
+    stem = s.split(".")[0].rstrip(" ").upper()
+    if stem in RESERVED or (len(stem) == 4 and stem[:3] in ("COM", "LPT") and stem[3] in "0123456789\u00b9\u00b2\u00b3"):
+        s = "_" + s
+    return s
+
+
+def safe_path(path):
+    return "\\".join(safe_name(p) for p in path.split("\\"))
+
+
 def check_rescue(exe, d, img, truth, exp, oracle):
     """Rescue what Windows cannot list, then everything plus the lost data,
     and check every byte of every copy."""
@@ -654,6 +676,12 @@ def check_rescue(exe, d, img, truth, exp, oracle):
             parts = w.split("\\")
             for k in range(1, len(parts)):
                 want.add("\\".join(parts[:k]))
+        # Copies carry names Windows can use.
+        copy_of = {w: safe_path(w) for w in want}
+        if len(set(copy_of.values())) != len(copy_of):
+            diffs.append("two files on this test disk get the same name for Windows (the test cannot tell them apart)")
+            continue
+        orig = {v: k for k, v in copy_of.items()}
         got = set()
         lost_files = []
         for base, dirs, files in os.walk(out):
@@ -667,6 +695,10 @@ def check_rescue(exe, d, img, truth, exp, oracle):
         lost_dir = "lost data (no name)"
         lost_files = sorted(g for g in got if g.startswith(lost_dir + "\\"))
         got = {g for g in got if g != lost_dir and not g.startswith(lost_dir + "\\")}
+        partial = sorted(g for g in got if g.split("\\")[-1] == "~recovery-probe-copying.tmp")
+        if partial:
+            diffs.append("rescue (%s) left unfinished copies behind: %s" % (mode, partial[:3]))
+        got = {orig.get(g, g) for g in got}
         if got != want:
             diffs.append("rescue (%s) copied different files: only copied: %s; not copied: %s" % (
                 mode, sorted(got - want)[:4], sorted(want - got)[:4]))
@@ -677,11 +709,12 @@ def check_rescue(exe, d, img, truth, exp, oracle):
             n = oracle.found_nodes[path][0]
             if n["is_dir"]:
                 continue
-            with open(os.path.join(out, *path.split("\\")), "rb") as f:
+            where = os.path.join(out, *copy_of[path].split("\\"))
+            with open(where, "rb") as f:
                 data = f.read()
             if data != oracle.content(path):
                 wrong.append(path)
-            elif abs(os.stat(os.path.join(out, *path.split("\\"))).st_mtime - MTIME) > 2:
+            elif abs(os.stat(where).st_mtime - MTIME) > 2:
                 wrong.append(path + " (date)")
         if wrong:
             diffs.append("rescue (%s): %d copies differ from the disk, e.g. %s" % (mode, len(wrong), wrong[:3]))
@@ -980,6 +1013,15 @@ def keep_mountable(case):
             keep_out.append((heap + (first - 2) * cs, heap + (first - 2 + n) * cs))
     root_first = v["root"][0][0]
     keep_out.append((heap + (root_first - 2) * cs, heap + (root_first - 2) * cs + 512))
+    # The FAT entries of the top folder, the bitmap and the up-case table:
+    # Linux counts the top folder's clusters through the FAT when it mounts,
+    # and refuses the drive if that chain is broken.
+    fat = v["offset"] + v["fat_offset"]
+    for name in ("root", "bitmap", "upcase"):
+        for first, n in v[name]:
+            for c in range(first, first + n):
+                sec = (fat + 4 * c) // 512 * 512
+                keep_out.append((sec, sec + 512))
     ok = lambda a: not any(a[0] < e and a[0] + a[1] > s for s, e in keep_out)
     case.areas = [a for a in case.areas if ok(a)]
     if case.zero is not None:
@@ -1214,12 +1256,15 @@ def main():
         cases += deliberate_cases(cs)
     cases += [hidden_folder_case(), boot_case(), gpt_lost_case(), fat_case(), bigger_ssd_case(),
               wrong_disk_case(), earlier_attempt_case(), no_exfat_case()]
-    cases += [random_case(a.seed + i) for i in range(a.random)]
+    # Random disks are built one at a time (each holds its files in memory).
+    cases += [a.seed + i for i in range(a.random)]
     if a.only:
-        cases = [c for c in cases if a.only in c.name]
+        cases = [c for c in cases if a.only in (c.name if isinstance(c, Case) else "random-%03d" % c)]
     failed = 0
     builder_checked = 0
     for c in cases:
+        if not isinstance(c, Case):
+            c = random_case(c)
         diffs = run_case(a.exe, a.work, c, keep=a.keep)
         if a.fsck:
             diffs += fsck_check(a.fsck, a.work, c.disk, c.name)

@@ -375,13 +375,14 @@ pub struct Entry {
     /// Where the record's slots are on the disk: (start, end) pieces, more
     /// than one when the record crosses into the folder's next cluster.
     pub record_extents: Vec<(u64, u64)>,
-    /// Windows will not list it, or may not (see `hidden_maybe`): it sits
-    /// after a blank record in its folder, in a folder Windows reports as
-    /// corrupted, or inside a folder Windows cannot list.
+    /// Windows will not list it: it sits after a blank record in its
+    /// folder, in a folder Windows reports as corrupted, or inside a folder
+    /// Windows cannot list.
     pub hidden_from_windows: bool,
-    /// Windows may still list it: its folder holds a damaged record further
-    /// on, and how much of such a folder Windows lists before it gives up
-    /// depends on how many records it happens to read at a time.
+    /// ...but Windows still opens it when given its full path: it comes
+    /// before the damaged record of a folder Windows reports as corrupted.
+    /// (Windows looks a name up by reading the folder's records in order
+    /// until it finds it, so it never reaches the damage.)
     pub hidden_maybe: bool,
     pub why_hidden: String,
 }
@@ -398,8 +399,8 @@ const WHY_AFTER_BLANK: &str =
     "listed after a blank (never-read) record in its folder, so Windows stops before reaching it";
 const WHY_AFTER_DAMAGE: &str =
     "listed after a damaged record in its folder: Windows reports that folder as corrupted and stops there";
-const WHY_BEFORE_DAMAGE: &str = "its folder holds a damaged record further on, so Windows reports the folder \
-as corrupted and may not list this file either";
+const WHY_BEFORE_DAMAGE: &str = "its folder holds a damaged record further on, so Windows reports the whole \
+folder as corrupted and lists none of it (typing this file's full path still opens it)";
 
 /// How Windows itself gets on reading one folder's records, as measured on
 /// GitHub's Windows machines (tools/windows_check.py):
@@ -408,8 +409,10 @@ as corrupted and may not list this file either";
 ///     is listed, everything before it is;
 ///   * a damaged record (wrong checksum, broken structure, or a record type
 ///     that cannot be there) makes it report the whole folder as corrupted:
-///     nothing from there on is listed, and the records it read just before
-///     are often lost with it, because it reads them in batches.
+///     it lists nothing at all, although files before the damage still open
+///     when given their full path;
+///   * parts of a record whose first part is gone (deleted, or never there)
+///     are skipped, as are vendor and padding records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
     /// Windows reads the whole folder.
@@ -474,9 +477,10 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                 continue;
             }
             if t != 0x85 {
-                // Benign records any reader skips: vendor and padding records,
-                // and the top folder's bitmap, up-case table and label.
-                let benign = matches!(t, 0xA0..=0xBF | 0xE0..=0xFF) || (is_root && matches!(t, 0x81..=0x83));
+                // Records any reader skips: vendor and padding records, parts
+                // of a record whose first part is gone (Windows skips those,
+                // measured), and the top folder's bitmap, up-case table and label.
+                let benign = matches!(t, 0xA0..=0xFF) || (is_root && matches!(t, 0x81..=0x83));
                 if !benign && reading {
                     stop = Stop::Damaged(i);
                     issues.push(FolderIssue {
@@ -618,7 +622,11 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                 let (sub_hidden, sub_maybe, sub_why) = if dir_hidden && (!dir_maybe || entry.hidden_maybe) {
                     (true, dir_maybe, dir_why.clone())
                 } else if entry.hidden_from_windows {
-                    let how = if entry.hidden_maybe { "may not list" } else { "cannot list" };
+                    let how = if entry.hidden_maybe {
+                        "cannot list (typing the full path still opens it)"
+                    } else {
+                        "cannot list"
+                    };
                     (true, entry.hidden_maybe, format!("inside the folder {}, which Windows {how}", shown(&entry.path)))
                 } else {
                     (false, false, String::new())

@@ -1,6 +1,8 @@
 //! Recovery Probe - the program you double-click.
 
-use recovery_probe::cli::{run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_rescue, run_scan, ScanOpts};
+use recovery_probe::cli::{
+    run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_rescue, run_scan, ScanOpts, Status,
+};
 use recovery_probe::{APP, VERSION};
 
 const USAGE: &str = "\
@@ -63,10 +65,11 @@ struct MapOpts {
     earlier: Vec<String>,
     disk: String,
     out: String,
+    status: Option<String>,
 }
 
 fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
-    let (mut map, mut disk, mut out) = (None, None, None);
+    let (mut map, mut disk, mut out, mut status) = (None, None, None, None);
     let mut earlier = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -76,6 +79,7 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
             "--earlier-map" => earlier.push(val()?),
             "--disk" => disk = Some(val()?),
             "--out" => out = Some(val()?),
+            "--status" => status = Some(val()?),
             s => return Err(format!("unexpected argument {s}")),
         }
         i += 2;
@@ -85,12 +89,15 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
         earlier,
         disk: disk.ok_or("--disk is needed: the recovered disk, or a disk image")?,
         out: out.unwrap_or_else(|| "map-check".to_string()),
+        status,
     })
 }
 
-fn parse_rescue_opts(args: &[String]) -> Result<(String, String, recovery_probe::rescue::Pick, bool), String> {
+type RescueArgs = (String, String, recovery_probe::rescue::Pick, bool, Option<String>);
+
+fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
     use recovery_probe::rescue::Pick;
-    let (mut disk, mut out) = (None, None);
+    let (mut disk, mut out, mut status) = (None, None, None);
     let mut pick = Pick::Hidden;
     let mut paths = Vec::new();
     let mut lost = false;
@@ -110,6 +117,10 @@ fn parse_rescue_opts(args: &[String]) -> Result<(String, String, recovery_probe:
                 paths.push(val()?);
                 i += 1;
             }
+            "--status" => {
+                status = Some(val()?);
+                i += 1;
+            }
             "--everything" => pick = Pick::Everything,
             "--lost" => lost = true,
             s => return Err(format!("unexpected argument {s}")),
@@ -124,6 +135,7 @@ fn parse_rescue_opts(args: &[String]) -> Result<(String, String, recovery_probe:
         out.ok_or("--out is needed: a folder on another drive")?,
         pick,
         lost,
+        status,
     ))
 }
 
@@ -152,7 +164,7 @@ fn main() {
             }
         },
         Some("map-check") => match parse_map_opts(&args[1..]) {
-            Ok(o) => run_map_check(&o.map, &o.earlier, &o.disk, &o.out),
+            Ok(o) => run_map_check(&o.map, &o.earlier, &o.disk, &o.out, &Status::new(o.status)),
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
                 2
@@ -160,7 +172,7 @@ fn main() {
         },
         Some("list-disks") => run_list_disks(),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
-            Ok((disk, out, pick, lost)) => run_rescue(&disk, &out, pick, lost),
+            Ok((disk, out, pick, lost, status)) => run_rescue(&disk, &out, pick, lost, &Status::new(status)),
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
                 2

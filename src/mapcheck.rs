@@ -223,7 +223,7 @@ pub struct Item {
     pub ranges: Vec<(u64, u64, u64)>,
     pub chain_problem: Option<String>,
     pub hidden: bool,
-    /// Windows may still list it (see exfat::Entry::hidden_maybe).
+    /// Windows still opens it by its full path (see exfat::Entry::hidden_maybe).
     pub hidden_maybe: bool,
     pub why_hidden: String,
     pub content: Content,
@@ -747,7 +747,8 @@ pub fn analyse(
     // Can Windows see these paths? Only when the volume has a drive letter here.
     let drive = crate::sys::drive_for_serial(vol.serial);
     if let Some(d) = &drive {
-        let see = |p: &str| std::fs::metadata(format!("{d}\\{p}")).is_ok();
+        // Taken literally (\\?\\), so a name ending in a space or a dot is not trimmed.
+        let see = |p: &str| std::fs::metadata(format!(r"\\?\{d}\{p}")).is_ok();
         for it in items.iter_mut() {
             if !it.path.is_empty() {
                 it.can_see = Some(see(&it.path));
@@ -907,7 +908,7 @@ pub fn summary(r: &Report) -> Vec<String> {
         commas(r.hidden_files() as u64),
         commas((r.hidden.len() - r.hidden_files()) as u64),
         if r.hidden_maybe() > 0 {
-            format!(" (for {} of them: may not list)", commas(r.hidden_maybe() as u64))
+            format!(" ({} of them still open if you type their full path)", commas(r.hidden_maybe() as u64))
         } else {
             String::new()
         }
@@ -1005,7 +1006,11 @@ fn item_note(it: &Item) -> String {
         note.push_str(&format!("{p}. "));
     }
     if it.hidden {
-        let how = if it.hidden_maybe { "Windows may not list it" } else { "Windows cannot list it" };
+        let how = if it.hidden_maybe {
+            "Windows cannot list it (typing its full path still opens it)"
+        } else {
+            "Windows cannot list it"
+        };
         note.push_str(&format!("{how}: {}. ", it.why_hidden));
     }
     if it.record_unread {
@@ -1067,7 +1072,7 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
                 if e.is_dir { "FOLDER" } else { "FILE" }.to_string(),
                 e.path.clone(),
                 e.data_length.to_string(),
-                if e.hidden_maybe { "maybe" } else { "no" }.to_string(),
+                "no".to_string(),
                 yes_no(*see).to_string(),
                 e.why_hidden.clone(),
             ]));
@@ -1100,6 +1105,40 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
         write_bom(&p, &body)?;
         written.push(p.display().to_string());
     }
+
+    // For joining with a scan of the copies (join.rs).
+    let tsv_path = out_dir.join(crate::join::TSV_NAME);
+    let mut tsv = format!("{}\r\n", crate::join::TSV_HEADER);
+    for it in &r.items {
+        if it.path.is_empty() {
+            continue;
+        }
+        tsv.push_str(&crate::join::tsv_line(&crate::join::MapItem {
+            kind: if it.is_dir { "FOLDER" } else { "DAMAGED" }.to_string(),
+            path: it.path.clone(),
+            size: it.size,
+            damaged_bytes: it.damaged_bytes(),
+            first_damaged: it.ranges.iter().map(|r| r.0).min().unwrap_or(0),
+            only_past_end: it.only_past_valid_data(),
+            content: it.content.word().to_string(),
+            maybe: it.hidden_maybe,
+            ranges: ranges_text(&it.ranges),
+        }));
+    }
+    for (e, _) in &r.hidden {
+        if e.is_dir {
+            continue;
+        }
+        tsv.push_str(&crate::join::tsv_line(&crate::join::MapItem {
+            kind: "HIDDEN".to_string(),
+            path: e.path.clone(),
+            size: e.data_length,
+            maybe: e.hidden_maybe,
+            ..Default::default()
+        }));
+    }
+    std::fs::write(&tsv_path, tsv).map_err(|e| format!("could not write {}: {e}", tsv_path.display()))?;
+    written.push(tsv_path.display().to_string());
 
     let json_path = out_dir.join("map-check.json");
     std::fs::write(&json_path, to_json(r)).map_err(|e| format!("could not write {}: {e}", json_path.display()))?;

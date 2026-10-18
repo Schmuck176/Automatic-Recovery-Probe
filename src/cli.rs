@@ -175,30 +175,78 @@ pub fn run_probe_jsonl(target: &str, opts: &ScanOpts) -> i32 {
     0
 }
 
+/// Progress for whoever started this run: the front end starts the map
+/// check and the rescue as a separate copy of the program (Windows only
+/// lets a copy with administrator rights read a disk directly) and follows
+/// it through this file. Lines: "P progress", "S summary", then "OK" or
+/// "ERR why".
+pub struct Status {
+    path: Option<String>,
+}
+
+impl Status {
+    pub fn new(path: Option<String>) -> Status {
+        Status { path }
+    }
+    fn write(&self, kind: &str, text: &str) {
+        if let Some(p) = &self.path {
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                for line in text.lines() {
+                    let _ = writeln!(f, "{kind} {line}");
+                }
+                if text.is_empty() {
+                    let _ = writeln!(f, "{kind}");
+                }
+            }
+        }
+    }
+    pub fn progress(&self, text: &str) {
+        self.write("P", text);
+    }
+    pub fn summary(&self, text: &str) {
+        self.write("S", text);
+    }
+    pub fn amount(&self, done: u64, total: u64) {
+        self.write("A", &format!("{done} {total}"));
+    }
+    pub fn ok(&self) {
+        self.write("OK", "");
+    }
+    pub fn failed(&self, why: &str) {
+        self.write("ERR", &why.replace('\n', " "));
+    }
+}
+
 /// The console map check.
-pub fn run_map_check(map_path: &str, earlier: &[String], disk: &str, out_dir: &str) -> i32 {
+pub fn run_map_check(map_path: &str, earlier: &[String], disk: &str, out_dir: &str, status: &Status) -> i32 {
     let opts = crate::mapcheck::Options {
         map_path: map_path.to_string(),
         earlier_maps: earlier.to_vec(),
         disk: disk.to_string(),
         out_dir: out_dir.to_string(),
     };
-    let mut progress = |s: &str| println!("  {s}");
+    let mut progress = |s: &str| {
+        println!("  {s}");
+        status.progress(s);
+    };
     match crate::mapcheck::run(&opts, &mut progress) {
         Ok(report) => {
             println!();
             for line in crate::mapcheck::summary(&report) {
                 println!("{line}");
+                status.summary(&line);
             }
             println!();
             println!("Files written:");
             for w in &report.written {
                 println!("  {w}");
             }
+            status.ok();
             0
         }
         Err(e) => {
             println!("The map check could not finish: {e}");
+            status.failed(&e);
             1
         }
     }
@@ -285,46 +333,64 @@ pub fn run_map_info(map_path: &str) -> i32 {
 }
 
 /// Copy files straight off the recovered disk, past Windows.
-pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bool) -> i32 {
-    let opts = crate::rescue::Options { disk: disk.to_string(), out_dir: out_dir.to_string(), pick, lost };
-    let mut progress = |s: &str| println!("  {s}");
-    match crate::rescue::run(&opts, &mut progress) {
+pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bool, status: &Status) -> i32 {
+    let opts = crate::rescue::Options { disk: disk.to_string(), out_dir: out_dir.to_string(), pick, lost, stop: None };
+    let mut progress = |s: &str| {
+        println!("  {s}");
+        status.progress(s);
+    };
+    let say = |s: String| {
+        println!("{s}");
+        status.summary(&s);
+    };
+    let mut amount = |done: u64, total: u64| status.amount(done, total);
+    match crate::rescue::run(&opts, &mut progress, &mut amount) {
         Ok(o) => {
             println!();
-            println!(
+            say(format!(
                 "Copied {} files ({}) and {} folders into {}.",
                 commas(o.files),
                 crate::fmt::size(o.bytes),
                 commas(o.folders),
                 out_dir
-            );
+            ));
             if o.lost_pieces > 0 {
-                println!(
+                say(format!(
                     "Saved {} pieces of data no folder record names ({}) in \"lost data (no name)\".",
                     commas(o.lost_pieces),
                     crate::fmt::size(o.lost_bytes)
-                );
+                ));
             }
             if o.already_there > 0 {
-                println!("{} files were already in that folder and were left as they were.", commas(o.already_there));
+                say(format!("{} files were already in that folder and were left as they were.", commas(o.already_there)));
             }
             if !o.partial.is_empty() {
-                println!("{} files could only be copied in part (the missing parts are zeros):", commas(o.partial.len() as u64));
+                say(format!(
+                    "{} files could only be copied in part (the missing parts are zeros):",
+                    commas(o.partial.len() as u64)
+                ));
                 for (p, n) in o.partial.iter().take(10) {
-                    println!("  {p}: {n}");
+                    say(format!("  {p}: {n}"));
                 }
             }
             if !o.failed.is_empty() {
-                println!("{} could not be copied:", commas(o.failed.len() as u64));
+                say(format!("{} could not be copied:", commas(o.failed.len() as u64)));
                 for (p, n) in o.failed.iter().take(10) {
-                    println!("  {p}: {n}");
+                    say(format!("  {p}: {n}"));
                 }
             }
-            println!("The full list is in {}", o.log);
-            if o.failed.is_empty() { 0 } else { 1 }
+            say(format!("The full list is in {}", o.log));
+            if o.failed.is_empty() {
+                status.ok();
+                0
+            } else {
+                status.failed(&format!("{} files could not be copied (see the list)", o.failed.len()));
+                1
+            }
         }
         Err(e) => {
             println!("The rescue could not run: {e}");
+            status.failed(&e);
             1
         }
     }
