@@ -1,0 +1,133 @@
+// Drives the step-by-step page in a real browser (Chromium, through
+// Playwright) against `recovery-probe ui` started with a test disk image,
+// the way a person would: every step, start to finish. Takes screenshots.
+//
+//   node tools/ui_check.js <recovery-probe> <work folder> <test disk image> <mapfile>
+const { spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+let chromium;
+for (const p of ["playwright", "/home/claude/.npm-global/lib/node_modules/@playwright/mcp/node_modules/playwright"]) {
+  try { ({ chromium } = require(p)); break; } catch (e) { /* next */ }
+}
+const [exe, work, disk, mapfile] = process.argv.slice(2);
+const home = path.join(work, "home");
+fs.rmSync(work, { recursive: true, force: true });
+fs.mkdirSync(home, { recursive: true });
+fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
+const copyTo = path.join(work, "copies");
+const port = 47000 + Math.floor(Math.random() * 900);
+const key = "uitestkey0123456789abcdef";
+const results = [];
+const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
+
+(async () => {
+  const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
+    { stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  server.stdout.on("data", (d) => { out += d; });
+  for (let i = 0; i < 50 && !out.includes("http://"); i++) await new Promise((r) => setTimeout(r, 100));
+  const url = `http://127.0.0.1:${port}/${key}/`;
+  check(out.includes(url), "the program prints the page's address");
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1180, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  const shot = (name) => page.screenshot({ path: path.join(work, name + ".png"), fullPage: true });
+  const waitJob = async (step) => {
+    await page.waitForFunction((s) => {
+      const st = document.getElementById("st-" + s);
+      return st && /Done|Needs attention|Stopped/.test(st.textContent);
+    }, step, { timeout: 120000 });
+  };
+
+  // Someone without the key, or from another site, gets nothing.
+  const bad = await fetch(`http://127.0.0.1:${port}/wrongkey/api/state`).then((r) => r.status);
+  check(bad === 404, "a wrong key gets nothing (" + bad + ")");
+  const post = await fetch(url + "api/do", { method: "POST", body: "action=selftest" }).then((r) => r.status);
+  check(post === 403, "an action without the key header is refused (" + post + ")");
+
+  await page.goto(url);
+  await page.waitForSelector("#map-picture svg", { timeout: 10000 });
+  check((await page.textContent("#map-lead")).includes("never read"), "the map shows the unread places");
+  check(await page.isChecked("input[name=mapfile]"), "the mapfile in the program's folder is chosen by itself");
+  await shot("1-start");
+
+  // Step 1.
+  await page.click("#b-test");
+  await waitJob("test");
+  check((await page.textContent("#r-test")).includes("Every check passed"), "step 1: the self-test passes");
+
+  // Step 3: the test disk.
+  const diskRadio = page.locator("input[name=disk]").last();
+  await diskRadio.check();
+  await page.waitForFunction(() => /Test disk/.test(document.getElementById("st-connect").textContent), null, { timeout: 10000 });
+  check(true, "step 3: the test disk can be chosen");
+  check((await page.textContent("#connect")).includes("the copy ddrescue made"), "step 3: the test disk is recognised as the copy");
+
+  // Step 4.
+  await page.click("#b-check");
+  await waitJob("check");
+  const r4 = await page.textContent("#r-check");
+  check(r4.includes("files lost data") && r4.includes("IMG_0003.JPG"), "step 4: the damaged photo is named");
+  check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 4: files Windows cannot list are shown");
+  check((await page.locator("#map-legend").textContent()).includes("folder records"), "the map now says what each place held");
+  await shot("2-map-check");
+
+  // Step 5.
+  await page.fill("#copy-to", copyTo);
+  await page.click("#b-copy");
+  await waitJob("copy");
+  const r5 = await page.textContent("#r-copy");
+  const want = fs.readFileSync(path.join(__dirname, "..", "src", "selftest", "expected.tsv"), "utf8")
+    .split("\n").filter((l) => l.startsWith("FOUND\t") && l.split("\t")[2] === "0").length;
+  check(r5.includes(`Copied ${want} files`), `step 5: all ${want} files are copied (` + r5.slice(0, 60) + ")");
+  check(fs.existsSync(path.join(copyTo, "Photos", "Summer 2019_")), "step 5: a name Windows cannot use is made safe");
+  check(fs.existsSync(path.join(copyTo, "Documents", "letter 15.docx")), "step 5: a file Windows cannot list is copied");
+
+  // Step 6.
+  check((await page.inputValue("#scan-folder")) === copyTo, "step 6: the folder to check is the one step 5 copied into");
+  await page.click("#b-scan");
+  await waitJob("scan");
+  const r6 = await page.textContent("#r-scan");
+  check(r6.includes("NEVER_READ"), "step 6: the damaged photo is marked NEVER_READ");
+  await page.click("#r-scan details summary");
+  await shot("3-checked");
+
+  // Stopping a long job, and a job that cannot start.
+  await page.fill("#copy-to", "");
+  await page.click("#b-copy");
+  check((await page.textContent("#r-copy")).includes("Choose where the copies go first"), "an empty folder is refused with a reason");
+
+  // The state survives a restart of the program.
+  server.kill();
+  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 3500));
+  const server2 = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
+    { stdio: "ignore" });
+  await new Promise((r) => setTimeout(r, 800));
+  check((await page.textContent("#restore-banner")).includes("not running any more"), "while the program is closed, the page says so");
+  errors.length = 0; // (the page's own requests failed while it was closed)
+  await page.goto(url);
+  await page.waitForFunction(() => /Done/.test(document.getElementById("st-check").textContent), null, { timeout: 10000 });
+  check(true, "after closing and opening the program, step 4's results are still there");
+
+  // Phone-sized screen: nothing wider than the screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await page.waitForSelector("#map-picture svg");
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  check(wide <= 1, "on a phone-sized window nothing sticks out sideways (" + wide + " px)");
+  await shot("4-narrow");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await shot("5-dark");
+
+  check(errors.length === 0, "no errors in the page" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
+  await browser.close();
+  server2.kill();
+  const failed = results.filter((r) => !r[0]).length;
+  console.log(`Page checks: ${results.length - failed} of ${results.length} passed`);
+  process.exit(failed ? 1 : 0);
+})().catch((e) => { console.log("FAIL " + e); process.exit(1); });

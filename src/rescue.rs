@@ -328,15 +328,36 @@ pub fn rescue(
         }
     };
 
-    // First the totals, so the progress can say how far along it is.
-    let (mut total_files, mut total_bytes) = (0u64, 0u64);
+    // First the totals, so the progress can say how far along it is, and
+    // whether the copies fit. (Copies an earlier run made need no room.)
+    let resuming = std::fs::read_dir(&base).map(|mut r| r.next().is_some()).unwrap_or(false);
+    let (mut total_files, mut total_bytes, mut need_bytes, mut need_files) = (0u64, 0u64, 0u64, 0u64);
     walk(&vol, &mut |e: &Entry, _: &ClusterList| {
         if picked(e) && !e.is_dir {
             total_files += 1;
             total_bytes += e.valid_data_length.min(e.data_length);
+            let there = resuming
+                && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == e.data_length);
+            if !there {
+                need_files += 1;
+                need_bytes += e.data_length;
+            }
         }
     });
     progress(&format!("{} files to copy ({})", commas(total_files), size(total_bytes)));
+    if let Some(free) = crate::win::free_space(&base) {
+        // Each copy takes up at least a whole 4 KB cluster on the other drive.
+        let need = need_bytes + need_files * 4096;
+        if need > free {
+            return Err(format!(
+                "the copies need about {} but the drive {} is on has only {} free. Choose a folder on a drive with \
+                 more room.",
+                size(need),
+                out.display(),
+                size(free)
+            ));
+        }
+    }
     let mut done_bytes = 0u64;
     amount(0, total_bytes);
 

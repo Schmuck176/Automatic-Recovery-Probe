@@ -23,9 +23,11 @@ pub mod mapfile;
 pub mod probe;
 pub mod report;
 pub mod rescue;
+pub mod selftest;
 pub mod sqlite;
 pub mod sys;
 pub mod walk;
+pub mod web;
 pub mod win;
 
 pub const APP: &str = "Recovery Probe";

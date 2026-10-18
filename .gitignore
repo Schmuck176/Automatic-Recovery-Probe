@@ -6,3 +6,4 @@
 __pycache__/
 probe_selftest-output.txt
 /scratch
+node_modules/

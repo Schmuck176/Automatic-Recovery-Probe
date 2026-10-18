@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recovery Probe</title>
+<style>
+:root {
+  --paper: #eef1ef;
+  --sheet: #fbfcfb;
+  --ink: #16232a;
+  --ink-soft: #52616a;
+  --rule: #cfd7d3;
+  --read: #2e7d57;
+  --unread: #c03a2b;
+  --folder: #7b3fa0;
+  --quiet: #9aa7a1;
+  --act: #1b5a86;
+  --act-ink: #ffffff;
+  --act-hover: #154a6f;
+  --caution-bg: #fbefd3;
+  --caution-ink: #6f4a00;
+  --bad-bg: #f8e1dd;
+  --good-bg: #dcefe4;
+  --focus: #e09a00;
+  --head: "Bahnschrift", "DIN Alternate", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", "DejaVu Sans", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10181c; --sheet: #172127; --ink: #e4ebee; --ink-soft: #a3b1b7; --rule: #2b3a41;
+    --read: #5fb685; --unread: #ff6e5f; --folder: #c58ae8; --quiet: #5d6d74;
+    --act: #5aa8dd; --act-ink: #08131a; --act-hover: #7dbbe6;
+    --caution-bg: #3a2e12; --caution-ink: #f2cf83; --bad-bg: #3d1f1b; --good-bg: #173326; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10181c; --sheet: #172127; --ink: #e4ebee; --ink-soft: #a3b1b7; --rule: #2b3a41;
+  --read: #5fb685; --unread: #ff6e5f; --folder: #c58ae8; --quiet: #5d6d74;
+  --act: #5aa8dd; --act-ink: #08131a; --act-hover: #7dbbe6;
+  --caution-bg: #3a2e12; --caution-ink: #f2cf83; --bad-bg: #3d1f1b; --good-bg: #173326; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 16px/1.55 var(--body); font-variant-numeric: tabular-nums;
+}
+main { max-width: 880px; margin: 0 auto; padding: 28px 20px 160px; }
+h1, h2, h3 { font-family: var(--head); font-weight: 600; letter-spacing: 0.005em; line-height: 1.2; }
+h1 { font-size: 2.1rem; margin: 0; font-stretch: semi-condensed; }
+h2 { font-size: 1.32rem; margin: 0 0 4px; font-stretch: semi-condensed; }
+h3 { font-size: 1.02rem; margin: 18px 0 6px; }
+p { margin: 6px 0 10px; max-width: 68ch; }
+p, li, td, .msg { overflow-wrap: anywhere; }
+a { color: var(--act); }
+.soft { color: var(--ink-soft); }
+.small { font-size: 0.9rem; }
+code, .path { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 0.86em; word-break: break-all; }
+
+header.top { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; justify-content: space-between; }
+.rights { font-size: 0.92rem; padding: 3px 10px; border-radius: 4px; background: var(--good-bg); }
+.rights.no { background: var(--caution-bg); color: var(--caution-ink); }
+.banner { margin: 16px 0 0; padding: 12px 14px; border-radius: 6px; background: var(--caution-bg); color: var(--caution-ink); }
+.banner p { margin: 0 0 8px; }
+
+/* The map of the old drive: the one picture on the page. */
+.map { margin: 22px 0 8px; padding: 18px 18px 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+.map .lead { font-family: var(--head); font-size: 1.18rem; margin: 0 0 14px; max-width: none; }
+.map svg { display: block; width: 100%; height: auto; overflow: visible; }
+.map .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 0.86rem; color: var(--ink-soft); }
+.key { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+
+/* The steps: a sequence, so numbered and joined by a line. */
+ol.steps { list-style: none; margin: 26px 0 0; padding: 0; counter-reset: step; }
+ol.steps > li { position: relative; padding: 0 0 30px 58px; counter-increment: step; }
+ol.steps > li::before {
+  content: counter(step); position: absolute; left: 0; top: -2px; width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center; font: 600 1.1rem var(--head); background: var(--sheet); border: 2px solid var(--rule); color: var(--ink-soft);
+}
+ol.steps > li::after { content: ""; position: absolute; left: 19px; top: 40px; bottom: 4px; width: 2px; background: var(--rule); }
+ol.steps > li:last-child::after { display: none; }
+ol.steps > li.done::before { content: "\2713"; background: var(--read); border-color: var(--read); color: #fff; }
+ol.steps > li.problem::before { background: var(--unread); border-color: var(--unread); color: #fff; }
+ol.steps > li.running::before { border-color: var(--act); color: var(--act); }
+.step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.state { font-size: 0.86rem; color: var(--ink-soft); }
+.state.done { color: var(--read); }
+.state.problem { color: var(--unread); }
+
+.panel { margin-top: 10px; padding: 14px 16px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+.panel.quiet { background: transparent; border-style: dashed; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0 0; }
+button {
+  font: 600 0.98rem var(--body); padding: 9px 16px; border-radius: 6px; border: 1px solid var(--act);
+  background: var(--act); color: var(--act-ink); cursor: pointer;
+}
+button:hover { background: var(--act-hover); border-color: var(--act-hover); }
+button.second { background: transparent; color: var(--act); }
+button.second:hover { background: color-mix(in srgb, var(--act) 10%, transparent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, label:focus-within {
+  outline: 3px solid var(--focus); outline-offset: 2px;
+}
+input[type=text] {
+  font: 0.95rem var(--body); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); color: var(--ink); min-width: 0; flex: 1 1 320px;
+}
+label.check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; max-width: 68ch; }
+label.check input { margin-top: 5px; }
+.choices { display: grid; gap: 8px; margin-top: 10px; }
+.choice { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; background: var(--paper); }
+.choice input { grid-row: span 3; margin-top: 4px; }
+.choice.match { border-color: var(--read); }
+.choice.system { cursor: default; opacity: 0.7; }
+.tag { display: inline-block; font-size: 0.8rem; padding: 0 7px; border-radius: 3px; background: var(--paper); border: 1px solid var(--rule); margin-left: 6px; white-space: nowrap; }
+.tag.ok { background: var(--good-bg); border-color: transparent; }
+.tag.warn { background: var(--caution-bg); color: var(--caution-ink); border-color: transparent; }
+.msg { margin: 10px 0 0; padding: 9px 12px; border-radius: 6px; }
+.msg.ok { background: var(--good-bg); }
+.msg.err { background: var(--bad-bg); }
+.msg.warn { background: var(--caution-bg); color: var(--caution-ink); }
+.figures { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 4px 0 6px; }
+.figure b { display: block; font: 600 1.55rem var(--head); }
+.figure span { font-size: 0.88rem; color: var(--ink-soft); }
+.figure.bad b { color: var(--unread); }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin-top: 8px; }
+th, td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-soft); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--act); font-weight: 600; }
+pre.report { white-space: pre-wrap; font: 0.82rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; background: var(--paper); padding: 10px 12px; border-radius: 6px; max-height: 420px; overflow: auto; }
+.scroll { max-height: 340px; overflow: auto; }
+ul.groups { list-style: none; margin: 8px 0 0; padding: 0; }
+ul.groups li { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+ul.groups li:last-child { border-bottom: 0; }
+
+/* The job running now. */
+#job { position: fixed; left: 0; right: 0; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); box-shadow: 0 -6px 24px rgb(0 0 0 / 0.08); }
+#job .inner { max-width: 880px; margin: 0 auto; padding: 12px 20px 14px; }
+#job .line1 { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+#job .title { font: 600 1.05rem var(--head); }
+.bar { height: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; margin: 8px 0 6px; }
+.bar > div { height: 100%; width: 0; background: var(--act); transition: width 0.4s ease; }
+.bar.unknown > div { width: 30%; animation: slide 1.6s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+#job .last { font-size: 0.88rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+dialog { border: 1px solid var(--rule); border-radius: 10px; padding: 0; width: min(720px, calc(100vw - 32px)); background: var(--sheet); color: var(--ink); }
+dialog::backdrop { background: rgb(10 20 25 / 0.45); }
+dialog .dhead { padding: 14px 16px 8px; border-bottom: 1px solid var(--rule); }
+dialog .dbody { padding: 8px 16px; max-height: 55vh; overflow: auto; }
+dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.entry { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font: 0.95rem var(--body); cursor: pointer; }
+.entry:hover { background: var(--paper); }
+.entry .soft { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; } }
+@media (max-width: 560px) {
+  main { padding: 18px 16px 170px; }
+  ol.steps > li { padding-left: 46px; }
+  ol.steps > li::before { width: 32px; height: 32px; font-size: 1rem; }
+  ol.steps > li::after { left: 16px; top: 34px; }
+  h1 { font-size: 1.7rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>Recovery Probe</h1>
+    <span id="rights" class="rights">…</span>
+  </header>
+  <p class="soft small" id="version"></p>
+  <div id="restore-banner" role="status"></div>
+
+  <section class="map" aria-labelledby="map-lead">
+    <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
+    <div id="map-picture"></div>
+    <div class="legend" id="map-legend"></div>
+  </section>
+
+  <ol class="steps">
+    <li id="s-test">
+      <div class="step-head"><h2>Check the program works on this PC</h2><span class="state" id="st-test"></span></div>
+      <p>The program checks itself on sample files and a small damaged test disk it carries, where every right answer is known. It takes a few seconds and touches nothing of yours.</p>
+      <div class="row"><button id="b-test">Run the self-test</button></div>
+      <div id="r-test"></div>
+    </li>
+
+    <li id="s-map">
+      <div class="step-head"><h2>Your ddrescue mapfile</h2><span class="state" id="st-map"></span></div>
+      <p>The mapfile is the small file ddrescue wrote while it copied the old drive. It lists every place on the drive it could not read. If there was more than one attempt, choose the last one.</p>
+      <div id="map-choices" class="choices"></div>
+      <div class="row"><button class="second" id="b-mapfile">Choose another file…</button></div>
+      <div id="r-map"></div>
+    </li>
+
+    <li id="s-connect">
+      <div class="step-head"><h2>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
+      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off, the program marks it read-only, and Windows' setting goes back to normal.</p>
+      <div id="connect"></div>
+    </li>
+
+    <li id="s-check">
+      <div class="step-head"><h2>See what the damage touched</h2><span class="state" id="st-check"></span></div>
+      <p>The program reads the recovered SSD directly (it never writes to it) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list.</p>
+      <div class="row"><button id="b-check">Find what the damage touched</button></div>
+      <div id="r-check"></div>
+    </li>
+
+    <li id="s-copy">
+      <div class="step-head"><h2>Copy everything off the SSD</h2><span class="state" id="st-copy"></span></div>
+      <p>Every file and folder is copied straight off the SSD into a folder on another drive: also the files Windows cannot list, and the data no folder names any more. Choose an empty folder on a drive with room for everything, such as <code>SPARE\WORK</code>.</p>
+      <div class="row">
+        <input type="text" id="copy-to" aria-label="Copy everything into this folder" placeholder="For example E:\WORK">
+        <button class="second" id="b-copy-to">Choose…</button>
+      </div>
+      <p class="small soft" id="copy-space"></p>
+      <label class="check"><input type="checkbox" id="copy-lost" checked> <span>Also save the data no folder names any more, each piece as its own file in “lost data (no name)”. These are usually files whose folder record was lost.</span></label>
+      <div class="row"><button id="b-copy">Start copying</button></div>
+      <div id="r-copy"></div>
+    </li>
+
+    <li id="s-scan">
+      <div class="step-head"><h2>Check every copied file</h2><span class="state" id="st-scan"></span></div>
+      <p>Every file’s structure is read to find damage that looks fine on screen: a photo cut short, a block of zeros where the drive could not be read. With the results of step 4, a file the drive lost data from is marked <b>NEVER_READ</b> even when it looks fine.</p>
+      <div class="row">
+        <input type="text" id="scan-folder" aria-label="Check the files in this folder" placeholder="The folder the copies went into">
+        <button class="second" id="b-scan-folder">Choose…</button>
+      </div>
+      <label class="check"><input type="checkbox" id="scan-holes" checked> <span>Look for holes: blocks of zeros where the drive could not be read (slower: every byte is read).</span></label>
+      <label class="check"><input type="checkbox" id="scan-join" checked> <span>Use what step 4 found.</span></label>
+      <div class="row"><button id="b-scan">Check every copied file</button></div>
+      <div id="r-scan"></div>
+    </li>
+
+    <li id="s-finish">
+      <div class="step-head"><h2>Finish</h2><span class="state" id="st-finish"></span></div>
+      <div id="finish"></div>
+    </li>
+  </ol>
+</main>
+
+<div id="job" hidden>
+  <div class="inner">
+    <div class="line1"><span class="title" id="job-title"></span><span class="small soft" id="job-numbers"></span></div>
+    <div class="bar" id="job-bar"><div></div></div>
+    <div class="line1"><span class="last" id="job-last"></span><button class="second" id="b-stop">Stop</button></div>
+  </div>
+</div>
+
+<dialog id="picker" aria-labelledby="picker-title">
+  <div class="dhead">
+    <h2 id="picker-title">Choose a folder</h2>
+    <div class="row"><input type="text" id="picker-path" aria-label="Folder"><button class="second" id="picker-go">Go</button></div>
+  </div>
+  <div class="dbody" id="picker-list"></div>
+  <div class="dfoot">
+    <button class="second" id="picker-up">Up</button>
+    <button class="second" id="picker-cancel">Cancel</button>
+    <button id="picker-ok">Choose this folder</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const KEY = "__KEY__";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const commas = (n) => Number(n || 0).toLocaleString("en-GB");
+function size(n) {
+  n = Number(n || 0);
+  if (n >= 1e12) return (n / 1e12).toFixed(2) + " TB";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + " GB";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
+  if (n >= 1e3) return Math.round(n / 1e3) + " KB";
+  return n + " bytes";
+}
+function duration(s) {
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + " s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + " min " + (s % 60) + " s";
+  return Math.floor(m / 60) + " h " + (m % 60) + " min";
+}
+async function get(path) {
+  const r = await fetch(path, { cache: "no-store" });
+  return r.json();
+}
+async function act(fields) {
+  const r = await fetch("api/do", {
+    method: "POST",
+    headers: { "X-Key": KEY, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "something went wrong");
+  return j;
+}
+function lines(arr) { return (arr || []).map(esc).join("\n"); }
+
+let S = null;          // the program's state
+let mapInfo = null;    // the chosen mapfile, read
+let disks = [];        // the disks, last asked
+let mapfiles = null;   // mapfiles found in the program's folder
+let lastJobId = 0;
+const notes = {};      // short messages per step, from actions
+
+function setting(k) { return (S && S.settings && S.settings[k]) || ""; }
+async function save(fields) { await act(Object.assign({ action: "set" }, fields)); await refresh(); }
+function lastOf(kind) {
+  if (!S) return null;
+  if (S.job && S.job.kind === kind) return S.job;
+  return (S.last && S.last[kind]) || null;
+}
+function stateText(j) {
+  if (!j) return ["", ""];
+  if (j.state === "running") return ["running", "Running…"];
+  if (j.state === "done") return ["done", "Done " + (j.started_at || "")];
+  if (j.state === "stopped") return ["problem", "Stopped " + (j.started_at || "")];
+  return ["problem", "Needs attention"];
+}
+function setStep(id, cls, text) {
+  const li = $("s-" + id);
+  li.classList.remove("done", "problem", "running");
+  if (cls) li.classList.add(cls);
+  const st = $("st-" + id);
+  st.className = "state " + (cls || "");
+  st.textContent = text || "";
+}
+function note(step, kind, text) { notes[step] = text ? { kind, text } : null; render(); }
+function noteHtml(step) {
+  const n = notes[step];
+  return n ? `<div class="msg ${n.kind}">${esc(n.text)}</div>` : "";
+}
+function busy() { return S && S.job && S.job.state === "running"; }
+
+// ------------------------------------------------------------ the map
+
+function drawMap() {
+  const lead = $("map-lead"), pic = $("map-picture"), legend = $("map-legend");
+  if (!mapInfo || !mapInfo.ok) {
+    lead.textContent = mapInfo && mapInfo.error ? "The mapfile could not be read: " + mapInfo.error
+      : "Choose the mapfile in step 2 to see where the old drive was damaged.";
+    pic.innerHTML = ""; legend.innerHTML = ""; return;
+  }
+  const m = mapInfo, end = m.domain_end || 1, start = m.domain_start || 0, span = Math.max(1, end - start);
+  const check = lastOf("mapcheck");
+  const hits = check && check.state === "done" && check.data ? check.data.areas : null;
+  const areas = m.areas;
+  if (!areas.length) {
+    lead.textContent = `ddrescue read all ${size(span)} of the drive: nothing was left unread.`;
+  } else {
+    lead.textContent = `ddrescue never read ${commas(m.bad_bytes)} bytes of this ${size(span)} drive, in ${commas(m.bad_count)} places` +
+      ` — all between ${size(areas[0][0])} and ${size(areas[areas.length - 1][1])}.`;
+  }
+  const W = 1000, H1 = 34, gap = 46, H2 = 34;
+  const x = (v) => ((v - start) / span) * W;
+  let lo = areas.length ? areas[0][0] : start, hi = areas.length ? areas[areas.length - 1][1] : end;
+  const pad = Math.max((hi - lo) * 0.04, span * 0.002);
+  lo = Math.max(start, lo - pad); hi = Math.min(end, hi + pad);
+  const zx = (v) => ((v - lo) / Math.max(1, hi - lo)) * W;
+  const colour = (i) => {
+    if (!hits || !hits[i]) return "var(--unread)";
+    const what = hits[i][3] || "";
+    if (/folder records/.test(what)) return "var(--folder)";
+    if (/free|no files|unused|outside any partition/.test(what) && !/ of /.test(what.replace(/the folder records of/, ""))) return "var(--quiet)";
+    return "var(--unread)";
+  };
+  let marks = "", zmarks = "";
+  areas.forEach((a, i) => {
+    const w = Math.max(2, x(a[1]) - x(a[0]));
+    marks += `<rect x="${x(a[0]).toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${H1}" fill="${colour(i)}"><title>${esc(size(a[0]))}: ${commas(a[1] - a[0])} bytes never read</title></rect>`;
+    const zw = Math.max(1.5, zx(a[1]) - zx(a[0]));
+    const tip = hits && hits[i] && hits[i][3] ? " — " + hits[i][3] : "";
+    zmarks += `<rect x="${zx(a[0]).toFixed(2)}" y="${H1 + gap}" width="${zw.toFixed(2)}" height="${H2}" fill="${colour(i)}"><title>${esc(commas(a[0]))}: ${commas(a[1] - a[0])} bytes never read${esc(tip)}</title></rect>`;
+  });
+  const showZoom = areas.length && (hi - lo) < span * 0.6;
+  const vb = showZoom ? H1 + gap + H2 + 22 : H1 + 22;
+  let svg = `<svg viewBox="-2 -2 ${W + 4} ${vb + 4}" role="img" aria-label="The drive from start to end, with the places ddrescue never read marked">`;
+  svg += `<rect x="0" y="0" width="${W}" height="${H1}" rx="3" fill="var(--read)" opacity="0.85"></rect>${marks}`;
+  svg += `<text x="0" y="${H1 + 16}" font-size="13" fill="var(--ink-soft)">start</text>`;
+  svg += `<text x="${W}" y="${H1 + 16}" font-size="13" fill="var(--ink-soft)" text-anchor="end">${esc(size(end))}</text>`;
+  if (showZoom) {
+    svg += `<path d="M${x(lo).toFixed(1)},${H1 + 3} L0,${H1 + gap - 3} M${x(hi).toFixed(1)},${H1 + 3} L${W},${H1 + gap - 3}" stroke="var(--ink-soft)" stroke-width="1" fill="none" stroke-dasharray="3 3"></path>`;
+    svg += `<rect x="0" y="${H1 + gap}" width="${W}" height="${H2}" rx="3" fill="var(--read)" opacity="0.85"></rect>${zmarks}`;
+    svg += `<text x="0" y="${H1 + gap + H2 + 16}" font-size="13" fill="var(--ink-soft)">${esc(size(lo))}</text>`;
+    svg += `<text x="${W}" y="${H1 + gap + H2 + 16}" font-size="13" fill="var(--ink-soft)" text-anchor="end">${esc(size(hi))}</text>`;
+    svg += `<text x="${W / 2}" y="${H1 + gap + H2 + 16}" font-size="13" fill="var(--ink-soft)" text-anchor="middle">enlarged</text>`;
+  }
+  svg += "</svg>";
+  pic.innerHTML = svg;
+  let leg = `<span><i class="key" style="background:var(--read)"></i>read</span>`;
+  if (hits) {
+    leg += `<span><i class="key" style="background:var(--unread)"></i>never read: in a file</span>`;
+    leg += `<span><i class="key" style="background:var(--folder)"></i>never read: in folder records</span>`;
+    leg += `<span><i class="key" style="background:var(--quiet)"></i>never read: free space (nothing lost)</span>`;
+  } else {
+    leg += `<span><i class="key" style="background:var(--unread)"></i>never read (step 4 shows what each place held)</span>`;
+  }
+  legend.innerHTML = leg;
+}
+
+// ------------------------------------------------------------ steps
+
+function renderTop() {
+  const r = $("rights");
+  if (S.elevated) { r.className = "rights"; r.textContent = "Running with administrator rights"; }
+  else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 5 cannot run"; }
+  $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
+  const b = $("restore-banner");
+  if (S.policy_to_restore) {
+    b.innerHTML = `<div class="banner"><p>Windows is still set to leave newly plugged-in disks switched off (step 3 changed this). Put it back once the recovered SSD is protected.</p>
+      <button id="b-restore-top">Put Windows' setting back</button>${noteHtml("restore")}</div>`;
+    $("b-restore-top").onclick = restorePolicy;
+  } else b.innerHTML = "";
+}
+
+function renderTest() {
+  const j = lastOf("selftest");
+  const [cls, text] = stateText(j);
+  setStep("test", j && j.state === "done" ? "done" : cls, text);
+  $("b-test").disabled = busy();
+  let h = noteHtml("test");
+  if (j && j.state !== "running") {
+    const ok = j.state === "done";
+    h += `<div class="msg ${ok ? "ok" : "err"}">${esc((j.summary || [])[0] || j.error)}</div>`;
+    if ((j.summary || []).length > 1) h += `<details><summary>What was checked</summary><pre class="report">${lines(j.summary.slice(1))}</pre></details>`;
+  }
+  $("r-test").innerHTML = h;
+}
+
+function renderMapStep() {
+  const chosen = setting("mapfile");
+  let h = "";
+  if (mapfiles && mapfiles.length) {
+    mapfiles.forEach((m, i) => {
+      const name = m.path.split(/[\\/]/).pop();
+      h += `<label class="choice"><input type="radio" name="mapfile" value="${esc(m.path)}" ${m.path === chosen ? "checked" : ""}>
+        <span><b>${esc(name)}</b>${m.finished ? "" : '<span class="tag warn">stopped before the end</span>'}</span>
+        <span class="small soft">${esc(size(m.disk_size))} drive; ${commas(m.bad_bytes)} bytes never read</span>
+        <span class="small soft path">${esc(m.path)}</span></label>`;
+    });
+  } else if (mapfiles) {
+    h = `<p class="soft">No mapfile was found in ${esc(S.home)}. Put a copy of it there, or choose it below.</p>`;
+  }
+  if (chosen && !(mapfiles || []).some((m) => m.path === chosen)) {
+    h += `<label class="choice"><input type="radio" name="mapfile" value="${esc(chosen)}" checked>
+      <span><b>${esc(chosen.split(/[\\/]/).pop())}</b></span><span class="small soft path">${esc(chosen)}</span></label>`;
+  }
+  const box = $("map-choices");
+  if (box.dataset.html !== h) {
+    box.innerHTML = h; box.dataset.html = h;
+    box.querySelectorAll("input[name=mapfile]").forEach((r) => r.onchange = () => chooseMapfile(r.value));
+  }
+  let r = noteHtml("map");
+  if (mapInfo && mapInfo.ok) {
+    const m = mapInfo;
+    r += `<div class="panel"><div class="figures">
+      <div class="figure bad"><b>${commas(m.bad_bytes)}</b><span>bytes never read</span></div>
+      <div class="figure"><b>${commas(m.bad_count)}</b><span>places</span></div>
+      <div class="figure"><b>${esc(size(m.median))}</b><span>typical place (largest ${esc(size(m.largest))})</span></div>
+      <div class="figure"><b>${esc(size(m.domain_end - m.domain_start))}</b><span>drive copied</span></div></div>
+      <p class="small soft">${m.finished ? "ddrescue finished." : "<b>ddrescue was stopped before the end</b>: the parts it never reached count as never read."}
+      Started ${esc(m.start_time || "?")}, last saved ${esc(m.current_time || "?")}${m.version ? ", ddrescue " + esc(m.version) : ""}.</p>
+      ${(m.by_status || []).map((s) => `<span class="tag">${commas(s.count)} ${esc(s.name)} (${commas(s.bytes)} bytes)</span>`).join(" ")}
+      ${(m.warnings || []).map((w) => `<div class="msg warn">${esc(w)}</div>`).join("")}</div>`;
+    setStep("map", "done", "Chosen");
+  } else if (mapInfo && !mapInfo.ok) {
+    r += `<div class="msg err">${esc(mapInfo.error)}</div>`;
+    setStep("map", "problem", "Needs attention");
+  } else setStep("map", "", "");
+  $("r-map").innerHTML = r;
+}
+
+function diskLine(d) {
+  const det = d.detail || {};
+  const bits = [];
+  if (d.model) bits.push(esc(d.model));
+  bits.push(esc(size(d.size)));
+  if (d.bus) bits.push(esc(d.bus));
+  let tags = "";
+  if (d.system) tags += '<span class="tag">Windows itself</span>';
+  if (det.matches_mapfile) tags += '<span class="tag ok">the copy ddrescue made</span>';
+  if (d.read_only) tags += '<span class="tag ok">read-only</span>';
+  else if (d.read_only === false && !d.system) tags += '<span class="tag warn">can be written to</span>';
+  if (d.offline) tags += '<span class="tag">switched off</span>';
+  let what = "";
+  if (det.volume) what = `exFAT volume “${esc(det.volume.label)}”, ${esc(size(det.volume.size))}`;
+  else if (d.drives && d.drives.length) what = d.drives.map((v) => `${esc(v.letter)} ${esc(v.label)} (${esc(v.fs)})`).join(", ");
+  if (det.table_disk_size) what += `${what ? "; " : ""}partition table made for a ${commas(det.table_disk_size)}-byte drive`;
+  if (det.error) what += `${what ? "; " : ""}${esc(det.error)}`;
+  return { title: `Disk ${d.number}: ${bits.join(", ")}`, tags, what };
+}
+
+function renderConnect() {
+  const el = $("connect");
+  const chosen = setting("disk");
+  const prepared = !!S.policy_to_restore;
+  const protectedDisk = disks.find((d) => d.spec === chosen && d.read_only);
+  let h = "";
+  if (!S.elevated) {
+    h += `<div class="msg warn">This step needs administrator rights. Close Recovery Probe's window, double-click the program again and click <b>Yes</b> when Windows asks.</div>`;
+  } else {
+    h += `<div class="panel"><h3 style="margin-top:0">If the recovered SSD is not plugged in yet</h3>
+      <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
+      <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>Get Windows ready</button>
+      ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>${noteHtml("prepare")}</div>`;
+  }
+  const list = disks;
+  if (list.length) {
+    h += `<h3>Disks this PC can see</h3><div class="choices" id="disk-list">`;
+    list.forEach((d) => {
+      const l = diskLine(d);
+      const match = d.detail && d.detail.matches_mapfile;
+      h += `<label class="choice ${match ? "match" : ""} ${d.system ? "system" : ""}"><input type="radio" name="disk" value="${esc(d.spec)}" ${d.spec === chosen ? "checked" : ""} ${d.system ? "disabled" : ""}>
+        <span><b>${l.title}</b>${l.tags}</span><span class="small soft">${l.what || "&nbsp;"}</span><span></span></label>`;
+    });
+    h += `</div>`;
+  } else {
+    h += `<p class="soft">${S.windows ? "No disks found yet." : "Disks are only listed on Windows."}</p>`;
+  }
+  const sel = disks.find((d) => d.spec === chosen);
+  if (sel && !sel.test && S.elevated) {
+    h += `<div class="row">`;
+    if (!sel.read_only) h += `<button id="b-protect">Protect disk ${sel.number}</button>`;
+    else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
+    else h += `<button class="second" id="b-offline">Switch it off</button>`;
+    h += `</div>`;
+    if (sel.read_only === false && !sel.offline) {
+      h += `<p class="small soft">It is switched on and Windows can write to it. Protecting it marks it read-only and switches it off and on again, so Windows uses it read-only from then on.</p>`;
+    }
+  }
+  h += noteHtml("connect");
+  if (sel && sel.read_only) setStep("connect", "done", sel.test ? "Test disk" : "Protected");
+  else if (sel) setStep("connect", "", "Not protected yet");
+  else setStep("connect", "", "");
+  void protectedDisk;
+  if (el.dataset.html !== h) {
+    el.innerHTML = h; el.dataset.html = h;
+    el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => save({ disk: r.value }).then(loadDisks));
+    if ($("b-prepare")) $("b-prepare").onclick = prepare;
+    if ($("b-protect")) $("b-protect").onclick = () => protect(sel);
+    if ($("b-online")) $("b-online").onclick = () => switchDisk(sel, true);
+    if ($("b-offline")) $("b-offline").onclick = () => switchDisk(sel, false);
+  }
+}
+
+function figure(n, label, bad) { return `<div class="figure ${bad && n > 0 ? "bad" : ""}"><b>${commas(n)}</b><span>${esc(label)}</span></div>`; }
+
+function renderCheck() {
+  const j = lastOf("mapcheck");
+  const [cls, text] = stateText(j);
+  setStep("check", cls, text);
+  $("b-check").disabled = busy() || !setting("mapfile") || !setting("disk");
+  let h = noteHtml("check");
+  if (j && j.state !== "running") {
+    if (j.state !== "done") h += `<div class="msg err">${esc(j.error || "It did not finish.")}</div>`;
+    const d = j.data;
+    if (d) {
+      h += `<div class="panel"><div class="figures">
+        ${figure(d.files_losing_data, "files lost data", true)}
+        ${figure(d.hidden_files, "files Windows cannot list", true)}
+        ${figure(d.folders_affected, "folders damaged", true)}
+        <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
+        <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD</span></div></div>`;
+      if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
+      if (d.files && d.files.length) {
+        h += `<h3>Files that lost data</h3><div class="scroll"><table><tr><th>File</th><th class="num">Size</th><th class="num">Never read</th></tr>` +
+          d.files.slice(0, 300).map((f) => `<tr><td class="path">${esc(f.path)}${f.hidden ? ' <span class="tag warn">Windows cannot list it</span>' : ""}</td><td class="num">${esc(size(f.size))}</td><td class="num">${commas(f.damaged)} bytes</td></tr>`).join("") +
+          `</table></div>${d.files_losing_data > 300 ? `<p class="small soft">…and ${commas(d.files_losing_data - 300)} more, in map-check-damaged.csv.</p>` : ""}`;
+      }
+      if (d.hidden_groups && d.hidden_groups.length) {
+        const count = (g) => [g.files ? `${commas(g.files)} file${g.files === 1 ? "" : "s"}` : "", g.folders ? `${commas(g.folders)} folder${g.folders === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
+        h += `<h3>What Windows cannot list</h3><p class="small">Copying with File Explorer or TeraCopy would leave these behind without a word. Step 5 copies them.</p><ul class="groups scroll">` +
+          d.hidden_groups.map((g) => `<li><b>${g.where ? esc(g.where) + ": " : ""}${esc(count(g))}</b>${g.by_path ? ' <span class="tag">open if you type the full path</span>' : ""}<br>
+            <span class="small">${esc(g.why.charAt(0).toUpperCase() + g.why.slice(1))}.</span><br><span class="small soft">For example ${esc(g.examples.join(", "))}${g.files + g.folders > g.examples.length ? "…" : ""}</span></li>`).join("") + `</ul>`;
+      }
+      h += `</div>`;
+    }
+    if (j.summary && j.summary.length) h += `<details><summary>The full report</summary><pre class="report">${lines(j.summary)}</pre></details>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the results folder</button></div>`;
+  }
+  $("r-check").innerHTML = h;
+}
+
+function renderCopy() {
+  const j = lastOf("rescue");
+  const [cls, text] = stateText(j);
+  setStep("copy", cls, text);
+  $("b-copy").disabled = busy() || !setting("disk");
+  const inp = $("copy-to");
+  if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("copy_to");
+  let h = noteHtml("copy");
+  if (j && j.state !== "running") {
+    if (j.state === "failed") h += `<div class="msg err">${esc(j.error)}</div>`;
+    if (j.state === "stopped") h += `<div class="msg warn">Stopped before the end. Start it again to copy the rest: what is already copied is kept.</div>`;
+    if (j.summary && j.summary.length) h += `<div class="panel">${j.summary.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
+      ${j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the folder</button>${j.outputs[1] ? `<button class="second" data-open="${esc(j.outputs[1])}">Show the list of every file</button>` : ""}</div>` : ""}</div>`;
+  }
+  $("r-copy").innerHTML = h;
+}
+
+const MEANING = {
+  NEVER_READ: "ddrescue never read part of it (step 4): those bytes are zeros or leftovers, even if it looks fine",
+  TRUNCATED: "ends before its own format says it should",
+  HOLE: "a block of zeros shaped like unread disk sectors",
+  MISMATCH: "its contents do not match its name, or its start was never read",
+  DB_DAMAGED: "a Photos Library database that fails its own check",
+  UNREADABLE: "could not be read at all",
+};
+
+function renderScan() {
+  const j = lastOf("scan");
+  const [cls, text] = stateText(j);
+  setStep("scan", cls, text);
+  $("b-scan").disabled = busy();
+  const inp = $("scan-folder");
+  if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("scan_folder") || setting("copy_to");
+  const joinBox = $("scan-join");
+  const canJoin = !!setting("last_map_check");
+  if (joinBox.disabled === canJoin) {
+    joinBox.disabled = !canJoin;
+    if (!joinBox.dataset.touched) joinBox.checked = canJoin;
+  }
+  let h = noteHtml("scan");
+  if (j && j.state !== "running") {
+    if (j.state === "failed") h += `<div class="msg err">${esc(j.error)}</div>`;
+    const d = j.data;
+    if (d) {
+      const c = d.counts || {};
+      const damaged = ["NEVER_READ", "TRUNCATED", "HOLE", "MISMATCH", "DB_DAMAGED", "UNREADABLE"].reduce((a, k) => a + (c[k] || 0), 0);
+      h += `<div class="panel"><div class="figures">${figure(damaged, "damaged files", true)}${figure(c.OK, "clean")}${figure(c.SKIPPED, "not testable here")}${figure(d.scanned, "files checked")}</div>`;
+      const kinds = Object.keys(MEANING).filter((k) => c[k]);
+      if (kinds.length) h += `<table><tr><th>Verdict</th><th class="num">Files</th><th>Meaning</th></tr>${kinds.map((k) => `<tr><td><b>${k}</b></td><td class="num">${commas(c[k])}</td><td class="small">${esc(MEANING[k])}</td></tr>`).join("")}</table>`;
+      if (c.SKIPPED) h += `<p class="small soft">“Not testable” is mostly HEIC photos and camera RAW files: nothing on Windows can check them fully, so the program refuses to call them fine. The Mac checks those later.</p>`;
+      if (d.libraries && d.libraries.length) {
+        h += `<h3>Photos Libraries found</h3><p class="small">Never point a duplicate finder at one of these. The checklist moves them out of the way next.</p><table><tr><th>Library</th><th class="num">Photos</th><th class="num">Damaged inside</th></tr>` +
+          d.libraries.map((l) => `<tr><td class="path">${esc(l.path)}${l.placeholders ? ' <span class="tag warn">probably iCloud stand-ins</span>' : ""}</td><td class="num">${commas(l.originals)}</td><td class="num">${commas(l.damaged)}</td></tr>`).join("") + `</table>`;
+      }
+      if (d.flagged && d.flagged.length) {
+        h += `<details><summary>The damaged files (${commas(d.flagged_total)})</summary><div class="scroll"><table><tr><th>Verdict</th><th>File</th></tr>` +
+          d.flagged.slice(0, 500).map((r) => `<tr><td><b>${esc(r.verdict)}</b></td><td><span class="path">${esc(r.path)}</span><br><span class="small soft">${esc(r.detail)}</span></td></tr>`).join("") + `</table></div></details>`;
+      }
+      h += `</div>`;
+    }
+    if (j.summary && j.summary.length) h += `<details><summary>The full summary</summary><pre class="report">${lines(j.summary)}</pre></details>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the results file</button></div>`;
+  }
+  $("r-scan").innerHTML = h;
+}
+
+function renderFinish() {
+  const chosen = disks.find((d) => d.spec === setting("disk"));
+  let h = "";
+  if (S.policy_to_restore) {
+    h += `<p>Windows is still set to leave new disks switched off.</p><div class="row"><button id="b-restore">Put Windows' setting back</button></div>${noteHtml("restore")}`;
+    setStep("finish", "", "");
+  } else {
+    h += `<p>Windows' setting for new disks is as it was.</p>`;
+  }
+  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy, and the program marked it read-only on this PC.</p>
+    <p class="small soft">The results of every step are in <span class="path">${esc(S.results)}</span>. The checklist says what comes next.</p>`;
+  const el = $("finish");
+  if (el.dataset.html !== h) {
+    el.innerHTML = h; el.dataset.html = h;
+    if ($("b-restore")) $("b-restore").onclick = restorePolicy;
+    if ($("b-off2")) $("b-off2").onclick = () => switchDisk(chosen, false);
+  }
+}
+
+function renderJob() {
+  const j = S.job, box = $("job");
+  if (!j || j.state !== "running") { box.hidden = true; return; }
+  box.hidden = false;
+  $("job-title").textContent = j.title;
+  const bar = $("job-bar");
+  let nums = "";
+  if (j.total > 0) {
+    const f = Math.min(1, j.done / j.total);
+    bar.classList.remove("unknown");
+    bar.firstElementChild.style.width = (f * 100).toFixed(1) + "%";
+    const unit = j.kind === "scan" ? `${commas(j.done)} of ${commas(j.total)} files` : `${size(j.done)} of ${size(j.total)}`;
+    nums = `${unit} (${(f * 100).toFixed(1)}%)`;
+    if (f > 0.02 && j.seconds > 5) nums += `, about ${duration(j.seconds / f - j.seconds)} left`;
+  } else {
+    bar.classList.add("unknown");
+    nums = duration(j.seconds) + " so far";
+  }
+  $("job-numbers").textContent = nums;
+  $("job-last").textContent = (j.lines || []).slice(-1)[0] || "";
+}
+
+function render() {
+  if (!S) return;
+  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderCheck(); renderCopy(); renderScan(); renderFinish(); renderJob(); drawMap();
+  document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
+}
+function alertNote(e) { console.log(e); }
+
+// ------------------------------------------------------------ actions
+
+async function chooseMapfile(path) {
+  await save({ mapfile: path });
+  mapInfo = await get("api/mapinfo?path=" + encodeURIComponent(path));
+  loadDisks();
+  render();
+}
+async function prepare() {
+  note("prepare", "", "");
+  try { const r = await act({ action: "guard-prepare" }); note("prepare", "ok", r.message + " Now plug in the recovered SSD."); }
+  catch (e) { note("prepare", "err", e.message); }
+  await refresh(); watchDisks(60);
+}
+async function protect(d) {
+  note("connect", "", "");
+  try {
+    if (d.offline) {
+      await act({ action: "guard-protect", disk: d.spec, online: "0" });
+    } else {
+      await act({ action: "guard-protect", disk: d.spec, online: "0" });
+      // Off and on again, so Windows takes it up read-only from now on.
+      await act({ action: "guard-online", disk: d.spec, on: "0" });
+      await act({ action: "guard-online", disk: d.spec, on: "1" });
+    }
+    let msg = `Disk ${d.number} is read-only: Windows cannot write to it.`;
+    if (S.policy_to_restore) {
+      const r = await act({ action: "guard-restore" });
+      msg += " " + r.message;
+    }
+    note("connect", "ok", msg);
+  } catch (e) { note("connect", "err", e.message); }
+  await refresh(); await loadDisks();
+}
+async function switchDisk(d, on) {
+  try { await act({ action: "guard-online", disk: d.spec, on: on ? "1" : "0" }); note("connect", "ok", `Disk ${d.number} is switched ${on ? "on (read-only)" : "off"}.`); }
+  catch (e) { note("connect", "err", e.message); }
+  await loadDisks();
+}
+async function restorePolicy() {
+  try { const r = await act({ action: "guard-restore" }); note("restore", "ok", r.message); }
+  catch (e) { note("restore", "err", e.message); }
+  await refresh();
+}
+async function startJob(step, fields) {
+  note(step, "", "");
+  try { await act(fields); } catch (e) { note(step, "err", e.message); }
+  await refresh();
+}
+
+$("b-test").onclick = () => startJob("test", { action: "selftest" });
+$("b-check").onclick = () => startJob("check", { action: "mapcheck", map: setting("mapfile"), disk: setting("disk") });
+$("b-copy").onclick = async () => {
+  const to = $("copy-to").value.trim();
+  if (!to) { note("copy", "err", "Choose where the copies go first."); return; }
+  await save({ copy_to: to });
+  startJob("copy", { action: "rescue", disk: setting("disk"), out: to, everything: "1", lost: $("copy-lost").checked ? "1" : "0" });
+};
+$("b-scan").onclick = async () => {
+  const f = $("scan-folder").value.trim();
+  if (!f) { note("scan", "err", "Choose the folder to check first."); return; }
+  await save({ scan_folder: f });
+  startJob("scan", { action: "scan", folder: f, holes: $("scan-holes").checked ? "1" : "0", hole_kb: "4", join: $("scan-join").checked ? setting("last_map_check") : "" });
+};
+$("b-stop").onclick = () => act({ action: "stop" }).then(refresh);
+["copy-to", "scan-folder"].forEach((id) => $(id).addEventListener("input", () => { $(id).dataset.touched = "1"; }));
+$("scan-join").addEventListener("change", () => { $("scan-join").dataset.touched = "1"; });
+$("copy-to").addEventListener("change", () => updateSpace());
+
+// ------------------------------------------------------------ the picker
+
+let pick = null;
+async function openPicker(title, start, files, done) {
+  pick = { files, done, path: "" };
+  $("picker-title").textContent = title;
+  $("picker-ok").hidden = files;
+  $("picker").showModal();
+  await pickerShow(start || "");
+}
+async function pickerShow(path) {
+  const r = await get(`api/list?path=${encodeURIComponent(path)}&show=${pick.files ? "files" : "dirs"}`);
+  const list = $("picker-list");
+  if (r.ok === false) { list.innerHTML = `<div class="msg err">${esc(r.error)}</div>`; return; }
+  pick.path = r.path; pick.parent = r.parent;
+  $("picker-path").value = r.path;
+  let h = r.path ? "" : `<p class="small soft">Drives on this PC:</p>`;
+  r.entries.forEach((e, i) => {
+    const extra = e.dir ? (e.total ? `${size(e.free)} free of ${size(e.total)}` : "") : size(e.size);
+    h += `<button class="entry" data-i="${i}"><span>${e.dir ? "\u{1F4C1} " : ""}${esc(e.name)}</span><span class="soft small">${esc(extra)}</span></button>`;
+  });
+  if (!r.entries.length) h += `<p class="soft">This folder is empty.</p>`;
+  if (r.free != null && !pick.files) h += `<p class="small soft">${size(r.free)} free on this drive.</p>`;
+  list.innerHTML = h;
+  list.querySelectorAll(".entry").forEach((b) => b.onclick = () => {
+    const e = r.entries[+b.dataset.i];
+    if (e.dir) pickerShow(e.path); else { $("picker").close(); pick.done(e.path); }
+  });
+  $("picker-up").disabled = !r.path;
+}
+$("picker-up").onclick = () => pickerShow(pick.parent || "");
+$("picker-go").onclick = () => pickerShow($("picker-path").value.trim());
+$("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") pickerShow($("picker-path").value.trim()); });
+$("picker-cancel").onclick = () => $("picker").close();
+$("picker-ok").onclick = () => { const p = $("picker-path").value.trim(); $("picker").close(); if (p) pick.done(p); };
+$("b-mapfile").onclick = () => openPicker("Choose the mapfile", S.home, true, chooseMapfile);
+$("b-copy-to").onclick = () => openPicker("Choose where the copies go", $("copy-to").value || "", false, (p) => { $("copy-to").value = p; $("copy-to").dataset.touched = "1"; updateSpace(); });
+$("b-scan-folder").onclick = () => openPicker("Choose the folder to check", $("scan-folder").value || setting("copy_to"), false, (p) => { $("scan-folder").value = p; $("scan-folder").dataset.touched = "1"; });
+
+async function updateSpace() {
+  const p = $("copy-to").value.trim();
+  const out = $("copy-space");
+  if (!p) { out.textContent = ""; return; }
+  const parent = p.replace(/[\\/][^\\/]*$/, "") || p;
+  try {
+    const r = await get(`api/list?path=${encodeURIComponent(parent)}&show=dirs`);
+    const vol = (lastOf("mapcheck") || {}).data;
+    out.textContent = r.free != null ? `${size(r.free)} free on that drive.${vol && vol.volume ? ` The SSD's volume is ${size(vol.volume.clusters * vol.volume.cluster_size)} in all.` : ""}` : "";
+  } catch { out.textContent = ""; }
+}
+
+// ------------------------------------------------------------ keeping up
+
+async function loadDisks() {
+  try { disks = await get("api/disks"); } catch { disks = []; }
+  render();
+}
+let watchUntil = 0;
+function watchDisks(seconds) { watchUntil = Date.now() + seconds * 1000; }
+let lost = false;
+async function refresh() {
+  try { S = await get("api/state"); } catch {
+    if (!lost) {
+      lost = true;
+      $("restore-banner").innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Recovery Probe to start it again; what the steps found is kept.</p></div>`;
+    }
+    return;
+  }
+  lost = false;
+  if (S.job && S.job.id !== lastJobId && S.job.state !== "running") { lastJobId = S.job.id; loadDisks(); }
+  if (S.job && S.job.state === "running") lastJobId = S.job.id;
+  render();
+}
+async function start() {
+  await refresh();
+  try { mapfiles = await get("api/find-mapfiles"); } catch { mapfiles = []; }
+  if (!setting("mapfile") && mapfiles.length) {
+    const best = mapfiles.filter((m) => m.finished).sort((a, b) => a.bad_bytes - b.bad_bytes)[0] || mapfiles[0];
+    await save({ mapfile: best.path });
+  }
+  if (setting("mapfile")) mapInfo = await get("api/mapinfo?path=" + encodeURIComponent(setting("mapfile")));
+  await loadDisks();
+  render();
+  updateSpace();
+  let tick = 0;
+  setInterval(async () => {
+    tick++;
+    const running = busy();
+    if (running || tick % 3 === 0) await refresh();
+    if (Date.now() < watchUntil && tick % 2 === 0) loadDisks();
+  }, 1000);
+}
+start();
+</script>
+</body>
+</html>

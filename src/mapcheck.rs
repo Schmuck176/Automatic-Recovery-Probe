@@ -1339,3 +1339,122 @@ pub fn to_json(r: &Report) -> String {
     s.push_str("]}\n");
     s
 }
+
+/// What the front end shows of a map check (JSON): the totals, the files
+/// that lost data (most damage first), what Windows cannot list, and each
+/// unread place with what it hits.
+pub fn page_json(r: &Report) -> String {
+    use crate::fmt::json_str;
+    use std::collections::BTreeMap;
+    let files: Vec<&Item> = r.files().collect();
+    let mut losing: Vec<&Item> =
+        files.iter().copied().filter(|i| !i.only_past_valid_data() && i.damaged_bytes() > 0).collect();
+    losing.sort_by(|a, b| b.damaged_bytes().cmp(&a.damaged_bytes()).then(a.path.cmp(&b.path)));
+    let file_list: Vec<String> = losing
+        .iter()
+        .take(500)
+        .map(|i| {
+            format!(
+                "{{\"path\":{},\"size\":{},\"damaged\":{},\"content\":{},\"hidden\":{},\"note\":{}}}",
+                json_str(&i.path),
+                i.size,
+                i.damaged_bytes(),
+                json_str(i.content.word()),
+                i.hidden,
+                json_str(&item_note(i))
+            )
+        })
+        .collect();
+    let hidden: Vec<String> = r
+        .hidden
+        .iter()
+        .take(500)
+        .map(|(e, _)| {
+            format!(
+                "{{\"path\":{},\"is_dir\":{},\"size\":{},\"by_path\":{},\"why\":{}}}",
+                json_str(&e.path),
+                e.is_dir,
+                e.data_length,
+                e.hidden_maybe,
+                json_str(&e.why_hidden)
+            )
+        })
+        .collect();
+    // The same, grouped: one line per folder and reason (a damaged folder
+    // can hide thousands of files, all for the one reason).
+    let mut groups: BTreeMap<(String, String, bool), (u64, u64, Vec<String>)> = BTreeMap::new();
+    for (e, _) in &r.hidden {
+        let parent = e.path.rsplit_once('\\').map(|(p, _)| p.to_string()).unwrap_or_default();
+        let place = if e.why_hidden.starts_with("inside the folder") { String::new() } else { parent };
+        let g = groups.entry((place, e.why_hidden.clone(), e.hidden_maybe)).or_default();
+        if e.is_dir {
+            g.1 += 1;
+        } else {
+            g.0 += 1;
+        }
+        if g.2.len() < 4 {
+            g.2.push(e.path.rsplit('\\').next().unwrap_or("").to_string());
+        }
+    }
+    let hidden_groups: Vec<String> = groups
+        .iter()
+        .map(|((place, why, by_path), (files, folders, examples))| {
+            format!(
+                "{{\"where\":{},\"why\":{},\"by_path\":{},\"files\":{},\"folders\":{},\"examples\":[{}]}}",
+                json_str(place),
+                json_str(why),
+                by_path,
+                files,
+                folders,
+                examples.iter().map(|x| json_str(x)).collect::<Vec<_>>().join(",")
+            )
+        })
+        .collect();
+    let areas: Vec<String> = r
+        .areas
+        .iter()
+        .take(5000)
+        .map(|a| {
+            let what: Vec<String> = a.hits.iter().take(3).map(|h| h.kind.describe(&h.path)).collect();
+            format!(
+                "[{},{},{},{}]",
+                a.start,
+                a.end,
+                json_str(a.content.word()),
+                json_str(&what.join("; "))
+            )
+        })
+        .collect();
+    let opt = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
+    format!(
+        "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"folders_affected\":{},\
+         \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\
+         \"files_seen\":{},\"folders_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
+         \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
+         \"files\":[{}],\"hidden\":[{}],\"hidden_groups\":[{}],\"areas\":[{}]}}",
+        r.bad_bytes(),
+        r.areas.len(),
+        files.len(),
+        losing.len(),
+        r.folders().count(),
+        r.hidden_files(),
+        r.hidden.len() - r.hidden_files(),
+        r.hidden_maybe(),
+        r.lost_bytes(),
+        r.folder_problems.len(),
+        r.files_seen,
+        r.folders_seen,
+        r.disk_size,
+        opt(r.table_disk_size),
+        r.matches_mapfile.map(|b| b.to_string()).unwrap_or_else(|| "null".to_string()),
+        json_str(&r.vol_label),
+        r.vol_offset,
+        r.cluster_size,
+        r.cluster_count,
+        r.drive.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
+        file_list.join(","),
+        hidden.join(","),
+        hidden_groups.join(","),
+        areas.join(",")
+    )
+}

@@ -1,0 +1,159 @@
+DISK	16777216
+ITEM	Archive	1	512	0-512
+ITEM	Big folder	1	512	4608-5120
+ITEM	Documents	1	512	512-1024
+ITEM	Photos	1	512	512-1024
+ITEM	Photos\IMG_0003.JPG	0	1024	8192-9216
+HIDDEN	Big folder\file number 32 with a longer name.bin	0
+HIDDEN	Big folder\file number 33 with a longer name.bin	0
+HIDDEN	Big folder\file number 34 with a longer name.bin	0
+HIDDEN	Big folder\file number 35 with a longer name.bin	0
+HIDDEN	Big folder\file number 36 with a longer name.bin	0
+HIDDEN	Big folder\file number 37 with a longer name.bin	0
+HIDDEN	Big folder\file number 38 with a longer name.bin	0
+HIDDEN	Big folder\file number 39 with a longer name.bin	0
+HIDDEN	Big folder\file number 40 with a longer name.bin	0
+HIDDEN	Big folder\file number 41 with a longer name.bin	0
+HIDDEN	Big folder\file number 42 with a longer name.bin	0
+HIDDEN	Big folder\file number 43 with a longer name.bin	0
+HIDDEN	Big folder\file number 44 with a longer name.bin	0
+HIDDEN	Big folder\file number 45 with a longer name.bin	0
+HIDDEN	Big folder\file number 46 with a longer name.bin	0
+HIDDEN	Big folder\file number 47 with a longer name.bin	0
+HIDDEN	Big folder\file number 48 with a longer name.bin	0
+HIDDEN	Big folder\file number 49 with a longer name.bin	0
+HIDDEN	Big folder\file number 50 with a longer name.bin	0
+HIDDEN	Big folder\file number 51 with a longer name.bin	0
+HIDDEN	Big folder\file number 52 with a longer name.bin	0
+HIDDEN	Big folder\file number 53 with a longer name.bin	0
+HIDDEN	Big folder\file number 54 with a longer name.bin	0
+HIDDEN	Big folder\file number 55 with a longer name.bin	0
+HIDDEN	Big folder\file number 56 with a longer name.bin	0
+HIDDEN	Big folder\file number 57 with a longer name.bin	0
+HIDDEN	Big folder\file number 58 with a longer name.bin	0
+HIDDEN	Big folder\file number 59 with a longer name.bin	0
+HIDDEN	Big folder\zz a folder after the damage	0
+HIDDEN	Big folder\zz a folder after the damage\inside 0.txt	0
+HIDDEN	Big folder\zz a folder after the damage\inside 1.txt	0
+HIDDEN	Documents\letter 00.docx	1
+HIDDEN	Documents\letter 01.docx	1
+HIDDEN	Documents\letter 02.docx	1
+HIDDEN	Documents\letter 03.docx	1
+HIDDEN	Documents\letter 04.docx	1
+HIDDEN	Documents\letter 05.docx	1
+HIDDEN	Documents\letter 06.docx	1
+HIDDEN	Documents\letter 07.docx	1
+HIDDEN	Documents\letter 09.docx	0
+HIDDEN	Documents\letter 10.docx	0
+HIDDEN	Documents\letter 11.docx	0
+HIDDEN	Documents\letter 12.docx	0
+HIDDEN	Documents\letter 13.docx	0
+HIDDEN	Documents\letter 14.docx	0
+HIDDEN	Documents\letter 15.docx	0
+HIDDEN	Documents\letter 16.docx	0
+HIDDEN	Documents\letter 17.docx	0
+HIDDEN	Documents\letter 18.docx	0
+HIDDEN	Documents\letter 19.docx	0
+FOUND	Archive	1	0	0
+FOUND	Big folder	1	0	0
+FOUND	Big folder\file number 00 with a longer name.bin	0	870	3803506863
+FOUND	Big folder\file number 01 with a longer name.bin	0	1627	1450910268
+FOUND	Big folder\file number 02 with a longer name.bin	0	1151	722121006
+FOUND	Big folder\file number 03 with a longer name.bin	0	1406	3100368551
+FOUND	Big folder\file number 04 with a longer name.bin	0	256	1918586807
+FOUND	Big folder\file number 05 with a longer name.bin	0	1580	3626680927
+FOUND	Big folder\file number 06 with a longer name.bin	0	797	1143291057
+FOUND	Big folder\file number 07 with a longer name.bin	0	283	2958501788
+FOUND	Big folder\file number 08 with a longer name.bin	0	1241	19825080
+FOUND	Big folder\file number 09 with a longer name.bin	0	1201	1292351636
+FOUND	Big folder\file number 10 with a longer name.bin	0	698	3113906400
+FOUND	Big folder\file number 11 with a longer name.bin	0	689	964341808
+FOUND	Big folder\file number 12 with a longer name.bin	0	1036	1077649999
+FOUND	Big folder\file number 13 with a longer name.bin	0	388	816074646
+FOUND	Big folder\file number 14 with a longer name.bin	0	1895	3819656483
+FOUND	Big folder\file number 15 with a longer name.bin	0	1420	2966808853
+FOUND	Big folder\file number 16 with a longer name.bin	0	1541	1664102857
+FOUND	Big folder\file number 17 with a longer name.bin	0	1567	49096050
+FOUND	Big folder\file number 18 with a longer name.bin	0	1282	2411492292
+FOUND	Big folder\file number 19 with a longer name.bin	0	732	2963670355
+FOUND	Big folder\file number 20 with a longer name.bin	0	150	3424044689
+FOUND	Big folder\file number 21 with a longer name.bin	0	1836	1479114216
+FOUND	Big folder\file number 22 with a longer name.bin	0	1555	4258474072
+FOUND	Big folder\file number 23 with a longer name.bin	0	855	3281379133
+FOUND	Big folder\file number 24 with a longer name.bin	0	844	1876341467
+FOUND	Big folder\file number 25 with a longer name.bin	0	1044	745745074
+FOUND	Big folder\file number 26 with a longer name.bin	0	964	3131643959
+FOUND	Big folder\file number 27 with a longer name.bin	0	285	4180996488
+FOUND	Big folder\file number 32 with a longer name.bin	0	1120	1218750851
+FOUND	Big folder\file number 33 with a longer name.bin	0	1876	412695529
+FOUND	Big folder\file number 34 with a longer name.bin	0	338	857083442
+FOUND	Big folder\file number 35 with a longer name.bin	0	971	2739074989
+FOUND	Big folder\file number 36 with a longer name.bin	0	1137	2676905781
+FOUND	Big folder\file number 37 with a longer name.bin	0	1743	1283677946
+FOUND	Big folder\file number 38 with a longer name.bin	0	1636	3575673916
+FOUND	Big folder\file number 39 with a longer name.bin	0	1875	3203073659
+FOUND	Big folder\file number 40 with a longer name.bin	0	1329	2320372501
+FOUND	Big folder\file number 41 with a longer name.bin	0	1892	3089183581
+FOUND	Big folder\file number 42 with a longer name.bin	0	1105	1150047737
+FOUND	Big folder\file number 43 with a longer name.bin	0	915	1820811566
+FOUND	Big folder\file number 44 with a longer name.bin	0	1977	2879719942
+FOUND	Big folder\file number 45 with a longer name.bin	0	1174	4068413067
+FOUND	Big folder\file number 46 with a longer name.bin	0	629	1103418955
+FOUND	Big folder\file number 47 with a longer name.bin	0	1829	700379503
+FOUND	Big folder\file number 48 with a longer name.bin	0	960	4223465287
+FOUND	Big folder\file number 49 with a longer name.bin	0	1255	2073399708
+FOUND	Big folder\file number 50 with a longer name.bin	0	1996	63262383
+FOUND	Big folder\file number 51 with a longer name.bin	0	1081	2733770577
+FOUND	Big folder\file number 52 with a longer name.bin	0	1150	1597447741
+FOUND	Big folder\file number 53 with a longer name.bin	0	1160	3079042795
+FOUND	Big folder\file number 54 with a longer name.bin	0	1748	4098117584
+FOUND	Big folder\file number 55 with a longer name.bin	0	151	786897799
+FOUND	Big folder\file number 56 with a longer name.bin	0	1278	3818070554
+FOUND	Big folder\file number 57 with a longer name.bin	0	559	3578495316
+FOUND	Big folder\file number 58 with a longer name.bin	0	1668	4052068536
+FOUND	Big folder\file number 59 with a longer name.bin	0	364	3619862043
+FOUND	Big folder\zz a folder after the damage	1	0	0
+FOUND	Big folder\zz a folder after the damage\inside 0.txt	0	150	275227301
+FOUND	Big folder\zz a folder after the damage\inside 1.txt	0	821	1461849773
+FOUND	Documents	1	0	0
+FOUND	Documents\letter 00.docx	0	1330	643523066
+FOUND	Documents\letter 01.docx	0	1453	335284567
+FOUND	Documents\letter 02.docx	0	2176	2518431351
+FOUND	Documents\letter 03.docx	0	4345	4007346266
+FOUND	Documents\letter 04.docx	0	1401	2032479213
+FOUND	Documents\letter 05.docx	0	2841	3107507824
+FOUND	Documents\letter 06.docx	0	1047	501202155
+FOUND	Documents\letter 07.docx	0	4337	1217927961
+FOUND	Documents\letter 09.docx	0	3806	997211957
+FOUND	Documents\letter 10.docx	0	3008	2456247666
+FOUND	Documents\letter 11.docx	0	3782	1509690008
+FOUND	Documents\letter 12.docx	0	2287	47693225
+FOUND	Documents\letter 13.docx	0	1861	1134258997
+FOUND	Documents\letter 14.docx	0	2627	2452219304
+FOUND	Documents\letter 15.docx	0	2030	3540899124
+FOUND	Documents\letter 16.docx	0	2424	3261249841
+FOUND	Documents\letter 17.docx	0	4806	4258684449
+FOUND	Documents\letter 18.docx	0	2460	1046118155
+FOUND	Documents\letter 19.docx	0	4297	1810297173
+FOUND	Music	1	0	0
+FOUND	Music\clip.mov	0	20000	2626985483
+FOUND	Music\song.flac	0	40000	1861312111
+FOUND	Photos	1	0	0
+FOUND	Photos\IMG_0000.JPG	0	12903	1494299119
+FOUND	Photos\IMG_0001.JPG	0	19468	252810074
+FOUND	Photos\IMG_0002.JPG	0	25466	1068692638
+FOUND	Photos\IMG_0003.JPG	0	25771	517004110
+FOUND	Photos\IMG_0004.JPG	0	12363	2792336385
+FOUND	Photos\IMG_0011.JPG	0	26950	1918992082
+FOUND	Photos\Summer 2019 	1	0	0
+FOUND	Photos\Summer 2019 \beach 0.jpg	0	8984	1357569020
+FOUND	Photos\Summer 2019 \beach 1.jpg	0	7021	2607146123
+FOUND	Photos\Summer 2019 \beach 2.jpg	0	7804	2088651677
+FOUND	Photos\Summer 2019 \beach 3.jpg	0	6613	3077622833
+FOUND	notes.txt	0	600	2076634290
+FOUND	家族の写真	1	0	0
+FOUND	家族の写真\写真 0.jpg	0	2982	3742088576
+FOUND	家族の写真\写真 1.jpg	0	2010	3445490560
+FOUND	家族の写真\写真 2.jpg	0	4515	1219540446
+LOST	4
+PROBLEMS	3

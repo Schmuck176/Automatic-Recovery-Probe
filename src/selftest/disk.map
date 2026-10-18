@@ -1,0 +1,21 @@
+# Mapfile. Created by GNU ddrescue version 1.25
+# Command line: ddrescue -v -f -s 16777216 -r 2 -c 32 -b 512 /dev/rdisk5 /dev/disk4 map.log
+# Start time:   2024-04-21 02:14:00
+# Current time: 2024-04-24 21:38:08
+# Finished
+# current_pos  current_status  current_pass
+0x00000000     +               2
+#      pos        size  status
+0x00000000  0x0011C000  +
+0x0011C000  0x00000200  -
+0x0011C200  0x00012C00  +
+0x0012EE00  0x00000400  -
+0x0012F200  0x00046E00  +
+0x00176000  0x00000200  -
+0x00176200  0x0001AE00  +
+0x00191000  0x00000200  -
+0x00191200  0x00041C00  +
+0x001D2E00  0x00000200  /
+0x001D3000  0x00B2FE00  +
+0x00D02E00  0x00000800  -
+0x00D03600  0x002FCA00  +

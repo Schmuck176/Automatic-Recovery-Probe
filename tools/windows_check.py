@@ -560,8 +560,12 @@ def listing_experiments(exe, work):
         ("a record of a kind that does not exist (type 86)", [(victim[0], b"\x86")]),
         ("a record only the top folder may hold (type 83, a label)", [(victim[0], b"\x83")]),
         ("a vendor record where a file record was (type A1)", [(victim[0], b"\xa1")]),
+        ("a record claiming no parts (0)", [(victim[0] + 1, b"\x00")]),
         ("a record claiming too few parts (1)", [(victim[0] + 1, b"\x01")]),
         ("a record claiming too many parts (5)", [(victim[0] + 1, b"\x05")]),
+        ("a record claiming more parts than a record can have (19)", [(victim[0] + 1, b"\x13")]),
+        ("a record claiming 200 parts", [(victim[0] + 1, b"\xc8")]),
+        ("a record whose name length is too long for its parts", [(victim[1] + 3, b"\x1e")]),
         ("a record whose second part is marked deleted", [(victim[1], b"\x40")]),
         ("a record whose second part is a vendor part (type E0)", [(victim[1], b"\xe0")]),
         ("one sector of the folder blanked", [(sector, bytes(SECTOR))]),
@@ -579,11 +583,17 @@ def listing_experiments(exe, work):
                 f.seek(off)
                 f.write(data)
                 touched.update(range(off // SECTOR, (off + len(data) - 1) // SECTOR + 1))
-        # Files whose own record was changed are gone (or changed): leave them out.
-        destroyed = {p for p, offs in rec.items() if p and any(
-            any(o <= x < o + 32 for x in range(off, off + len(data))) for o in offs for off, data in patches)}
         mp = os.path.join(d, "disk.map")
-        X.write_mapfile(mp, t["gpt_disk_size"], [(k * SECTOR, SECTOR, "-") for k in sorted(touched)])
+        bad = [(k * SECTOR, SECTOR, "-") for k in sorted(touched)]
+        X.write_mapfile(mp, t["gpt_disk_size"], bad)
+        # The right answer, from the oracle (which knows what was changed).
+        oracle = T.Oracle(t, img, pristine, [(a, a + n, st) for a, n, st in bad])
+        try:
+            exp = oracle.expected()
+        finally:
+            oracle.close()
+        listable = set(exp["found"]) - set(exp["hidden"])
+        by_path = listable | set(exp["hidden_maybe"])
         vhd = os.path.join(d, "exp.vhd")
         make_container(vhd, size_mib)
         put_image(vhd, img)
@@ -594,15 +604,17 @@ def listing_experiments(exe, work):
                 failed.append(name)
                 continue
             got, _ = map_check(exe, mp, "\\\\.\\PhysicalDrive%d" % n, os.path.join(d, "out"))
-            hidden = {h["path"]: h["maybe"] for h in got["hidden"]}
-            judged = everything - destroyed
-            listed = mine(listing(letter, read=False)) & judged
-            expect_listed = judged - set(hidden)
-            open_wrong = sorted(p for p in judged if opens(letter, p) != (p not in hidden or hidden[p]))
+            diffs = T.compare(exp, got)
+            listed = mine(listing(letter, read=False)) & everything
+            expect_listed = listable & everything
+            open_wrong = sorted(p for p in everything if opens(letter, p) != (p in by_path))
             many = sorted(p for p in listed if p.startswith("Many\\"))
             what = "Windows lists %d of the folder's files%s" % (
                 len(many), " (%s .. %s)" % (many[0].split("\\")[1], many[-1].split("\\")[1]) if many else "")
-            if listed == expect_listed and not open_wrong:
+            if diffs:
+                failed.append(name)
+                log("FAIL %s: the map check differs from the oracle: %s" % (name, diffs[:3]))
+            elif listed == expect_listed and not open_wrong:
                 log("ok   %s: %s, and opens by full path just the ones predicted" % (name, what))
             else:
                 failed.append(name)

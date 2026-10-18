@@ -403,16 +403,20 @@ const WHY_BEFORE_DAMAGE: &str = "its folder holds a damaged record further on, s
 folder as corrupted and lists none of it (typing this file's full path still opens it)";
 
 /// How Windows itself gets on reading one folder's records, as measured on
-/// GitHub's Windows machines (tools/windows_check.py):
+/// GitHub's Windows machines (tools/windows_check.py, which checks every
+/// one of these on every build):
 ///   * it reads the records in order, and a blank record - even one halfway
 ///     through a file's record - quietly ends the folder: nothing after it
 ///     is listed, everything before it is;
-///   * a damaged record (wrong checksum, broken structure, or a record type
-///     that cannot be there) makes it report the whole folder as corrupted:
-///     it lists nothing at all, although files before the damage still open
-///     when given their full path;
-///   * parts of a record whose first part is gone (deleted, or never there)
-///     are skipped, as are vendor and padding records.
+///   * a file record that is well formed but whose checksum is wrong makes
+///     it report the whole folder as corrupted: it lists none of it, though
+///     files before that record still open when given their full path;
+///   * a file record that is not even well formed (its parts are of the
+///     wrong kinds, or it claims an impossible number of them) is skipped,
+///     together with the slots it claims, and the folder goes on;
+///   * any other kind of record is skipped: vendor and padding records,
+///     kinds that do not exist, parts whose first part is gone. So leftover
+///     junk in a folder mostly costs only the files whose records it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
     /// Windows reads the whole folder.
@@ -453,7 +457,6 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                 continue;
             }
         };
-        let is_root = dir.is_empty();
         let slots = buf.len() / 32;
         let rec_off = |i: usize| vol.disk_offset_in(&clusters, (i * 32) as u64).unwrap_or(0);
         let mut stop = Stop::None;
@@ -477,38 +480,24 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                 continue;
             }
             if t != 0x85 {
-                // Records any reader skips: vendor and padding records, parts
-                // of a record whose first part is gone (Windows skips those,
-                // measured), and the top folder's bitmap, up-case table and label.
-                let benign = matches!(t, 0xA0..=0xFF) || (is_root && matches!(t, 0x81..=0x83));
-                if !benign && reading {
-                    stop = Stop::Damaged(i);
-                    issues.push(FolderIssue {
-                        folder: shown(&dir),
-                        disk_offset: rec_off(i),
-                        what: format!(
-                            "an unexpected record (type {t:02X}) where a file record should start - Windows \
-                             reports this folder as corrupted"
-                        ),
-                    });
-                }
+                // Any other kind of record is skipped (Windows does too,
+                // measured): the top folder's bitmap, up-case table and label,
+                // vendor and padding records, kinds that do not exist, and
+                // parts of a record whose first part is gone.
                 i += 1;
                 continue;
             }
             let sc = buf[o + 1] as usize;
-            let damaged = |what: &str, stop: &mut Stop, issues: &mut Vec<FolderIssue>| {
-                if *stop == Stop::None {
-                    *stop = Stop::Damaged(i);
-                }
+            let issue = |what: &str, issues: &mut Vec<FolderIssue>| {
                 issues.push(FolderIssue { folder: shown(&dir), disk_offset: rec_off(i), what: what.to_string() });
             };
             if !(2..=18).contains(&sc) {
-                damaged("a damaged file record (impossible entry count) - skipped", &mut stop, &mut issues);
+                issue("a damaged file record (impossible number of parts) - skipped, as Windows does", &mut issues);
                 i += 1;
                 continue;
             }
             if i + sc >= slots {
-                damaged("a file record cut off at the end of the folder - skipped", &mut stop, &mut issues);
+                issue("a file record cut off at the end of the folder - skipped", &mut issues);
                 i += 1;
                 continue;
             }
@@ -536,15 +525,23 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                 && name_entries < sc
                 && (0..name_entries).all(|k| set[64 + k * 32] == 0xC1)
                 && (name_entries..sc - 1).all(|k| set[64 + k * 32] & 0xC0 == 0xC0);
-            let checksum_ok = structure_ok && entry_set_checksum(set) == u16le(set, 2);
-            if !checksum_ok {
-                damaged(
-                    &format!(
-                        "a damaged file record ({}) - the file it described cannot be identified; Windows reports \
-                         this folder as corrupted",
-                        if structure_ok { "checksum wrong" } else { "parts missing" }
-                    ),
-                    &mut stop,
+            if !structure_ok {
+                // Windows skips the record and every slot it claims.
+                issue(
+                    "a damaged file record (its parts are of the wrong kinds) - the file it described cannot be \
+                     identified; Windows skips it",
+                    &mut issues,
+                );
+                i += sc + 1;
+                continue;
+            }
+            if entry_set_checksum(set) != u16le(set, 2) {
+                if reading {
+                    stop = Stop::Damaged(i);
+                }
+                issue(
+                    "a damaged file record (checksum wrong) - the file it described cannot be identified; Windows \
+                     reports this folder as corrupted",
                     &mut issues,
                 );
                 i += 1;

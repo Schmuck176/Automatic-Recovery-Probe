@@ -8,7 +8,9 @@ use recovery_probe::{APP, VERSION};
 const USAGE: &str = "\
 Recovery Probe - finds damage in files recovered with ddrescue.
 
-Usage:
+Double-click the program to use it step by step in your web browser. Or:
+  recovery-probe self-test
+        Check the program works on this PC (on files and a disk built into it).
   recovery-probe scan <folder> [--out results.csv] [--hole-kb N] [--no-holes]
         Check every file in a folder and write the results CSV files.
   recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
@@ -28,8 +30,44 @@ Usage:
         Keep Windows from writing to the recovered disk: prepare (before plugging
         it in) makes Windows leave new disks switched off; protect marks the disk
         read-only (and --online switches it on); restore puts the setting back.
+  recovery-probe ui [--port N] [--token KEY] [--no-browser] [--test-disk IMAGE]...
+        The step-by-step page (what double-clicking starts).
   recovery-probe --version
 ";
+
+fn run_ui(args: &[String]) -> i32 {
+    use recovery_probe::web::{new_token, serve, Config, DEFAULT_PORT};
+    let mut cfg = Config { port: DEFAULT_PORT, token: new_token(), open_browser: true, test_disks: Vec::new(), home: None };
+    let mut i = 0;
+    while i < args.len() {
+        let val = args.get(i + 1).cloned();
+        match (args[i].as_str(), val) {
+            ("--port", Some(v)) => {
+                cfg.port = v.parse().unwrap_or(DEFAULT_PORT);
+                i += 1;
+            }
+            ("--token", Some(v)) => {
+                cfg.token = v;
+                i += 1;
+            }
+            ("--test-disk", Some(v)) => {
+                cfg.test_disks.push(v);
+                i += 1;
+            }
+            ("--home", Some(v)) => {
+                cfg.home = Some(v.into());
+                i += 1;
+            }
+            ("--no-browser", _) => cfg.open_browser = false,
+            (other, _) => {
+                eprintln!("unexpected argument {other}\n\n{USAGE}");
+                return 2;
+            }
+        }
+        i += 1;
+    }
+    serve(cfg)
+}
 
 fn parse_opts(args: &[String]) -> Result<(Option<String>, ScanOpts), String> {
     let mut opts = ScanOpts::default();
@@ -176,6 +214,9 @@ fn main() {
         },
         Some("list-disks") => run_list_disks(),
         Some("disk-guard") => recovery_probe::cli::run_disk_guard(&args[1..]),
+        Some("self-test") => recovery_probe::selftest::run_cli(),
+        Some("ui") => run_ui(&args[1..]),
+        None => recovery_probe::web::launch(),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
             Ok((disk, out, pick, lost, status)) => run_rescue(&disk, &out, pick, lost, &Status::new(status)),
             Err(e) => {

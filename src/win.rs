@@ -213,6 +213,56 @@ mod imp {
         }
     }
 
+    /// Start `exe` with administrator rights in a window of its own (Windows
+    /// asks the person first), without waiting for it.
+    pub fn start_elevated(exe: &Path, args: &[String]) -> Result<(), String> {
+        const SEE_MASK_NOASYNC: u32 = 0x0000_0100;
+        const SW_SHOWNORMAL: i32 = 1;
+        const ERROR_CANCELLED: u32 = 1223;
+        let verb = wide("runas");
+        let file = wide(&exe.to_string_lossy());
+        let params = wide(&args.iter().map(|a| super::quote_arg(a)).collect::<Vec<_>>().join(" "));
+        let dir = exe.parent().map(|d| wide(&d.to_string_lossy())).unwrap_or_else(|| wide("."));
+        let mut info = ShellExecuteInfoW {
+            cb_size: std::mem::size_of::<ShellExecuteInfoW>() as u32,
+            f_mask: SEE_MASK_NOASYNC,
+            hwnd: std::ptr::null_mut(),
+            lp_verb: verb.as_ptr(),
+            lp_file: file.as_ptr(),
+            lp_parameters: params.as_ptr(),
+            lp_directory: dir.as_ptr(),
+            n_show: SW_SHOWNORMAL,
+            h_inst_app: std::ptr::null_mut(),
+            lp_id_list: std::ptr::null_mut(),
+            lp_class: std::ptr::null(),
+            hkey_class: std::ptr::null_mut(),
+            dw_hot_key: 0,
+            h_icon_or_monitor: std::ptr::null_mut(),
+            h_process: std::ptr::null_mut(),
+        };
+        if unsafe { ShellExecuteExW(&mut info) } == 0 {
+            let e = unsafe { GetLastError() };
+            return Err(if e == ERROR_CANCELLED {
+                "cancelled".to_string()
+            } else {
+                format!("Windows could not start the program with administrator rights (error {e})")
+            });
+        }
+        Ok(())
+    }
+
+    /// Free space for this user on the drive holding `path`.
+    pub fn free_space(path: &Path) -> Option<u64> {
+        let mut p = path.to_path_buf();
+        // The folder may not exist yet: ask about the nearest one that does.
+        while !p.exists() {
+            p = p.parent()?.to_path_buf();
+        }
+        let w = wide(&p.to_string_lossy());
+        let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);
+        (unsafe { GetDiskFreeSpaceExW(w.as_ptr(), &mut avail, &mut total, &mut free) } != 0).then_some(avail)
+    }
+
     fn ioctl(f: &std::fs::File, code: u32, input: &[u8], out_len: usize) -> Option<Vec<u8>> {
         let mut out = vec![0u8; out_len];
         let mut returned: u32 = 0;
@@ -389,6 +439,18 @@ mod imp {
             .map_err(|e| format!("could not start {}: {e}", exe.display()))
     }
 
+    pub fn start_elevated(exe: &Path, args: &[String]) -> Result<(), String> {
+        std::process::Command::new(exe)
+            .args(args)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("could not start {}: {e}", exe.display()))
+    }
+
+    pub fn free_space(_path: &Path) -> Option<u64> {
+        None
+    }
+
     pub fn drives() -> Vec<Drive> {
         vec![Drive { letter: "/".to_string(), label: "the whole system".to_string(), kind: "fixed", ..Default::default() }]
     }
@@ -407,6 +469,17 @@ pub fn run_elevated(exe: &Path, args: &[String]) -> Result<i32, String> {
     imp::run_elevated(exe, args)
 }
 
+/// Start `exe args` with administrator rights in its own window; Err("cancelled")
+/// when the person says No.
+pub fn start_elevated(exe: &Path, args: &[String]) -> Result<(), String> {
+    imp::start_elevated(exe, args)
+}
+
+/// Free space on the drive holding `path` (None where it cannot be told).
+pub fn free_space(path: &Path) -> Option<u64> {
+    imp::free_space(path)
+}
+
 /// Every drive letter, with its label, file system, size and disk.
 pub fn drives() -> Vec<Drive> {
     imp::drives()
@@ -417,10 +490,16 @@ pub fn disks() -> Vec<Disk> {
     imp::disks()
 }
 
-/// Open a web address in the PC's usual browser.
+/// Open a web address in the PC's usual browser. From a copy running with
+/// administrator rights this goes through Explorer, so the browser itself
+/// does not get those rights.
 pub fn open_browser(url: &str) -> bool {
     #[cfg(windows)]
-    let r = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn();
+    let r = if is_elevated() {
+        std::process::Command::new("explorer").arg(url).spawn()
+    } else {
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn()
+    };
     #[cfg(target_os = "macos")]
     let r = std::process::Command::new("open").arg(url).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]

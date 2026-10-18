@@ -188,44 +188,56 @@ class Oracle:
                 if not all(o is not None and self.read(o, 32) == self.read(o, 32, True) for o in offs):
                     continue  # its record is damaged or gone: the file cannot be found
                 intact[n["slot"]] = n
-            # Every other slot that looks like the start of a file record is a
-            # damaged record a reader must report (a damaged set, or garbage).
-            for k in range(slots):
-                if k not in intact and self.read(self.slot_off(cl, k), 1)[0] == 0x85:
-                    problems += 1
-            # Where Windows stops reading this folder (measured on Windows,
-            # tools/windows_check.py): in order, stepping over intact records,
-            # a blank slot ends the folder quietly - even inside a file's
-            # record - and any other damaged record makes it give up on the
-            # whole folder (it lists none of it, but still opens what comes
-            # before the damage when given the full path).
+            # Where Windows stops reading this folder, and which records it
+            # reaches (measured on Windows, tools/windows_check.py), walking
+            # the slots in order the way exfat.rs does: a blank slot ends the
+            # folder quietly - even inside a file's record; a well-formed
+            # record with a wrong checksum makes it give up on the whole
+            # folder (it lists none of it, but still opens what comes before
+            # when given the full path); a record that is not even well formed
+            # is skipped with the slots it claims; anything else is skipped.
+            # Every damaged file record reached is a problem to report.
             stop_kind, stop_at = None, slots
+            reached = []
             k = 0
             while k < slots:
                 b = self.read(self.slot_off(cl, k), 32)
                 t = b[0]
                 if t == 0:
-                    stop_kind, stop_at = "blank", k
-                    break
-                if t & 0x80 == 0:
+                    if stop_kind is None:
+                        stop_kind, stop_at = "blank", k
+                    k += 1
+                    continue
+                if t & 0x80 == 0 or t != 0x85:
                     k += 1
                     continue
                 if k in intact:
+                    reached.append(intact[k])
                     k += intact[k]["slots"]
                     continue
-                if t == 0x85:
-                    sc = b[1]
-                    zero_inside = 2 <= sc <= 18 and k + sc < slots and any(
-                        self.read(self.slot_off(cl, k + j), 1)[0] == 0 for j in range(1, sc + 1))
-                    stop_kind, stop_at = ("blank" if zero_inside else "damaged"), k
-                    break
-                if t >= 0xA0 or (d == "" and 0x81 <= t <= 0x83):
-                    k += 1  # records any reader skips (incl. parts whose first part is gone)
+                problems += 1
+                sc = b[1]
+                if not 2 <= sc <= 18 or k + sc >= slots:
+                    k += 1
                     continue
-                stop_kind, stop_at = "damaged", k
-                problems += 1  # an unexpected record type, reported as such
-                break
-            for n in sorted(intact.values(), key=lambda n: n["slot"]):
+                types = [self.read(self.slot_off(cl, k + j), 1)[0] for j in range(sc + 1)]
+                if 0 in types[1:]:
+                    if stop_kind is None:
+                        stop_kind, stop_at = "blank", k
+                    k += 1
+                    continue
+                stream = self.read(self.slot_off(cl, k + 1), 32)
+                ne = -(-stream[3] // 15)
+                well_formed = (stream[0] == 0xC0 and stream[3] >= 1 and ne < sc
+                               and all(types[2 + j] == 0xC1 for j in range(ne))
+                               and all(types[2 + j] & 0xC0 == 0xC0 for j in range(ne, sc - 1)))
+                if not well_formed:
+                    k += sc + 1
+                    continue
+                if stop_kind is None:
+                    stop_kind, stop_at = "damaged", k  # well formed, yet changed: its checksum is wrong
+                k += 1
+            for n in sorted(reached, key=lambda n: n["slot"]):
                 ncl, broken = self.clusters_of(n)
                 if d_hidden and not d_maybe:
                     hidden, maybe = True, False
