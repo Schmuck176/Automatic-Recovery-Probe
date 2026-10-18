@@ -516,7 +516,8 @@ function renderConnect() {
     h += `<div class="panel"><h3 style="margin-top:0">If the recovered SSD is not plugged in yet</h3>
       <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
       <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>Get Windows ready</button>
-      ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>${noteHtml("prepare")}</div>`;
+      ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>
+      ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too. Once the recovered SSD is protected, Windows is set back to normal: then unplug that other drive and plug it in again. Closing the program also sets Windows back.</p>' : ""}${noteHtml("prepare")}</div>`;
   }
   const list = disks;
   if (list.length) {

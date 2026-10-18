@@ -4,7 +4,8 @@ Work happens on the `dev` branch. Every push builds on GitHub; the results
 land on the `ci-windows` and `ci-linux` branches (read them with
 `git fetch origin +refs/heads/ci-windows:refs/remotes/origin/ci-windows` and
 `git show origin/ci-windows:<file>`), because build logs themselves cannot be
-reached from the development workspace.
+reached from the development workspace. The Windows build of each commit is
+`recovery-probe.exe` on the `ci-windows` branch.
 
 ## Done
 
@@ -12,10 +13,27 @@ reached from the development workspace.
   results to the Python version on every test file.
 - Map check (`map-check`): which files and folders sit on the places ddrescue
   never read, from the user's mapfile and the recovered SSD read directly.
-- Rescue (`rescue`): copies what Windows cannot list straight off the disk.
-- Windows' handling of a folder with one damaged record (it gives up on the
-  whole folder) measured on GitHub and modelled (`exfat.rs`, `Stop`).
-- Linux kernel exFAT driver check working on GitHub.
+- Rescue (`rescue`): copies everything (or what Windows cannot list) straight
+  off the disk; names Windows cannot use get an underscore; copy-then-rename;
+  resumable; stop switch; space check.
+- Windows' handling of damaged folder records measured on GitHub and modelled
+  (`exfat.rs`, `Stop`; the oracle in `tools/test_mapcheck.py`): a blank record
+  ends the folder; only a well-formed record with a wrong checksum makes
+  Windows give up on the whole folder (files before it still open by full
+  path); malformed records are skipped with every slot they claim; anything
+  else is skipped. 18 single-record experiments and 12 random disks agree.
+- Disk guard (`guard.rs`, `disk-guard`): SAN policy OfflineAll before the SSD
+  is plugged in, read-only mark, policy put back. Tested on Windows with
+  virtual disks byte for byte (`tools/guard_check.py`). Windows does not
+  remember the read-only mark for virtual disks: use step 3 every time.
+- Double-click front end (`web.rs`, `ui.html`): local page, one UAC prompt,
+  steps: self-test, mapfile, connect protected, map check, copy everything,
+  check every copied file (joined with the map check: NEVER_READ), finish.
+  Browser-tested on Linux and Windows in CI (`tools/ui_check.js`).
+- Built-in self-test (`selftest.rs`, `recovery-probe self-test`), with a
+  small damaged exFAT disk made by `tools/make_selftest_disk.py`.
+- `docs/recovery-checklist.md` and `docs/download-manifest.md` rewritten for
+  the program (version 2026-10-18).
 
 ## The user's real data (Phase 0)
 
@@ -24,17 +42,18 @@ reached from the development workspace.
   781,887,033,344 and 917,830,258,688 of the 1,000,204,886,016-byte disk.
 - The other mapfile ("1TB hard drive DDRescue-GUI.log") is an aborted first
   attempt that stopped at ~331 GB; it read none of those places.
-- The recovered SSD: GUID partition map, exFAT, probably labelled "FINAL 1 TB".
+- The recovered SSD: 2 TB, GUID partition map, exFAT, probably labelled
+  "FINAL 1 TB". The copy sits at the start of it (partition table made for
+  the 1 TB disk).
+- The mapfiles are in "C:\RECOVERY-TOOLS\My DDRESCUE map files and
+  screenshots.zip" on the user's PC (never in this repository).
 
 ## Next
 
-1. Double-click front end: a local page in the browser served by the program
-   itself (std only), step by step: self-test, map check (asks for
-   administrator rights via a separate elevated run), rescue, scan every file
-   with the map check's results joined in, results in plain English.
-2. Scan joined with the map check: a file the map check says lost real data is
-   reported as damaged even when its structure looks fine.
-3. Built-in self-test the user can run on their PC (fixture files + a small
-   test disk image made by tools/exfat_image.py).
-4. Put the .exe and the final mapfile into C:\RECOVERY-TOOLS on the user's PC.
-5. Update recovery-checklist.md and download-manifest.md for the Rust tool.
+1. When Windows CI passes: put `recovery-probe.exe`, the final mapfile and
+   the two documents into C:\RECOVERY-TOOLS on the user's PC, and tell the
+   user to run Phase -1 E (the self-test) and then Phase 1.
+2. When the user plugs the SSD in: help read step 4's results (map check).
+3. Phase 6 sorting helper (the checklist promises one): reads the scan CSVs,
+   rescue-log.csv and sips-failures.txt, moves files from WORK into GOOD /
+   BROKEN / UNSURE with a preview, never touching PHOTOSLIB.

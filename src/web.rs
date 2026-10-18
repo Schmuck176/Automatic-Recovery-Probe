@@ -515,6 +515,30 @@ fn json_err(e: &str) -> String {
 // ---------------------------------------------------------------- serving
 
 /// Run the page until the program is closed.
+/// When the program's window is closed (or the PC shuts down) while Windows
+/// is still set to leave new disks switched off, put that setting back:
+/// otherwise every drive plugged in later would arrive switched off too.
+/// Windows allows a few seconds for this, and diskpart needs about one.
+#[cfg(windows)]
+fn restore_setting_on_close() {
+    extern "system" fn handler(ctrl: u32) -> i32 {
+        // Ctrl+C, Ctrl+Break, the window closed, signing out, shutting down.
+        if matches!(ctrl, 0 | 1 | 2 | 5 | 6) && crate::cli::policy_to_restore().is_some() {
+            let _ = crate::cli::guard_restore();
+        }
+        0 // then end the program as usual
+    }
+    extern "system" {
+        fn SetConsoleCtrlHandler(handler: Option<extern "system" fn(u32) -> i32>, add: i32) -> i32;
+    }
+    unsafe {
+        SetConsoleCtrlHandler(Some(handler), 1);
+    }
+}
+
+#[cfg(not(windows))]
+fn restore_setting_on_close() {}
+
 pub fn serve(cfg: Config) -> i32 {
     let listener = match TcpListener::bind(("127.0.0.1", cfg.port)) {
         Ok(l) => l,
@@ -523,6 +547,7 @@ pub fn serve(cfg: Config) -> i32 {
             return 1;
         }
     };
+    restore_setting_on_close();
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(cfg.port);
     let home = cfg.home.clone().unwrap_or_else(crate::cli::home_dir);
     let results = home.join("results");
