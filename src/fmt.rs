@@ -116,45 +116,68 @@ pub fn csv_field(s: &str) -> String {
 /// Read back CSV text written with `csv_row` (quoted fields may hold commas,
 /// quotes and line breaks). A byte-order mark at the start is skipped.
 pub fn parse_csv(text: &str) -> Vec<Vec<String>> {
-    let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut rows = Vec::new();
+    let _ = for_each_csv_row(text.as_bytes(), |r| rows.push(r));
+    rows
+}
+
+/// The same, one record at a time, without holding the whole text.
+pub fn for_each_csv_row(mut r: impl std::io::BufRead, mut f: impl FnMut(Vec<String>)) -> std::io::Result<()> {
     let mut row: Vec<String> = Vec::new();
     let mut field = String::new();
     let mut quoted = false;
-    let mut chars = text.chars().peekable();
+    let mut after_quote = false;
     let mut any = false;
-    while let Some(c) = chars.next() {
-        any = true;
-        if quoted {
-            if c == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                    field.push('"');
-                } else {
-                    quoted = false;
-                }
-            } else {
-                field.push(c);
-            }
-            continue;
+    let mut first = true;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if r.read_line(&mut line)? == 0 {
+            break;
         }
-        match c {
-            '"' => quoted = true,
-            ',' => row.push(std::mem::take(&mut field)),
-            '\r' => {}
-            '\n' => {
-                row.push(std::mem::take(&mut field));
-                rows.push(std::mem::take(&mut row));
-                any = false;
+        let mut s = line.as_str();
+        if first {
+            s = s.strip_prefix('\u{FEFF}').unwrap_or(s);
+            first = false;
+        }
+        for c in s.chars() {
+            any = true;
+            if quoted {
+                if c == '"' {
+                    quoted = false;
+                    after_quote = true;
+                } else {
+                    field.push(c);
+                }
+                continue;
             }
-            c => field.push(c),
+            if after_quote {
+                after_quote = false;
+                if c == '"' {
+                    // A doubled quote inside a quoted field.
+                    field.push('"');
+                    quoted = true;
+                    continue;
+                }
+            }
+            match c {
+                '"' => quoted = true,
+                ',' => row.push(std::mem::take(&mut field)),
+                '\r' => {}
+                '\n' => {
+                    row.push(std::mem::take(&mut field));
+                    f(std::mem::take(&mut row));
+                    any = false;
+                }
+                c => field.push(c),
+            }
         }
     }
     if any {
         row.push(field);
-        rows.push(row);
+        f(row);
     }
-    rows
+    Ok(())
 }
 
 /// One CSV row, ending in `\r\n` like Python's excel dialect.

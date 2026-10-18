@@ -409,10 +409,8 @@ impl Earlier {
     fn read(lists: &[(&Path, bool)]) -> Earlier {
         let mut e = Earlier::default();
         for (p, notes) in lists {
-            let Ok(text) = std::fs::read_to_string(p) else { continue };
-            for row in crate::fmt::parse_csv(&text) {
-                e.add(&row, *notes);
-            }
+            let Ok(f) = File::open(p) else { continue };
+            let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |row| e.add(&row, *notes));
         }
         e
     }
@@ -438,12 +436,6 @@ impl Earlier {
             }
         }
     }
-    /// (result, note) of a file's line.
-    fn result_of(&self, key: &str) -> Option<(String, String)> {
-        let i = *self.index.get(key)?;
-        let row = crate::fmt::parse_csv(&self.lines[i]).into_iter().next()?;
-        Some((row.get(3)?.clone(), row.get(5)?.clone()))
-    }
     fn text(&self, drop_stopped_notes: bool) -> String {
         let mut out = csv_row(&LOG_HEADER);
         for l in &self.lines {
@@ -455,6 +447,31 @@ impl Earlier {
             }
         }
         out
+    }
+}
+
+/// The files an earlier list says were copied only in part: key -> note.
+struct Partial {
+    notes: HashMap<String, String>,
+    /// The earlier list has anything in it.
+    any: bool,
+}
+
+impl Partial {
+    fn read(path: &Path) -> Partial {
+        let mut p = Partial { notes: HashMap::new(), any: false };
+        if let Ok(f) = File::open(path) {
+            let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |row| {
+                if row.len() < 6 || row[0] == "kind" {
+                    return;
+                }
+                p.any = true;
+                if row[3] == "partly copied" {
+                    p.notes.insert(log_key(&row[0], &row[1], &row[4]), row[5].clone());
+                }
+            });
+        }
+        p
     }
 }
 
@@ -627,13 +644,16 @@ pub fn rescue(
     // the end leaves its unfinished list).
     let log_path = base.join(LOG_NAME);
     let unfinished_path = base.join(UNFINISHED_LOG_NAME);
-    let earlier = Earlier::read(&[(&log_path, true), (&unfinished_path, true)]);
     if std::fs::metadata(&unfinished_path).is_ok() {
         // Folded into the list, which this run's goes into at the end.
+        let earlier = Earlier::read(&[(&log_path, true), (&unfinished_path, true)]);
         std::fs::write(&log_path, format!("\u{FEFF}{}", earlier.text(false)))
             .map_err(|e| format!("could not write {}: {e}", out.join(LOG_NAME).display()))?;
         let _ = std::fs::remove_file(&unfinished_path);
     }
+    // Of the earlier list, only the files copied in part are needed while
+    // copying (a file left as it was is still one of them).
+    let earlier = Partial::read(&log_path);
     let mut runlog =
         RunLog::new(&unfinished_path).map_err(|e| format!("could not write {}: {e}", out.join(UNFINISHED_LOG_NAME).display()))?;
 
@@ -765,10 +785,8 @@ pub fn rescue(
                 Ok(true) => {
                     o.already_there += 1;
                     done_bytes += e.valid_data_length.min(e.data_length);
-                    if let Some((result, note)) = earlier.result_of(&log_key(kind, &e.path, &copied_as)) {
-                        if result == "partly copied" {
-                            o.partial.push((e.path.clone(), note));
-                        }
+                    if let Some(note) = earlier.notes.get(&log_key(kind, &e.path, &copied_as)) {
+                        o.partial.push((e.path.clone(), note.clone()));
                     }
                     runlog.add(&[kind, &e.path, &size_text, "skipped", &copied_as, "already in the folder (left as it was)"]);
                     return;
@@ -973,7 +991,7 @@ pub fn rescue(
     // about folders: this run's when it read every folder, the earlier
     // ones too when it did not get that far.
     let wrote_all = runlog.finish();
-    let had_earlier = !earlier.lines.is_empty() || !earlier.notes.is_empty();
+    let had_earlier = earlier.any;
     drop(earlier);
     let tmp = base.join("rescue-log.csv.new");
     let walked_everything = walked_all && o.disk_lost.is_none();
