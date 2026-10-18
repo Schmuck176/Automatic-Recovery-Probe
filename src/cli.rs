@@ -333,8 +333,22 @@ pub fn run_map_info(map_path: &str) -> i32 {
 }
 
 /// Copy files straight off the recovered disk, past Windows.
-pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bool, status: &Status) -> i32 {
-    let opts = crate::rescue::Options { disk: disk.to_string(), out_dir: out_dir.to_string(), pick, lost, stop: None };
+pub fn run_rescue(
+    disk: &str,
+    out_dir: &str,
+    pick: crate::rescue::Pick,
+    lost: bool,
+    stop_after: Option<u64>,
+    status: &Status,
+) -> i32 {
+    let opts = crate::rescue::Options {
+        disk: disk.to_string(),
+        out_dir: out_dir.to_string(),
+        pick,
+        lost,
+        stop: None,
+        stop_after_files: stop_after,
+    };
     let mut progress = |s: &str| {
         println!("  {s}");
         status.progress(s);
@@ -356,8 +370,8 @@ pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bo
             ));
             if o.lost_pieces > 0 {
                 say(format!(
-                    "Saved {} pieces of data no folder record names ({}) in \"lost data (no name)\".",
-                    commas(o.lost_pieces),
+                    "Saved {} of data no folder record names ({}) in \"lost data (no name)\".",
+                    crate::rescue::pieces(o.lost_pieces),
                     crate::fmt::size(o.lost_bytes)
                 ));
             }
@@ -379,8 +393,20 @@ pub fn run_rescue(disk: &str, out_dir: &str, pick: crate::rescue::Pick, lost: bo
                     say(format!("  {p}: {n}"));
                 }
             }
+            if let Some(e) = &o.disk_lost {
+                say(crate::rescue::disk_lost_text(e));
+            } else if let Some(e) = &o.dest_lost {
+                say(crate::rescue::dest_lost_text(e));
+            } else if let Some(e) = &o.keeps_failing {
+                say(crate::rescue::keeps_failing_text(e));
+            } else if o.stopped {
+                say("Stopped before the end. Run it again to copy the rest: what is already copied is kept.".to_string());
+            }
             say(format!("The full list is in {}", o.log));
-            if o.failed.is_empty() {
+            if o.disk_lost.is_some() || o.dest_lost.is_some() || o.keeps_failing.is_some() {
+                status.failed("stopped before the end (see above)");
+                1
+            } else if o.failed.is_empty() {
                 status.ok();
                 0
             } else {

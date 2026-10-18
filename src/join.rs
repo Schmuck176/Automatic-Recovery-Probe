@@ -43,9 +43,34 @@ impl MapItem {
     pub fn loses_data(&self) -> bool {
         self.kind == "DAMAGED" && self.damaged_bytes > 0 && !self.only_past_end
     }
-    fn name_lower(&self) -> String {
-        self.path.rsplit('\\').next().unwrap_or("").to_lowercase()
+    /// The name its copy has (made safe for Windows, see rescue.rs), in any case.
+    fn name_key(&self) -> String {
+        copy_name(self.path.rsplit('\\').next().unwrap_or(""))
     }
+}
+
+/// A name as the rescue gives it to a copy, in lower case: names Windows
+/// cannot use get an underscore (rescue::safe_name).
+fn copy_name(name: &str) -> String {
+    crate::rescue::safe_name(name).to_lowercase()
+}
+
+/// "img (2).jpg" -> "img.jpg", "folder (2)" -> "folder": the name a copy
+/// had before the rescue numbered it to keep it apart from another one
+/// Windows would take for the same name.
+fn without_number(name: &str) -> Option<String> {
+    let cut = |s: &str| -> Option<String> {
+        let s = s.strip_suffix(')')?;
+        let open = s.rfind(" (")?;
+        let num = &s[open + 2..];
+        (!num.is_empty() && num.bytes().all(|b| b.is_ascii_digit())).then(|| s[..open].to_string())
+    };
+    if let Some(i) = name.rfind('.').filter(|&i| i > 0) {
+        if let Some(stem) = cut(&name[..i]) {
+            return Some(format!("{stem}{}", &name[i..]));
+        }
+    }
+    cut(name)
 }
 
 pub const TSV_HEADER: &str =
@@ -106,14 +131,20 @@ pub struct Collector {
 
 impl Collector {
     pub fn new(items: &[MapItem]) -> Collector {
-        let names = items.iter().filter(|i| i.kind != "FOLDER").map(|i| i.name_lower()).collect();
+        let names = items.iter().filter(|i| i.kind != "FOLDER").map(|i| i.name_key()).collect();
         Collector { names, seen: HashMap::new() }
     }
     /// Call for every file the scan checks.
     pub fn saw(&mut self, r: &Row) {
         // Both separators: the copies may have been made on either system.
-        let name = r.path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
-        if self.names.contains(&name) {
+        let mut name = r.path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
+        if !self.names.contains(&name) {
+            match without_number(&name) {
+                Some(n) if self.names.contains(&n) => name = n,
+                _ => return,
+            }
+        }
+        {
             self.seen.entry(name).or_default().push(Seen {
                 path: r.path.clone(),
                 size: r.size,
@@ -128,9 +159,17 @@ fn components(p: &str) -> Vec<String> {
     p.split(['\\', '/']).filter(|c| !c.is_empty()).map(|c| c.to_lowercase()).collect()
 }
 
-/// How many trailing folders and name two paths share.
+/// How many trailing folders and name a path on the recovered disk (`a`)
+/// and a copy's path (`b`) share, allowing for names the rescue changed.
 fn common_tail(a: &[String], b: &[String]) -> usize {
-    a.iter().rev().zip(b.iter().rev()).take_while(|(x, y)| x == y).count()
+    a.iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| {
+            let x = copy_name(x);
+            x == **y || without_number(y).is_some_and(|n| n == x)
+        })
+        .count()
 }
 
 /// What the join found.
@@ -156,7 +195,7 @@ pub fn find(items: &[MapItem], c: &Collector) -> Outcome {
         }
         let want = components(&it.path);
         let same: Vec<&Seen> =
-            c.seen.get(&it.name_lower()).map(|v| v.iter().filter(|s| s.size == it.size).collect()).unwrap_or_default();
+            c.seen.get(&it.name_key()).map(|v| v.iter().filter(|s| s.size == it.size).collect()).unwrap_or_default();
         let best = same.iter().map(|s| common_tail(&components(&s.path), &want)).max().unwrap_or(0);
         let picks: Vec<Seen> =
             same.iter().filter(|s| common_tail(&components(&s.path), &want) == best).map(|s| (*s).clone()).collect();
@@ -366,5 +405,36 @@ mod tests {
         assert_eq!(v[r"E:\WORK\Photos\2020\IMG_0001.JPG"], VERDICT);
         assert!(rows.iter().any(|r| r.path.ends_with("other.pdf") && r.detail.contains("not on any place")));
         assert!(lines[0].contains("3 files lost data"), "{lines:?}");
+    }
+
+    #[test]
+    fn copies_whose_names_were_changed_are_found_too() {
+        let items = vec![
+            item("DAMAGED", r"Photos\Summer 2019 \IMG_0001.JPG", 300_000, 4096),
+            item("DAMAGED", r"Docs\notes.", 900, 512),
+            item("DAMAGED", r"Docs\con.txt", 800, 512),
+            item("DAMAGED", r"Docs\Same.txt", 700, 512),
+            item("DAMAGED", r"Lib\Photos Library.photoslibrary\originals\A\IMG_9.HEIC", 5000, 512),
+        ];
+        let mut c = Collector::new(&items);
+        let scanned = vec![
+            row("OK", r"E:\WORK\Photos\Summer 2019_\IMG_0001.JPG", 300_000),
+            row("OK", r"E:\WORK\Docs\notes_", 900),
+            row("OK", r"E:\WORK\Docs\_con.txt", 800),
+            row("OK", r"E:\WORK\Docs\Same (2).txt", 700),
+            row("SKIPPED", r"E:\PHOTOSLIB\1\Photos Library.photoslibrary\originals\A\IMG_9.HEIC", 5000),
+        ];
+        for r in &scanned {
+            c.saw(r);
+        }
+        let o = find(&items, &c);
+        assert_eq!(o.matched.len(), 5, "{o:?}");
+        assert!(o.missing.is_empty());
+        assert_eq!(without_number("img (2).jpg").as_deref(), Some("img.jpg"));
+        assert_eq!(without_number("folder (12)").as_deref(), Some("folder"));
+        assert_eq!(without_number("a (b).jpg"), None);
+        assert_eq!(without_number("plain.jpg"), None);
+        let t = common_tail(&components(r"Photos\Summer 2019 \IMG_0001.JPG"), &components(r"E:\WORK\Photos\Summer 2019_\IMG_0001.JPG"));
+        assert_eq!(t, 3);
     }
 }

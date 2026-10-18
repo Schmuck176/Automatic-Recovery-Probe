@@ -113,6 +113,50 @@ pub fn csv_field(s: &str) -> String {
     }
 }
 
+/// Read back CSV text written with `csv_row` (quoted fields may hold commas,
+/// quotes and line breaks). A byte-order mark at the start is skipped.
+pub fn parse_csv(text: &str) -> Vec<Vec<String>> {
+    let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
+    let mut rows = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut chars = text.chars().peekable();
+    let mut any = false;
+    while let Some(c) = chars.next() {
+        any = true;
+        if quoted {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    quoted = false;
+                }
+            } else {
+                field.push(c);
+            }
+            continue;
+        }
+        match c {
+            '"' => quoted = true,
+            ',' => row.push(std::mem::take(&mut field)),
+            '\r' => {}
+            '\n' => {
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+                any = false;
+            }
+            c => field.push(c),
+        }
+    }
+    if any {
+        row.push(field);
+        rows.push(row);
+    }
+    rows
+}
+
 /// One CSV row, ending in `\r\n` like Python's excel dialect.
 pub fn csv_row<S: AsRef<str>>(fields: &[S]) -> String {
     if fields.len() == 1 && fields[0].as_ref().is_empty() {
@@ -175,5 +219,25 @@ mod tests {
         assert_eq!(csv_row(&["a", "b,c", "d\"e", "f"]), "a,\"b,c\",\"d\"\"e\",f\r\n");
         assert_eq!(csv_row(&[""]), "\"\"\r\n");
         assert_eq!(csv_row(&["", "x"]), ",x\r\n");
+    }
+
+    #[test]
+    fn csv_reads_back() {
+        let rows = vec![
+            vec!["FILE", "Photos\\a, b \"c\".jpg", "12", "copied", "", ""],
+            vec!["NOTE", "x", "", "", "", "two\r\nlines"],
+            vec!["", "", "", "", "", ""],
+        ];
+        let mut text = "\u{FEFF}".to_string();
+        for r in &rows {
+            text.push_str(&csv_row(r));
+        }
+        let back = parse_csv(&text);
+        assert_eq!(back.len(), 3);
+        for (a, b) in rows.iter().zip(&back) {
+            assert_eq!(a.iter().map(|s| s.to_string()).collect::<Vec<_>>(), *b);
+        }
+        assert_eq!(parse_csv("a,b"), vec![vec!["a".to_string(), "b".to_string()]]);
+        assert!(parse_csv("").is_empty());
     }
 }

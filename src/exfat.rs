@@ -431,12 +431,20 @@ enum Stop {
 /// Folders whose own record has a bad checksum are reported and not
 /// entered (their cluster numbers cannot be trusted).
 pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<FolderIssue> {
+    walk_until(vol, visit, &|| false)
+}
+
+/// `walk`, giving up (before reading the next folder) once `stop` says so.
+pub fn walk_until(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList), stop: &dyn Fn() -> bool) -> Vec<FolderIssue> {
     let mut issues = Vec::new();
     // (path, clusters, hidden, maybe, why)
     let mut stack: Vec<(String, ClusterList, bool, bool, String)> =
         vec![(String::new(), vol.root_clusters.clone(), false, false, String::new())];
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
     while let Some((dir, clusters, dir_hidden, dir_maybe, dir_why)) = stack.pop() {
+        if stop() {
+            break;
+        }
         if let Some(first) = clusters.runs.first() {
             if !visited.insert(first.0) {
                 issues.push(FolderIssue {

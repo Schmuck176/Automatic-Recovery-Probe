@@ -135,7 +135,7 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
     })
 }
 
-type RescueArgs = (String, String, recovery_probe::rescue::Pick, bool, Option<String>);
+type RescueArgs = (String, String, recovery_probe::rescue::Pick, bool, Option<String>, Option<u64>);
 
 fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
     use recovery_probe::rescue::Pick;
@@ -143,6 +143,7 @@ fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
     let mut pick = Pick::Hidden;
     let mut paths = Vec::new();
     let mut lost = false;
+    let mut stop_after = None;
     let mut i = 0;
     while i < args.len() {
         let val = || args.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", args[i]));
@@ -163,6 +164,11 @@ fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
                 status = Some(val()?);
                 i += 1;
             }
+            "--stop-after" => {
+                // (For the tests: stop after copying this many files.)
+                stop_after = Some(val()?.parse().map_err(|_| "--stop-after needs a number".to_string())?);
+                i += 1;
+            }
             "--everything" => pick = Pick::Everything,
             "--lost" => lost = true,
             s => return Err(format!("unexpected argument {s}")),
@@ -178,6 +184,7 @@ fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
         pick,
         lost,
         status,
+        stop_after,
     ))
 }
 
@@ -251,7 +258,7 @@ fn main() {
         },
         None => recovery_probe::web::launch(),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
-            Ok((disk, out, pick, lost, status)) => run_rescue(&disk, &out, pick, lost, &Status::new(status)),
+            Ok((disk, out, pick, lost, status, stop_after)) => run_rescue(&disk, &out, pick, lost, stop_after, &Status::new(status)),
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
                 2

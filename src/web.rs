@@ -1106,6 +1106,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             pick: if everything { crate::rescue::Pick::Everything } else { crate::rescue::Pick::Hidden },
             lost,
             stop: Some(ctx.stop.clone()),
+            stop_after_files: None,
         };
         let o = crate::rescue::run(&opts, &mut |s: &str| ctx.line(s), &mut |d, t| ctx.amount(d, t))?;
         let mut summary = vec![format!(
@@ -1120,8 +1121,8 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
         }
         if o.lost_pieces > 0 {
             summary.push(format!(
-                "Saved {} pieces of data that no folder record names any more ({}) in \"lost data (no name)\".",
-                commas(o.lost_pieces),
+                "Saved {} of data that no folder record names any more ({}) in \"lost data (no name)\".",
+                crate::rescue::pieces(o.lost_pieces),
                 size(o.lost_bytes)
             ));
         }
@@ -1146,7 +1147,13 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
                 summary.push(format!("  {p}: {n}"));
             }
         }
-        if o.stopped {
+        if let Some(e) = &o.disk_lost {
+            summary.insert(0, crate::rescue::disk_lost_text(e));
+        } else if let Some(e) = &o.dest_lost {
+            summary.insert(0, crate::rescue::dest_lost_text(e));
+        } else if let Some(e) = &o.keeps_failing {
+            summary.insert(0, crate::rescue::keeps_failing_text(e));
+        } else if o.stopped {
             summary.push("Stopped before the end. Start it again to copy the rest: what is already copied is kept.".to_string());
         }
         summary.push(format!("The full list is in {}", o.log));

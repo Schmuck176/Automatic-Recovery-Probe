@@ -7,7 +7,7 @@
 //! folder, which must be on a different drive.
 
 use crate::disk::{open_source, Source};
-use crate::exfat::{timestamp_to_unix, walk, ClusterList, Entry, Volume};
+use crate::exfat::{timestamp_to_unix, ClusterList, Entry, Volume};
 use crate::fmt::{commas, csv_row, size};
 use crate::gpt;
 use std::collections::{HashMap, HashSet};
@@ -36,6 +36,8 @@ pub struct Options {
     pub lost: bool,
     /// Set from elsewhere to stop between files (what is copied so far stays).
     pub stop: Option<Arc<AtomicBool>>,
+    /// Stop after copying this many files (for the tests).
+    pub stop_after_files: Option<u64>,
 }
 
 #[derive(Default, Debug)]
@@ -50,8 +52,14 @@ pub struct Outcome {
     pub lost_bytes: u64,
     /// Copies whose name had to change for Windows (see `safe_name`).
     pub renamed: u64,
-    /// Stopped before the end (on request).
+    /// Stopped before the end (on request, or for one of the reasons below).
     pub stopped: bool,
+    /// The recovered disk stopped answering (what Windows said).
+    pub disk_lost: Option<String>,
+    /// The folder the copies go to went away (its drive was unplugged?).
+    pub dest_lost: Option<String>,
+    /// Copying failed for many files in a row (the last reason).
+    pub keeps_failing: Option<String>,
     pub log: String,
 }
 
@@ -184,6 +192,21 @@ pub fn extension_for(head: &[u8]) -> &'static str {
     }
 }
 
+/// Why copying one file did not work: the recovered disk did not give the
+/// data, or the copy could not be written.
+enum CopyError {
+    Read(String),
+    Write(String),
+}
+
+impl CopyError {
+    fn text(&self) -> &str {
+        match self {
+            CopyError::Read(s) | CopyError::Write(s) => s,
+        }
+    }
+}
+
 /// Copy one file's data from the disk into `dest` (by way of a temporary
 /// name beside it). Returns a note when something could not be copied (the
 /// missing parts are left as zeros), or None for "stopped".
@@ -194,9 +217,9 @@ fn copy_file(
     dest: &Path,
     stop: &dyn Fn() -> bool,
     copied: &mut dyn FnMut(u64),
-) -> Result<Option<Option<String>>, String> {
+) -> Result<Option<Option<String>>, CopyError> {
     let tmp = dest.with_file_name(PARTIAL);
-    let mut f = File::create(&tmp).map_err(|err| format!("could not create the copy: {err}"))?;
+    let mut f = File::create(&tmp).map_err(|err| CopyError::Write(format!("could not create the copy: {err}")))?;
     let note = copy_data(vol, e, list, &mut f, stop, copied);
     let note = match note {
         Ok(Some(n)) => n,
@@ -214,7 +237,7 @@ fn copy_file(
     drop(f);
     std::fs::rename(&tmp, dest).map_err(|err| {
         let _ = std::fs::remove_file(&tmp);
-        format!("could not give the copy its name: {err}")
+        CopyError::Write(format!("could not give the copy its name: {err}"))
     })?;
     Ok(Some(note))
 }
@@ -226,7 +249,7 @@ fn copy_data(
     f: &mut File,
     stop: &dyn Fn() -> bool,
     copied: &mut dyn FnMut(u64),
-) -> Result<Option<Option<String>>, String> {
+) -> Result<Option<Option<String>>, CopyError> {
     let want = e.data_length;
     let vdl = e.valid_data_length.min(want);
     let mut written = 0u64;
@@ -242,8 +265,8 @@ fn copy_data(
             let data = vol
                 .src
                 .read_at(vol.cluster_offset(first) + done, n as usize)
-                .map_err(|err| format!("could not read the recovered disk: {err}"))?;
-            f.write_all(&data).map_err(|err| format!("could not write the copy: {err}"))?;
+                .map_err(|err| CopyError::Read(format!("could not read the recovered disk: {err}")))?;
+            f.write_all(&data).map_err(|err| CopyError::Write(format!("could not write the copy: {err}")))?;
             written += data.len() as u64;
             copied(data.len() as u64);
             if (data.len() as u64) < n {
@@ -259,7 +282,7 @@ fn copy_data(
     // Past the valid data a file reads as zeros by definition; anything that
     // could not be found is left as zeros too (and noted).
     if written < want {
-        f.set_len(want).map_err(|err| format!("could not write the copy: {err}"))?;
+        f.set_len(want).map_err(|err| CopyError::Write(format!("could not write the copy: {err}")))?;
     }
     if let Some((secs, nanos)) = timestamp_to_unix(e.modified, e.modified_10ms, e.modified_utc) {
         let t = if secs >= 0 {
@@ -279,6 +302,136 @@ fn same_volume(out: &Path, vol_serial: u32) -> Option<String> {
     (abs.starts_with(&d) || abs.starts_with(&format!(r"\\?\{d}"))).then_some(drive)
 }
 
+/// The list of every file copied, in the folder the copies go to.
+pub const LOG_NAME: &str = "rescue-log.csv";
+/// The list as it grows during a run; folded into rescue-log.csv at the end
+/// (and by the next run, if this one never got to the end).
+pub const UNFINISHED_LOG_NAME: &str = "rescue-log-unfinished.csv";
+const LOG_HEADER: [&str; 6] = ["kind", "path", "size_bytes", "result", "copied_as", "note"];
+
+/// What earlier runs into the same folder wrote in their lists.
+#[derive(Default)]
+struct Earlier {
+    /// One line per file, folder and piece of lost data, in order.
+    lines: Vec<String>,
+    /// (kind, path) -> index in `lines`.
+    index: HashMap<String, usize>,
+    /// The result and note of each, for files left as they were.
+    result: HashMap<String, (String, String)>,
+    notes: Vec<String>,
+}
+
+fn log_key(kind: &str, path: &str) -> String {
+    format!("{kind}\t{path}")
+}
+
+impl Earlier {
+    fn read(paths: &[&Path]) -> Earlier {
+        let mut e = Earlier::default();
+        for p in paths {
+            let Ok(text) = std::fs::read_to_string(p) else { continue };
+            for row in crate::fmt::parse_csv(&text) {
+                if row.len() < 6 || row[0] == "kind" {
+                    continue;
+                }
+                let line = csv_row(&row[..6]);
+                if row[0] == "NOTE" {
+                    if !e.notes.contains(&line) {
+                        e.notes.push(line);
+                    }
+                    continue;
+                }
+                let key = log_key(&row[0], &row[1]);
+                if row[3] == "skipped" && e.index.contains_key(&key) {
+                    // A later run left it as it was: the earlier line says how it was copied.
+                    continue;
+                }
+                e.result.insert(key.clone(), (row[3].clone(), row[5].clone()));
+                match e.index.get(&key) {
+                    Some(&i) => e.lines[i] = line,
+                    None => {
+                        e.index.insert(key, e.lines.len());
+                        e.lines.push(line);
+                    }
+                }
+            }
+        }
+        e
+    }
+}
+
+/// The list of this run, written down as it goes so that a run that never
+/// gets to the end (the PC lost power, say) still leaves it behind.
+struct RunLog {
+    rows: Vec<(String, String, bool)>, // (key, line, "skipped")
+    notes: Vec<String>,
+    file: Option<std::io::BufWriter<File>>,
+    last_flush: std::time::Instant,
+}
+
+impl RunLog {
+    fn new(path: &Path) -> RunLog {
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(path).ok().map(std::io::BufWriter::new);
+        RunLog { rows: Vec::new(), notes: Vec::new(), file, last_flush: std::time::Instant::now() }
+    }
+    fn add(&mut self, fields: &[&str], skipped: bool) {
+        let line = csv_row(fields);
+        if let Some(f) = &mut self.file {
+            let _ = f.write_all(line.as_bytes());
+            if self.last_flush.elapsed().as_secs() >= 2 {
+                let _ = f.flush();
+                self.last_flush = std::time::Instant::now();
+            }
+        }
+        self.rows.push((log_key(fields[0], fields[1]), line, skipped));
+    }
+    fn note(&mut self, path: &str, what: &str) {
+        self.notes.push(csv_row(&["NOTE", path, "", "", "", what]));
+    }
+    /// The whole list: what earlier runs found, with what this run did
+    /// instead where it did something (a file left as it was keeps the
+    /// earlier line, which says how it was copied).
+    fn merged(&self, earlier: &Earlier, walked_all: bool) -> String {
+        let mut lines = earlier.lines.clone();
+        let mut index = earlier.index.clone();
+        for (key, line, skipped) in &self.rows {
+            match index.get(key) {
+                Some(&i) if *skipped => {
+                    let _ = i;
+                }
+                Some(&i) => lines[i] = line.clone(),
+                None => {
+                    index.insert(key.clone(), lines.len());
+                    lines.push(line.clone());
+                }
+            }
+        }
+        let mut out = csv_row(&LOG_HEADER);
+        for l in &lines {
+            out.push_str(l);
+        }
+        // Notes about folders: this run's, when it read every folder; with
+        // the earlier ones when it did not get that far.
+        let mut notes: Vec<&String> = Vec::new();
+        if !walked_all {
+            for n in &earlier.notes {
+                if !n.contains("run it again") && !notes.contains(&n) {
+                    notes.push(n);
+                }
+            }
+        }
+        for n in &self.notes {
+            if !notes.contains(&n) {
+                notes.push(n);
+            }
+        }
+        for n in notes {
+            out.push_str(n);
+        }
+        out
+    }
+}
+
 /// `progress` gets a line of text now and then; `amount` gets (bytes copied,
 /// bytes to copy) as the copying goes.
 pub fn run(opts: &Options, progress: &mut dyn FnMut(&str), amount: &mut dyn FnMut(u64, u64)) -> Result<Outcome, String> {
@@ -292,14 +445,56 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str), amount: &mut dyn FnMu
     rescue(&*src, opts, progress, amount)
 }
 
+/// "1 piece", "2 pieces".
+pub fn pieces(n: u64) -> String {
+    if n == 1 {
+        "1 piece".to_string()
+    } else {
+        format!("{} pieces", commas(n))
+    }
+}
+
+/// What to tell someone whose copies could no longer be written.
+pub fn dest_lost_text(err: &str) -> String {
+    format!(
+        "The folder the copies go to went away (Windows said: {err}), so the copying stopped - was its drive \
+         unplugged? Nothing is lost: what was copied is kept. Plug the drive back in and check it shows in File \
+         Explorer, then start the copying again into the same folder: it carries on where it stopped."
+    )
+}
+
+/// What to tell someone when copying failed for many files in a row.
+pub fn keeps_failing_text(err: &str) -> String {
+    format!(
+        "Copying failed for many files in a row, so it stopped (the last reason: {err}). What was copied is kept. \
+         Take a screenshot of this and ask for help before starting it again."
+    )
+}
+
+/// What to tell someone whose recovered disk stopped answering.
+pub fn disk_lost_text(err: &str) -> String {
+    format!(
+        "The recovered SSD stopped answering (Windows said: {err}), so the copying stopped. Nothing is lost: what \
+         was copied is kept. Check its cable is in firmly. If it came out, plug it back in: it arrives switched off, \
+         as Windows is still set to leave new disks switched off. Then choose it again in step 3, click Protect, and \
+         start the copying again: it carries on where it stopped."
+    )
+}
+
 pub fn rescue(
     src: &dyn Source,
     opts: &Options,
     progress: &mut dyn FnMut(&str),
     amount: &mut dyn FnMut(u64, u64),
 ) -> Result<Outcome, String> {
+    let watched = crate::disk::Watched::new(src);
+    let src: &dyn Source = &watched;
     let table = gpt::read(src, &[]);
     let (vol, _) = crate::mapcheck::find_volume(src, &table)?;
+    // Read again whenever a read fails, to tell a disk that stopped
+    // answering from one bad spot on it.
+    let probe_at = vol.offset;
+    let gone = || watched.errors() > 0 && !watched.answers(probe_at);
     let out = PathBuf::from(&opts.out_dir);
     if let Some(d) = same_volume(&out, vol.serial) {
         return Err(format!(
@@ -311,7 +506,8 @@ pub fn rescue(
     std::fs::create_dir_all(&base).map_err(|e| format!("could not create {}: {e}", out.display()))?;
     progress(&format!("Copying from the exFAT volume \"{}\" into {}", vol.label, out.display()));
     let stop_flag = opts.stop.clone();
-    let stop = move || stop_flag.as_ref().is_some_and(|s| s.load(Ordering::Relaxed));
+    let halt = AtomicBool::new(false);
+    let stop = || halt.load(Ordering::Relaxed) || stop_flag.as_ref().is_some_and(|s| s.load(Ordering::Relaxed));
 
     let wanted: Vec<String> = match &opts.pick {
         Pick::Paths(p) => p.iter().map(|s| s.replace('/', "\\").trim_matches('\\').to_lowercase()).collect(),
@@ -332,18 +528,25 @@ pub fn rescue(
     // whether the copies fit. (Copies an earlier run made need no room.)
     let resuming = std::fs::read_dir(&base).map(|mut r| r.next().is_some()).unwrap_or(false);
     let (mut total_files, mut total_bytes, mut need_bytes, mut need_files) = (0u64, 0u64, 0u64, 0u64);
-    walk(&vol, &mut |e: &Entry, _: &ClusterList| {
-        if picked(e) && !e.is_dir {
-            total_files += 1;
-            total_bytes += e.valid_data_length.min(e.data_length);
-            let there = resuming
-                && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == e.data_length);
-            if !there {
-                need_files += 1;
-                need_bytes += e.data_length;
+    crate::exfat::walk_until(
+        &vol,
+        &mut |e: &Entry, _: &ClusterList| {
+            if picked(e) && !e.is_dir {
+                total_files += 1;
+                total_bytes += e.valid_data_length.min(e.data_length);
+                let there = resuming
+                    && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == e.data_length);
+                if !there {
+                    need_files += 1;
+                    need_bytes += e.data_length;
+                }
             }
-        }
-    });
+        },
+        &|| watched.errors() > 0 && gone(),
+    );
+    if gone() {
+        return Err(disk_lost_text(&watched.last_error()));
+    }
     progress(&format!("{} files to copy ({})", commas(total_files), size(total_bytes)));
     if let Some(free) = crate::win::free_space(&base) {
         // Each copy takes up at least a whole 4 KB cluster on the other drive.
@@ -361,8 +564,26 @@ pub fn rescue(
     let mut done_bytes = 0u64;
     amount(0, total_bytes);
 
+    // The lists earlier runs into this folder left (a run that never got to
+    // the end leaves its unfinished list).
+    let log_path = base.join(LOG_NAME);
+    let unfinished_path = base.join(UNFINISHED_LOG_NAME);
+    let earlier = Earlier::read(&[&log_path, &unfinished_path]);
+    if std::fs::metadata(&unfinished_path).is_ok() {
+        // Folded into the new list from here on.
+        let mut text = csv_row(&LOG_HEADER);
+        for l in &earlier.lines {
+            text.push_str(l);
+        }
+        for n in &earlier.notes {
+            text.push_str(n);
+        }
+        let _ = std::fs::write(&log_path, format!("\u{FEFF}{text}"));
+        let _ = std::fs::remove_file(&unfinished_path);
+    }
+    let mut runlog = RunLog::new(&unfinished_path);
+
     let mut o = Outcome::default();
-    let mut log = csv_row(&["kind", "path", "size_bytes", "result", "copied_as", "note"]);
     let mut owned: Vec<u64> = vec![0; (vol.cluster_count as usize).div_ceil(64)];
     let mut mark = |list: &ClusterList| {
         for &(first, count) in &list.runs {
@@ -385,6 +606,9 @@ pub fn rescue(
     dirs.insert(String::new(), base.clone());
     let mut cur_parent: Option<String> = None;
     let mut used: HashSet<String> = HashSet::new();
+    let mut errors_seen = 0u64;
+    let mut failures_in_a_row = 0u32;
+    let mut copied_this_run = 0u64;
     let mut visit = |e: &Entry, list: &ClusterList| {
         mark(list);
         if o.stopped {
@@ -393,6 +617,15 @@ pub fn rescue(
         if stop() {
             o.stopped = true;
             return;
+        }
+        if watched.errors() > errors_seen {
+            errors_seen = watched.errors();
+            if !watched.answers(probe_at) {
+                o.disk_lost = Some(watched.last_error());
+                o.stopped = true;
+                halt.store(true, Ordering::Relaxed);
+                return;
+            }
         }
         let (parent, name) = e.path.rsplit_once('\\').unwrap_or(("", e.path.as_str()));
         if cur_parent.as_deref() != Some(parent) {
@@ -445,12 +678,18 @@ pub fn rescue(
                     o.folders += 1;
                     made_dirs.insert(dest);
                     if !copied_as.is_empty() {
-                        log.push_str(&csv_row(&[kind, &e.path, "", "copied", &copied_as, renamed_note.trim()]));
+                        runlog.add(&[kind, &e.path, "", "copied", &copied_as, renamed_note.trim()], false);
                     }
                 }
                 Err(err) => {
+                    if std::fs::metadata(&base).is_err() {
+                        o.dest_lost = Some(err.to_string());
+                        o.stopped = true;
+                        halt.store(true, Ordering::Relaxed);
+                        return;
+                    }
                     o.failed.push((e.path.clone(), err.to_string()));
-                    log.push_str(&csv_row(&[kind, &e.path, "", "failed", &copied_as, &err.to_string()]));
+                    runlog.add(&[kind, &e.path, "", "failed", &copied_as, &err.to_string()], false);
                 }
             }
             return;
@@ -464,17 +703,16 @@ pub fn rescue(
             }
         }
         if std::fs::symlink_metadata(&dest).is_ok() {
-            // The same size: a copy made by an earlier run.
+            // The same size: a copy made by an earlier run. Its line in the
+            // earlier list says how it was copied.
             o.already_there += 1;
             done_bytes += e.valid_data_length.min(e.data_length);
-            log.push_str(&csv_row(&[
-                kind,
-                &e.path,
-                &size_text,
-                "skipped",
-                &copied_as,
-                "already in the folder (left as it was)",
-            ]));
+            if let Some((result, note)) = earlier.result.get(&log_key(kind, &e.path)) {
+                if result == "partly copied" {
+                    o.partial.push((e.path.clone(), note.clone()));
+                }
+            }
+            runlog.add(&[kind, &e.path, &size_text, "skipped", &copied_as, "already in the folder (left as it was)"], true);
             return;
         }
         let mut copied = |n: u64| {
@@ -487,6 +725,8 @@ pub fn rescue(
         match copy_file(&vol, e, list, &dest, &stop, &mut copied) {
             Ok(None) => o.stopped = true,
             Ok(Some(note)) => {
+                failures_in_a_row = 0;
+                copied_this_run += 1;
                 o.files += 1;
                 o.bytes += e.data_length;
                 let (result, n) = match &note {
@@ -500,11 +740,38 @@ pub fn rescue(
                 if e.hidden_from_windows && note.is_none() {
                     n.push_str(&format!("Windows cannot list it: {}", e.why_hidden));
                 }
-                log.push_str(&csv_row(&[kind, &e.path, &size_text, result, &copied_as, n.trim()]));
+                runlog.add(&[kind, &e.path, &size_text, result, &copied_as, n.trim()], false);
+                if opts.stop_after_files.is_some_and(|k| copied_this_run >= k) {
+                    o.stopped = true;
+                    halt.store(true, Ordering::Relaxed);
+                }
             }
             Err(err) => {
-                o.failed.push((e.path.clone(), err.clone()));
-                log.push_str(&csv_row(&[kind, &e.path, &size_text, "failed", &copied_as, &err]));
+                // The disk or the drive the copies go to may have gone away:
+                // then stop, rather than list every file after this one as
+                // failed.
+                if let CopyError::Read(_) = err {
+                    errors_seen = watched.errors();
+                    if !watched.answers(probe_at) {
+                        o.disk_lost = Some(watched.last_error());
+                        o.stopped = true;
+                        halt.store(true, Ordering::Relaxed);
+                        return;
+                    }
+                } else if std::fs::metadata(&base).is_err() {
+                    o.dest_lost = Some(err.text().to_string());
+                    o.stopped = true;
+                    halt.store(true, Ordering::Relaxed);
+                    return;
+                }
+                o.failed.push((e.path.clone(), err.text().to_string()));
+                runlog.add(&[kind, &e.path, &size_text, "failed", &copied_as, err.text()], false);
+                failures_in_a_row += 1;
+                if failures_in_a_row >= 25 {
+                    o.keeps_failing = Some(err.text().to_string());
+                    o.stopped = true;
+                    halt.store(true, Ordering::Relaxed);
+                }
             }
         }
         if o.files % 64 == 0 || last.elapsed().as_millis() > 500 {
@@ -519,11 +786,18 @@ pub fn rescue(
             last = std::time::Instant::now();
         }
     };
-    let issues = walk(&vol, &mut visit);
+    // (Between folders too: a disk that stops answering while a folder is
+    // read never gets as far as the next file.)
+    let issues = crate::exfat::walk_until(&vol, &mut visit, &|| stop() || gone());
     drop(visit);
     amount(done_bytes, total_bytes);
+    if o.disk_lost.is_none() && gone() {
+        o.disk_lost = Some(watched.last_error());
+        o.stopped = true;
+    }
+    let walked_all = !o.stopped && !halt.load(Ordering::Relaxed);
 
-    if opts.lost && !o.stopped {
+    if opts.lost && walked_all {
         // Data marked as in use that no file claims: one file per unbroken piece.
         let lost_dir = base.join("lost data (no name)");
         let mut runs: Vec<(u32, u32)> = Vec::new();
@@ -554,13 +828,30 @@ pub fn rescue(
             std::fs::create_dir_all(&lost_dir).map_err(|e| format!("could not create {}: {e}", lost_dir.display()))?;
         }
         for (first, count) in runs {
+            if watched.errors() > errors_seen {
+                errors_seen = watched.errors();
+                if !watched.answers(probe_at) {
+                    o.disk_lost = Some(watched.last_error());
+                    o.stopped = true;
+                    break;
+                }
+            }
             let off = vol.cluster_offset(first);
             let len = count as u64 * vol.cluster_size;
             let head = vol.src.read_at(off, 64).unwrap_or_default();
             let name = format!("cluster {first} ({count} clusters).{}", extension_for(&head));
             let dest = lost_dir.join(&name);
+            let shown = format!("lost data (no name)\\{name}");
+            if std::fs::metadata(&dest).is_ok_and(|m| m.is_file() && m.len() == len) {
+                // Saved by an earlier run.
+                o.lost_pieces += 1;
+                o.lost_bytes += len;
+                runlog.add(&["LOST DATA", &shown, &len.to_string(), "skipped", "", "already in the folder (left as it was)"], true);
+                continue;
+            }
+            let tmp = lost_dir.join(PARTIAL);
             let result = (|| -> std::io::Result<()> {
-                let mut f = File::create(&dest)?;
+                let mut f = File::create(&tmp)?;
                 let mut done = 0u64;
                 while done < len {
                     let n = (len - done).min(8 << 20);
@@ -571,31 +862,52 @@ pub fn rescue(
                     }
                     done += n;
                 }
-                Ok(())
+                drop(f);
+                std::fs::rename(&tmp, &dest)
             })();
-            let shown = format!("lost data (no name)\\{name}");
             match result {
                 Ok(()) => {
                     o.lost_pieces += 1;
                     o.lost_bytes += len;
-                    log.push_str(&csv_row(&["LOST DATA", &shown, &len.to_string(), "copied", "", "data no folder record names"]));
+                    runlog.add(&["LOST DATA", &shown, &len.to_string(), "copied", "", "data no folder record names"], false);
                 }
                 Err(err) => {
+                    let _ = std::fs::remove_file(&tmp);
                     o.failed.push((shown.clone(), err.to_string()));
-                    log.push_str(&csv_row(&["LOST DATA", &shown, &len.to_string(), "failed", "", &err.to_string()]));
+                    runlog.add(&["LOST DATA", &shown, &len.to_string(), "failed", "", &err.to_string()], false);
                 }
             }
         }
     }
-    for i in &issues {
-        log.push_str(&csv_row(&["NOTE", &i.folder, "", "", "", &i.what]));
+    if o.disk_lost.is_none() {
+        for i in &issues {
+            runlog.note(&i.folder, &i.what);
+        }
     }
-    if o.stopped {
-        log.push_str(&csv_row(&["NOTE", "", "", "", "", "stopped on request before the end; run it again to copy the rest"]));
+    if let Some(err) = &o.disk_lost {
+        runlog.note("", &format!("the recovered disk stopped answering ({err}); run it again to copy the rest"));
+    } else if let Some(err) = &o.dest_lost {
+        runlog.note("", &format!("the folder the copies go to went away ({err}); run it again to copy the rest"));
+    } else if let Some(err) = &o.keeps_failing {
+        runlog.note("", &format!("stopped because copying kept failing ({err}); run it again to copy the rest"));
+    } else if o.stopped {
+        runlog.note("", "stopped on request before the end; run it again to copy the rest");
     }
-    let log_path = base.join("rescue-log.csv");
-    std::fs::write(&log_path, format!("\u{FEFF}{log}")).map_err(|e| format!("could not write {}: {e}", out.join("rescue-log.csv").display()))?;
-    o.log = out.join("rescue-log.csv").display().to_string();
+    let text = runlog.merged(&earlier, walked_all && o.disk_lost.is_none());
+    drop(runlog);
+    let tmp = base.join("rescue-log.csv.new");
+    std::fs::write(&tmp, format!("\u{FEFF}{text}"))
+        .and_then(|_| std::fs::rename(&tmp, &log_path))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!(
+                "could not write {} ({e}) - is it open in another program? Close it and run the copying again: \
+                 nothing is copied twice",
+                out.join(LOG_NAME).display()
+            )
+        })?;
+    let _ = std::fs::remove_file(&unfinished_path);
+    o.log = out.join(LOG_NAME).display().to_string();
     Ok(o)
 }
 
@@ -622,6 +934,123 @@ mod tests {
         assert_eq!(super::unique(&mut used, "img.jpg".into(), false), "img (3).jpg");
         assert_eq!(super::unique(&mut used, "x.y".into(), true), "x.y");
         assert_eq!(super::unique(&mut used, "X.Y".into(), true), "X.Y (2)");
+    }
+
+    use super::{rescue, Options, Pick, LOG_NAME, UNFINISHED_LOG_NAME};
+    use crate::disk::{Memory, Source, Unplugged};
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicI64;
+
+    fn opts(out: &Path, stop_after: Option<u64>) -> Options {
+        Options {
+            disk: String::new(),
+            out_dir: out.display().to_string(),
+            pick: Pick::Everything,
+            lost: true,
+            stop: None,
+            stop_after_files: stop_after,
+        }
+    }
+
+    fn tree(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                let rel = p.strip_prefix(dir).unwrap().display().to_string();
+                if p.is_dir() {
+                    out.insert(rel + "/", Vec::new());
+                    stack.push(p);
+                } else if !rel.starts_with("rescue-log") {
+                    out.insert(rel, std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// The list's lines, each as its fields (in any order).
+    fn log_rows(dir: &Path) -> Vec<Vec<String>> {
+        let text = std::fs::read_to_string(dir.join(LOG_NAME)).unwrap();
+        let mut rows = crate::fmt::parse_csv(&text);
+        rows.sort();
+        rows
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("rp-rescue-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_disk_that_stops_answering_stops_the_copy_and_nothing_is_lost() {
+        let disk = Memory::new(crate::selftest::disk_image().unwrap());
+        let dir = scratch("unplugged");
+        let whole = dir.join("whole");
+        let o = rescue(&disk, &opts(&whole, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o.stopped && o.failed.is_empty() && o.files > 50, "{o:?}");
+        // How many reads one whole run takes.
+        let count = Unplugged { inner: &disk, reads_left: AtomicI64::new(i64::MAX) };
+        rescue(&count, &opts(&dir.join("count"), None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        let reads = i64::MAX - count.reads_left.load(std::sync::atomic::Ordering::Relaxed);
+        for k in [reads / 2, reads * 9 / 10] {
+            let part = dir.join(format!("part-{k}"));
+            let cut = Unplugged { inner: &disk, reads_left: AtomicI64::new(k) };
+            let o1 = rescue(&cut, &opts(&part, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+            assert!(o1.stopped && o1.disk_lost.is_some(), "the copy stops when the disk stops answering: {o1:?}");
+            assert!(o1.failed.is_empty(), "nothing is listed as failed: {:?}", o1.failed);
+            assert!(o1.files <= o.files);
+            // Plugged in again: the copy carries on and ends up the same.
+            let o2 = rescue(&disk, &opts(&part, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+            assert!(!o2.stopped && o2.failed.is_empty() && o2.already_there > 0, "{o2:?}");
+            assert_eq!(o1.files + o2.files, o.files);
+            assert_eq!(tree(&part), tree(&whole), "the copies are the same as one whole run's");
+            assert_eq!(log_rows(&part), log_rows(&whole), "the list is the same as one whole run's");
+        }
+        // The disk is gone before the copying even starts.
+        let gone = Unplugged { inner: &disk, reads_left: AtomicI64::new(3) };
+        let e = rescue(&gone, &opts(&dir.join("gone"), None), &mut |_| {}, &mut |_, _| {});
+        assert!(e.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stopping_and_starting_again_gives_the_same_copies_and_list() {
+        let disk = Memory::new(crate::selftest::disk_image().unwrap());
+        let dir = scratch("again");
+        let whole = dir.join("whole");
+        rescue(&disk, &opts(&whole, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        let part = dir.join("part");
+        let mut runs = 0;
+        loop {
+            runs += 1;
+            let o = rescue(&disk, &opts(&part, Some(17)), &mut |_| {}, &mut |_, _| {}).unwrap();
+            assert!(o.failed.is_empty());
+            assert!(std::fs::metadata(part.join(UNFINISHED_LOG_NAME)).is_err(), "the unfinished list is folded in");
+            if !o.stopped {
+                break;
+            }
+            assert!(runs < 50);
+        }
+        assert!(runs > 3);
+        assert_eq!(tree(&part), tree(&whole));
+        assert_eq!(log_rows(&part), log_rows(&whole));
+
+        // A run that never got to the end (the PC lost power) leaves its
+        // unfinished list; the next run folds it in.
+        let crash = dir.join("crash");
+        rescue(&disk, &opts(&crash, Some(30)), &mut |_| {}, &mut |_, _| {}).unwrap();
+        std::fs::rename(crash.join(LOG_NAME), crash.join(UNFINISHED_LOG_NAME)).unwrap();
+        let o = rescue(&disk, &opts(&crash, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o.stopped && o.failed.is_empty());
+        assert_eq!(tree(&crash), tree(&whole));
+        assert_eq!(log_rows(&crash), log_rows(&whole));
+        let _ = disk.size();
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

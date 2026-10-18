@@ -269,6 +269,7 @@ fn disk_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(Vec<String>, Ve
         pick: crate::rescue::Pick::Everything,
         lost: true,
         stop: None,
+        stop_after_files: None,
     };
     let o = crate::rescue::run(&ropts, &mut |_s: &str| {}, &mut |_d, _t| {})?;
     let before = problems.len();

@@ -16,6 +16,100 @@ pub trait Source: Send + Sync {
     fn describe(&self) -> String;
 }
 
+/// Reads through to a disk and counts the reads that fail. The recovered
+/// SSD is a healthy drive holding a copy, so a read that fails there almost
+/// always means it stopped answering (a loose cable, a USB hiccup), and work
+/// that goes on regardless would quietly leave things out.
+pub struct Watched<'a> {
+    inner: &'a dyn Source,
+    errors: std::sync::atomic::AtomicU64,
+    last: std::sync::Mutex<String>,
+}
+
+impl<'a> Watched<'a> {
+    pub fn new(inner: &'a dyn Source) -> Watched<'a> {
+        Watched { inner, errors: std::sync::atomic::AtomicU64::new(0), last: std::sync::Mutex::new(String::new()) }
+    }
+    /// How many reads have failed so far.
+    pub fn errors(&self) -> u64 {
+        self.errors.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// What the last failed read said.
+    pub fn last_error(&self) -> String {
+        self.last.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+    /// Does the disk still answer? (Reads 512 bytes at `off` again.)
+    pub fn answers(&self, off: u64) -> bool {
+        self.inner.read_at(off, 512).is_ok_and(|b| !b.is_empty())
+    }
+}
+
+impl Source for Watched<'_> {
+    fn size(&self) -> u64 {
+        self.inner.size()
+    }
+    fn read_at(&self, off: u64, len: usize) -> io::Result<Vec<u8>> {
+        let r = self.inner.read_at(off, len);
+        if let Err(e) = &r {
+            self.errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut l) = self.last.lock() {
+                *l = e.to_string();
+            }
+        }
+        r
+    }
+    fn describe(&self) -> String {
+        self.inner.describe()
+    }
+}
+
+/// A disk held in memory (for the tests).
+pub struct Memory {
+    data: Vec<u8>,
+}
+
+impl Memory {
+    pub fn new(data: Vec<u8>) -> Memory {
+        Memory { data }
+    }
+}
+
+impl Source for Memory {
+    fn size(&self) -> u64 {
+        self.data.len() as u64
+    }
+    fn read_at(&self, off: u64, len: usize) -> io::Result<Vec<u8>> {
+        let s = (off as usize).min(self.data.len());
+        let e = s.saturating_add(len).min(self.data.len());
+        Ok(self.data[s..e].to_vec())
+    }
+    fn describe(&self) -> String {
+        "a test disk in memory".to_string()
+    }
+}
+
+/// A disk for the tests that stops answering after a number of reads, the
+/// way a USB disk does when its cable comes out.
+pub struct Unplugged<'a> {
+    pub inner: &'a dyn Source,
+    pub reads_left: std::sync::atomic::AtomicI64,
+}
+
+impl Source for Unplugged<'_> {
+    fn size(&self) -> u64 {
+        self.inner.size()
+    }
+    fn read_at(&self, off: u64, len: usize) -> io::Result<Vec<u8>> {
+        if self.reads_left.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) <= 0 {
+            return Err(io::Error::other("the device is not connected"));
+        }
+        self.inner.read_at(off, len)
+    }
+    fn describe(&self) -> String {
+        self.inner.describe()
+    }
+}
+
 /// Reads are done in whole 4 KiB pages at 4 KiB-aligned offsets into a
 /// 4 KiB-aligned buffer, which every disk driver accepts.
 const ALIGN: u64 = 4096;

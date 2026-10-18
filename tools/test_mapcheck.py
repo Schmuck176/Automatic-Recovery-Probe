@@ -18,6 +18,7 @@ Exit code 0 when every test passes. The last line is a one-line summary.
 """
 
 import argparse
+import csv
 import json
 import os
 import random
@@ -746,7 +747,63 @@ def check_rescue(exe, d, img, truth, exp, oracle):
                         diffs.append("lost data piece %s differs from the disk" % name)
                         break
         COVERAGE["files rescued and checked byte for byte"] += len(want & got)
+        if mode == "everything":
+            diffs += check_stop_and_again(exe, d, img, out)
         shutil.rmtree(out, ignore_errors=True)
+    return diffs
+
+
+def read_tree(top):
+    """Every file and folder under `top` (bytes of files), and the rescue
+    log's rows (in any order)."""
+    files = {}
+    for base, dirs, names in os.walk(top):
+        rel = os.path.relpath(base, top)
+        for x in dirs:
+            files[os.path.normpath(os.path.join(rel, x)) + "/"] = None
+        for x in names:
+            if rel == "." and x.startswith("rescue-log"):
+                continue
+            with open(os.path.join(base, x), "rb") as f:
+                files[os.path.normpath(os.path.join(rel, x))] = f.read()
+    with open(os.path.join(top, "rescue-log.csv"), encoding="utf-8-sig", newline="") as f:
+        rows = sorted(tuple(r) for r in csv.reader(f))
+    return files, rows
+
+
+def check_stop_and_again(exe, d, img, whole):
+    """Copying stopped part-way and started again (several times) must end
+    with the same copies and the same list as one run straight through -
+    including the files only partly copied."""
+    out = whole + "-again"
+    shutil.rmtree(out, ignore_errors=True)
+    diffs = []
+    n = sum(len(f) for _, _, f in os.walk(whole))
+    step = str(max(3, n // 6 + 1))
+    for k in range(60):
+        p = subprocess.run([exe, "rescue", "--disk", img, "--out", out, "--everything", "--lost", "--stop-after", step],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        text = p.stdout.decode("utf-8", "replace")
+        if p.returncode not in (0, 1) or "could not run" in text:
+            diffs.append("copying again (run %d) failed: %s" % (k + 1, text[-600:]))
+            return diffs
+        if "Stopped before the end" not in text:
+            break
+    else:
+        diffs.append("copying again never got to the end")
+        return diffs
+    a, b = read_tree(whole), read_tree(out)
+    if a[0] != b[0]:
+        only = sorted(set(a[0]) ^ set(b[0]))[:4]
+        differ = sorted(x for x in set(a[0]) & set(b[0]) if a[0][x] != b[0][x])[:4]
+        diffs.append("stopped and started again: different copies (%s / %s)" % (only, differ))
+    if a[1] != b[1]:
+        diffs.append("stopped and started again: a different list: %s / %s" % (
+            sorted(set(a[1]) - set(b[1]))[:2], sorted(set(b[1]) - set(a[1]))[:2]))
+    if any(r[3] == "partly copied" for r in a[1]):
+        COVERAGE["partly copied files kept in the list when copying again"] += 1
+    COVERAGE["copying stopped and started again"] += 1
+    shutil.rmtree(out, ignore_errors=True)
     return diffs
 
 

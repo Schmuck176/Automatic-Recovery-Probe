@@ -79,17 +79,25 @@ and will it cause no problems, since the whole process should be done once.
 They are waiting for Claude's answer before plugging in. "Take all the time
 you need; pause and resume automatically if usage runs out."
 
-Checks (tick here as they are done, push after each):
+Checks (tick here as they are done, push after each). Fallback scheduled
+continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmoDbfoNzm
+(00:32 UTC): delete both when done.
 - [ ] 1. Nothing can write to the SSD (disk handles, IOCTLs, every page step).
 - [ ] 2. Copying right for a Mac-made exFAT (runs, NoFatChain, valid data
       length, >4 GB, timestamps, NFD names, forbidden characters, long paths).
-- [ ] 3. Long copy: stop cleanly when the SSD stops answering (now every
-      remaining file is logged "failed"); resume must keep "partly copied"
-      notes (now a same-size partial copy is "skipped" on resume and the new
-      rescue-log.csv overwrites the old one, losing the note).
-- [ ] 4. Scale: step 4/5/6 time and memory with ~1M files.
-- [ ] 5. Join: damaged files found under safe names, " (2)" names, and in
-      PHOTOSLIB\N after the libraries are moved.
+- [x] 3. Long copy: stops cleanly when the SSD stops answering (disk.rs
+      Watched: a failed read re-reads the boot sector; gone -> stop, nothing
+      listed as failed; also between folders), when the copies' folder goes
+      away, or after 25 failures in a row. rescue-log.csv is merged across
+      runs (Earlier/RunLog in rescue.rs; rescue-log-unfinished.csv written as
+      it goes, folded in by the next run after a crash). Tested: unit tests
+      (unplugged mid-copy, stop/again, crash), and test_mapcheck.py
+      check_stop_and_again (51 disks: same copies and list as one run).
+- [x] 5. Join: damaged files found under safe names and " (2)" names
+      (join.rs copy_name/without_number); PHOTOSLIB\N works by the shared
+      tail of the path (unit test copies_whose_names_were_changed_are_found_too).
+- [x] 4. Scale (before the changes): 1M files on Linux: map check 0.6 s /
+      97 MB, rescue 33 s / 94 MB, scan 39 s / 59 MB (tools/make_big_disk.py).
 - [ ] 6. Disk protection with a real USB disk: removable media, drop-out and
       return mid-copy (policy already restored), 4 KB sector bridges.
 - [ ] 7. CI green, deliver the exe (only while the program is closed: ask).
