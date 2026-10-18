@@ -874,8 +874,8 @@ async function start() {
     await save({ mapfile: best.path });
   }
   if (setting("mapfile")) mapInfo = await get("api/mapinfo?path=" + encodeURIComponent(setting("mapfile")));
-  await loadDisks();
   render();
+  loadDisks(); // (reading every disk can take a moment: the page does not wait for it)
   updateSpace();
   let tick = 0;
   setInterval(async () => {

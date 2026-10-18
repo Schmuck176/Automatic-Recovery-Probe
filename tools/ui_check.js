@@ -19,6 +19,7 @@ const copyTo = path.join(work, "copies");
 const port = 47000 + Math.floor(Math.random() * 900);
 const key = "uitestkey0123456789abcdef";
 const results = [];
+const pageErrors = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
 
 (async () => {
@@ -34,8 +35,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1180, height: 900 } });
   const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e)));
-  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("pageerror", (e) => { errors.push(String(e)); pageErrors.push(String(e)); });
+  page.on("console", (m) => { if (m.type() === "error") { errors.push(m.text()); pageErrors.push(m.text()); } });
   const shot = (name) => page.screenshot({ path: path.join(work, name + ".png"), fullPage: true });
   const waitJob = async (step) => {
     await page.waitForFunction((s) => {
@@ -50,6 +51,13 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const post = await fetch(url + "api/do", { method: "POST", body: "action=selftest" }).then((r) => r.status);
   check(post === 403, "an action without the key header is refused (" + post + ")");
 
+  // How quickly the program answers (reading every disk is the slow one).
+  for (const api of ["api/state", "api/find-mapfiles", "api/disks"]) {
+    const t0 = Date.now();
+    const r = await fetch(url + api);
+    await r.text();
+    console.log(`     ${api} answered in ${Date.now() - t0} ms`);
+  }
   await page.goto(url);
   await page.waitForSelector("#map-picture svg", { timeout: 10000 });
   check((await page.textContent("#map-lead")).includes("never read"), "the map shows the unread places");
@@ -132,4 +140,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const failed = results.filter((r) => !r[0]).length;
   console.log(`Page checks: ${results.length - failed} of ${results.length} passed`);
   process.exit(failed ? 1 : 0);
-})().catch((e) => { console.log("FAIL " + e); process.exit(1); });
+})().catch((e) => {
+  console.log("FAIL " + e);
+  for (const x of pageErrors) console.log("     page said: " + x);
+  process.exit(1);
+});

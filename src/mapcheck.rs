@@ -348,6 +348,16 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str)) -> Result<Report, Str
 /// (no readable partition table), look for a boot sector that records its
 /// own position, which exFAT boot sectors do.
 pub fn find_volume<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volume<'a>, bool), String> {
+    find_volume_in(src, table, true)
+}
+
+/// The same, without the slow last resort (reading the first 4 GiB of the
+/// disk for a boot sector): for describing disks quickly.
+pub fn find_volume_quick<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volume<'a>, bool), String> {
+    find_volume_in(src, table, false)
+}
+
+fn find_volume_in<'a>(src: &'a dyn Source, table: &Table, scan: bool) -> Result<(Volume<'a>, bool), String> {
     let mut starts: Vec<u64> = table.partitions.iter().map(|p| p.start).collect();
     starts.push(0);
     for &s in &starts {
@@ -366,7 +376,7 @@ pub fn find_volume<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volume<'a>
             }
         }
     }
-    if let Some((start, backup, bps)) = scan_for_boot_sector(src, 4 << 30) {
+    if let Some((start, backup, bps)) = if scan { scan_for_boot_sector(src, 4 << 30) } else { None } {
         let v = if backup { Volume::open_backup(src, start, bps) } else { Volume::open(src, start) };
         if let Ok(v) = v {
             return Ok((v, backup));

@@ -711,7 +711,7 @@ fn describe_disk(spec: &str, map_size: Option<u64>) -> String {
         (Some(o), Some(m)) => Some(o == m),
         _ => None,
     };
-    let volume = match crate::mapcheck::find_volume(&*src, &table) {
+    let volume = match crate::mapcheck::find_volume_quick(&*src, &table) {
         Ok((v, _)) => Obj::new()
             .s("label", &v.label)
             .n("offset", v.offset)
