@@ -216,6 +216,39 @@ fn main() {
         Some("disk-guard") => recovery_probe::cli::run_disk_guard(&args[1..]),
         Some("self-test") => recovery_probe::selftest::run_cli(),
         Some("ui") => run_ui(&args[1..]),
+        // For the checks on GitHub: start a copy of this program the way a
+        // double-click does (asking for administrator rights), and say
+        // whether Windows did it.
+        Some("check-start-elevated") => {
+            let exe = std::env::current_exe().unwrap_or_default();
+            let mark = std::env::temp_dir().join("recovery-probe-started.txt");
+            let _ = std::fs::remove_file(&mark);
+            match recovery_probe::win::start_elevated(&exe, &["write-mark".to_string(), mark.display().to_string()]) {
+                Ok(()) => {
+                    for _ in 0..100 {
+                        if mark.exists() {
+                            println!("started with administrator rights: the copy ran");
+                            std::process::exit(0);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    println!("Windows said it started the copy, but the copy did not run");
+                    1
+                }
+                Err(e) => {
+                    println!("could not start the copy: {e}");
+                    1
+                }
+            }
+        }
+        Some("write-mark") => match args.get(1) {
+            Some(p) => {
+                let elevated = recovery_probe::win::is_elevated();
+                let _ = std::fs::write(p, format!("elevated {elevated}\n"));
+                0
+            }
+            None => 2,
+        },
         None => recovery_probe::web::launch(),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
             Ok((disk, out, pick, lost, status)) => run_rescue(&disk, &out, pick, lost, &Status::new(status)),

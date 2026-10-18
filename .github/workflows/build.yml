@@ -39,6 +39,11 @@ jobs:
         run: |
           set -o pipefail
           cargo test --release --locked 2>&1 | tee "$RUNNER_TEMP/report/20-unit-tests.txt"
+      - name: Starting a copy with administrator rights, as a double-click does
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          target/release/recovery-probe.exe check-start-elevated 2>&1 | tee "$RUNNER_TEMP/report/22-start-elevated.txt"
       - name: Built-in self-test (what the person runs first)
         if: ${{ !cancelled() }}
         run: |
