@@ -195,7 +195,8 @@ class Oracle:
             # record with a wrong checksum makes it give up on the whole
             # folder (it lists none of it, but still opens what comes before
             # when given the full path); a record that is not even well formed
-            # is skipped with the slots it claims; anything else is skipped.
+            # is skipped with all the slots it claims (even 200 of them);
+            # anything else is skipped.
             # Every damaged file record reached is a problem to report.
             stop_kind, stop_at = None, slots
             reached = []
@@ -217,7 +218,7 @@ class Oracle:
                     continue
                 problems += 1
                 sc = b[1]
-                if not 2 <= sc <= 18 or k + sc >= slots:
+                if k + sc >= slots:
                     k += 1
                     continue
                 types = [self.read(self.slot_off(cl, k + j), 1)[0] for j in range(sc + 1)]
@@ -225,6 +226,9 @@ class Oracle:
                     if stop_kind is None:
                         stop_kind, stop_at = "blank", k
                     k += 1
+                    continue
+                if not 2 <= sc <= 18:
+                    k += sc + 1  # skipped with every slot it claims, however many
                     continue
                 stream = self.read(self.slot_off(cl, k + 1), 32)
                 ne = -(-stream[3] // 15)

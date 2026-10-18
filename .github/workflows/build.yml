@@ -74,14 +74,18 @@ jobs:
       - name: The step-by-step page, in a real browser
         if: ${{ !cancelled() }}
         run: |
-          set -o pipefail
-          python tools/make_selftest_disk.py
-          git diff --exit-code --stat -- src/selftest || { echo "src/selftest is not what tools/make_selftest_disk.py makes"; exit 1; }
-          npm install --no-save --silent playwright@1.56.1
-          npx playwright install chromium
-          node tools/ui_check.js target/release/recovery-probe.exe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
-          cp "$RUNNER_TEMP"/ui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
+          set +e -o pipefail
+          {
+            python tools/make_selftest_disk.py &&
+            { git diff --exit-code --stat -- src/selftest || { echo "src/selftest is not what tools/make_selftest_disk.py makes"; false; }; } &&
+            npm install --no-save --silent playwright@1.56.1 &&
+            npx playwright install chromium &&
+            node tools/ui_check.js target/release/recovery-probe.exe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map
+          } 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
+          status=$?
+          cp "$RUNNER_TEMP"/ui/*.png "$RUNNER_TEMP"/ui/server-output.txt "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Page::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
+          exit $status
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push'
         run: |

@@ -491,11 +491,6 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
             let issue = |what: &str, issues: &mut Vec<FolderIssue>| {
                 issues.push(FolderIssue { folder: shown(&dir), disk_offset: rec_off(i), what: what.to_string() });
             };
-            if !(2..=18).contains(&sc) {
-                issue("a damaged file record (impossible number of parts) - skipped, as Windows does", &mut issues);
-                i += 1;
-                continue;
-            }
             if i + sc >= slots {
                 issue("a file record cut off at the end of the folder - skipped", &mut issues);
                 i += 1;
@@ -514,6 +509,16 @@ pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<Fo
                         .to_string(),
                 });
                 i += 1;
+                continue;
+            }
+            if !(2..=18).contains(&sc) {
+                // Windows skips it together with every slot it claims, however
+                // many (measured for 0, 1, 19 and 200 parts).
+                issue(
+                    "a damaged file record (impossible number of parts) - Windows skips it, and the records it claims",
+                    &mut issues,
+                );
+                i += sc + 1;
                 continue;
             }
             let set = &buf[o..o + 32 * (sc + 1)];

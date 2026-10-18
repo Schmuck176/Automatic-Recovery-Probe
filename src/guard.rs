@@ -9,14 +9,18 @@
 //!     "leave them switched off" (the SAN policy, as `diskpart san` shows it);
 //!  2. the SSD arrives switched off (offline): no volume, nothing mounted,
 //!     nothing that could write to it;
-//!  3. the program marks that disk read-only, which Windows remembers for it
-//!     from then on, and puts the policy back the way it was;
+//!  3. the program marks that disk read-only and puts the policy back the
+//!     way it was (Windows forgets the read-only mark when the disk is
+//!     unplugged, so this is done every time it is plugged in);
 //!  4. if the person wants to browse it, the disk is switched on: Windows
 //!     mounts it read-only.
 //!
 //! The program itself never needs the disk switched on: it reads it directly.
 //! Every step is checked on GitHub's Windows machines (tools/guard_check.py),
 //! including that a protected disk comes back byte for byte unchanged.
+//! (Measured there too: Windows Server wrote nothing to an unprotected
+//! exFAT disk in 20 seconds, and a disk kept switched off by the policy is
+//! read-only as well.)
 
 /// Windows' policy for disks it has not seen before.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -192,7 +196,7 @@ mod imp {
     }
 
     pub fn set_read_only(n: u32) -> Result<(), String> {
-        // Remembered for this disk from now on.
+        // Asked to be remembered (Windows forgets it for virtual disks anyway).
         set(n, DISK_ATTRIBUTE_READ_ONLY, DISK_ATTRIBUTE_READ_ONLY, true)
     }
 
@@ -272,7 +276,7 @@ mod imp {
 
 pub use imp::{san_policy, san_policy_registry, set_online, set_read_only, set_san_policy, state};
 
-/// Mark a disk read-only (remembered for it), then switch it on if asked.
+/// Mark a disk read-only, then switch it on if asked.
 /// Checks each step took.
 pub fn protect(n: u32, online: bool) -> Result<DiskState, String> {
     set_read_only(n)?;

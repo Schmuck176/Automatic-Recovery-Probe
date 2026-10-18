@@ -1317,7 +1317,16 @@ pub fn launch() -> i32 {
     println!();
     println!("Windows will now ask whether to let this program make changes.");
     println!("Click Yes: it needs that to read the recovered SSD directly (it never writes to it).");
-    let args = vec!["ui".to_string(), "--port".to_string(), port.to_string(), "--token".to_string(), token.clone()];
+    // This copy opens the browser itself (so the browser does not get
+    // administrator rights), so the other copy must not open it too.
+    let args = vec![
+        "ui".to_string(),
+        "--port".to_string(),
+        port.to_string(),
+        "--token".to_string(),
+        token.clone(),
+        "--no-browser".to_string(),
+    ];
     match crate::win::start_elevated(&exe, &args) {
         Ok(()) => {
             let url = format!("http://127.0.0.1:{port}/{token}/");

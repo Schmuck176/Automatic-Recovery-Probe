@@ -25,7 +25,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
     { stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
-  server.stdout.on("data", (d) => { out += d; });
+  const log = fs.createWriteStream(path.join(work, "server-output.txt"));
+  server.stdout.on("data", (d) => { out += d; log.write(d); });
+  server.stderr.on("data", (d) => { log.write(d); });
   for (let i = 0; i < 50 && !out.includes("http://"); i++) await new Promise((r) => setTimeout(r, 100));
   const url = `http://127.0.0.1:${port}/${key}/`;
   check(out.includes(url), "the program prints the page's address");

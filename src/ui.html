@@ -270,13 +270,22 @@ const KEY = "__KEY__";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const commas = (n) => Number(n || 0).toLocaleString("en-GB");
+// Sizes the way File Explorer shows them (1 KB = 1,024 bytes).
 function size(n) {
   n = Number(n || 0);
-  if (n >= 1e12) return (n / 1e12).toFixed(2) + " TB";
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + " GB";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
-  if (n >= 1e3) return Math.round(n / 1e3) + " KB";
+  const KB = 1024, MB = KB * 1024, GB = MB * 1024, TB = GB * 1024;
+  if (n >= TB) return (n / TB).toFixed(2) + " TB";
+  if (n >= GB) return (n / GB).toFixed(1) + " GB";
+  if (n >= MB) return Math.round(n / MB) + " MB";
+  if (n >= KB) return Math.round(n / KB) + " KB";
   return n + " bytes";
+}
+// A drive's size the way it is sold (1 TB = 1,000,000,000,000 bytes).
+function nominal(n) {
+  n = Number(n || 0);
+  if (n >= 1e12) return +(n / 1e12).toFixed(1) + " TB";
+  if (n >= 1e9) return Math.round(n / 1e9) + " GB";
+  return size(n);
 }
 function duration(s) {
   s = Math.max(0, Math.round(s));
@@ -351,10 +360,10 @@ function drawMap() {
   const hits = check && check.state === "done" && check.data ? check.data.areas : null;
   const areas = m.areas;
   if (!areas.length) {
-    lead.textContent = `ddrescue read all ${size(span)} of the drive: nothing was left unread.`;
+    lead.textContent = `ddrescue read all of this ${nominal(span)} drive: nothing was left unread.`;
   } else {
-    lead.textContent = `ddrescue never read ${commas(m.bad_bytes)} bytes of this ${size(span)} drive, in ${commas(m.bad_count)} places` +
-      ` — all between ${size(areas[0][0])} and ${size(areas[areas.length - 1][1])}.`;
+    lead.textContent = `ddrescue never read ${commas(m.bad_bytes)} bytes of this ${nominal(span)} drive, in ${commas(m.bad_count)} places` +
+      ` — all between ${size(areas[0][0])} and ${size(areas[areas.length - 1][1])} from its start.`;
   }
   const W = 1000, H1 = 34, gap = 46, H2 = 34;
   const x = (v) => ((v - start) / span) * W;
@@ -440,7 +449,7 @@ function renderMapStep() {
       const name = m.path.split(/[\\/]/).pop();
       h += `<label class="choice"><input type="radio" name="mapfile" value="${esc(m.path)}" ${m.path === chosen ? "checked" : ""}>
         <span><b>${esc(name)}</b>${m.finished ? "" : '<span class="tag warn">stopped before the end</span>'}</span>
-        <span class="small soft">${esc(size(m.disk_size))} drive; ${commas(m.bad_bytes)} bytes never read</span>
+        <span class="small soft">${esc(nominal(m.disk_size))} drive; ${commas(m.bad_bytes)} bytes never read</span>
         <span class="small soft path">${esc(m.path)}</span></label>`;
     });
   } else if (mapfiles) {
@@ -462,7 +471,7 @@ function renderMapStep() {
       <div class="figure bad"><b>${commas(m.bad_bytes)}</b><span>bytes never read</span></div>
       <div class="figure"><b>${commas(m.bad_count)}</b><span>places</span></div>
       <div class="figure"><b>${esc(size(m.median))}</b><span>typical place (largest ${esc(size(m.largest))})</span></div>
-      <div class="figure"><b>${esc(size(m.domain_end - m.domain_start))}</b><span>drive copied</span></div></div>
+      <div class="figure"><b>${esc(nominal(m.domain_end - m.domain_start))}</b><span>drive copied (${commas(m.domain_end - m.domain_start)} bytes)</span></div></div>
       <p class="small soft">${m.finished ? "ddrescue finished." : "<b>ddrescue was stopped before the end</b>: the parts it never reached count as never read."}
       Started ${esc(m.start_time || "?")}, last saved ${esc(m.current_time || "?")}${m.version ? ", ddrescue " + esc(m.version) : ""}.</p>
       ${(m.by_status || []).map((s) => `<span class="tag">${commas(s.count)} ${esc(s.name)} (${commas(s.bytes)} bytes)</span>`).join(" ")}
@@ -479,7 +488,7 @@ function diskLine(d) {
   const det = d.detail || {};
   const bits = [];
   if (d.model) bits.push(esc(d.model));
-  bits.push(esc(size(d.size)));
+  bits.push(esc(nominal(d.size)));
   if (d.bus) bits.push(esc(d.bus));
   let tags = "";
   if (d.system) tags += '<span class="tag">Windows itself</span>';
@@ -522,10 +531,14 @@ function renderConnect() {
   } else {
     h += `<p class="soft">${S.windows ? "No disks found yet." : "Disks are only listed on Windows."}</p>`;
   }
+  h += `<div class="row"><button class="second" id="b-look">Look again</button></div>`;
   const sel = disks.find((d) => d.spec === chosen);
+  // Protected means: marked read-only by this page, and still read-only.
+  // (A disk Windows keeps switched off is read-only too, but only for now.)
+  const isProtected = sel && (sel.test || (protectedHere.has(sel.spec) && sel.read_only));
   if (sel && !sel.test && S.elevated) {
     h += `<div class="row">`;
-    if (!sel.read_only) h += `<button id="b-protect">Protect disk ${sel.number}</button>`;
+    if (!isProtected) h += `<button id="b-protect">Protect disk ${sel.number}</button>`;
     else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
     else h += `<button class="second" id="b-offline">Switch it off</button>`;
     h += `</div>`;
@@ -534,7 +547,7 @@ function renderConnect() {
     }
   }
   h += noteHtml("connect");
-  if (sel && sel.read_only) setStep("connect", "done", sel.test ? "Test disk" : "Protected");
+  if (isProtected) setStep("connect", "done", sel.test ? "Test disk" : "Protected");
   else if (sel) setStep("connect", "", "Not protected yet");
   else setStep("connect", "", "");
   void protectedDisk;
@@ -545,6 +558,7 @@ function renderConnect() {
     if ($("b-protect")) $("b-protect").onclick = () => protect(sel);
     if ($("b-online")) $("b-online").onclick = () => switchDisk(sel, true);
     if ($("b-offline")) $("b-offline").onclick = () => switchDisk(sel, false);
+    $("b-look").onclick = loadDisks;
   }
 }
 
@@ -661,7 +675,7 @@ function renderFinish() {
   } else {
     h += `<p>Windows' setting for new disks is as it was.</p>`;
   }
-  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy, and the program marked it read-only on this PC.</p>
+  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>
     <p class="small soft">The results of every step are in <span class="path">${esc(S.results)}</span>. The checklist says what comes next.</p>`;
   const el = $("finish");
   if (el.dataset.html !== h) {
@@ -712,7 +726,7 @@ async function prepare() {
   note("prepare", "", "");
   try { const r = await act({ action: "guard-prepare" }); note("prepare", "ok", r.message + " Now plug in the recovered SSD."); }
   catch (e) { note("prepare", "err", e.message); }
-  await refresh(); watchDisks(60);
+  await refresh(); watchDisks(15 * 60);
 }
 async function protect(d) {
   note("connect", "", "");
@@ -725,6 +739,7 @@ async function protect(d) {
       await act({ action: "guard-online", disk: d.spec, on: "0" });
       await act({ action: "guard-online", disk: d.spec, on: "1" });
     }
+    protectedHere.add(d.spec);
     let msg = `Disk ${d.number} is read-only: Windows cannot write to it.`;
     if (S.policy_to_restore) {
       const r = await act({ action: "guard-restore" });
@@ -828,6 +843,9 @@ async function loadDisks() {
 }
 let watchUntil = 0;
 function watchDisks(seconds) { watchUntil = Date.now() + seconds * 1000; }
+const protectedHere = new Set(); // disks this page marked read-only
+// Coming back to the page (after plugging something in, say): look again.
+window.addEventListener("focus", () => { loadDisks(); });
 let lost = false;
 async function refresh() {
   try { S = await get("api/state"); } catch {
