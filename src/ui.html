@@ -822,7 +822,11 @@ $("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") pic
 $("picker-cancel").onclick = () => $("picker").close();
 $("picker-ok").onclick = () => { const p = $("picker-path").value.trim(); $("picker").close(); if (p) pick.done(p); };
 $("b-mapfile").onclick = () => openPicker("Choose the mapfile", S.home, true, chooseMapfile);
-$("b-copy-to").onclick = () => openPicker("Choose where the copies go", $("copy-to").value || "", false, (p) => { $("copy-to").value = p; $("copy-to").dataset.touched = "1"; updateSpace(); });
+$("b-copy-to").onclick = () => openPicker("Choose where the copies go", $("copy-to").value || "", false, (p) => {
+  // A whole drive chosen: the copies go into a WORK folder on it, as the checklist says.
+  if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\WORK";
+  $("copy-to").value = p; $("copy-to").dataset.touched = "1"; updateSpace();
+});
 $("b-scan-folder").onclick = () => openPicker("Choose the folder to check", $("scan-folder").value || setting("copy_to"), false, (p) => { $("scan-folder").value = p; $("scan-folder").dataset.touched = "1"; });
 
 async function updateSpace() {

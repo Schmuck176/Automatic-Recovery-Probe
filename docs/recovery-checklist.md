@@ -250,7 +250,7 @@ whatever size they are.
   - *Plugged it in before step 7?* Click it and **Protect** anyway: the program switches it off and on again, read-only. Then carry on.
   - *Not marked "the copy ddrescue made"?* Stop and tell Claude before going further.
 - [ ] **10. Step 4 → Find what the damage touched.** A minute or two. It reads the SSD directly and shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), and how many **folders** are damaged. The red marks on the map at the top now show what each place held. Write the three numbers down. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
-- [ ] **11. Step 5 → copy everything.** Click **Choose…**, pick `SPARE`, and type `WORK` at the end of the folder name (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
+- [ ] **11. Step 5 → copy everything.** Click **Choose…**, click `SPARE`, then **Choose this folder**: the program puts the copies in a `WORK` folder on it (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
   - This copies **every** file straight off the SSD, including the ones Windows can't list, into `SPARE\WORK`, with the same folders. It takes hours (a full 1 TB over USB: roughly 2–4). The bar at the bottom shows how far it is and about how long is left.
   - You can click **Stop** and start it again later (same folder): what's already copied is kept and skipped.
   - A few names change slightly, because Windows can't use them (a name ending in a space gets `_` instead). `rescue-log.csv` in `SPARE\WORK` lists every one, and every file.
