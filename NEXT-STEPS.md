@@ -54,6 +54,23 @@ reached from the development workspace. The Windows build of each commit is
   GitHub's Windows machine), the final mapfile, and docs/recovery-checklist.md
   and docs/download-manifest.md were written into C:\RECOVERY-TOOLS on the
   user's PC ("biggamer"). The older Python files are still there (harmless).
+- 2026-10-18 14:16 BST: the user ran step 1 on the PC: every check passed
+  (screenshot and results\recovery-probe-state.txt agree). The user then
+  reorganised C:\RECOVERY-TOOLS: recovery-probe.exe, the final mapfile and
+  results\ stay at the top; the checklist and manifest now live in
+  "Obsidian MD files\" (an Obsidian vault, boxes being ticked: edit that copy in
+  place, keep the ticks, guard with the staged mtime); installers, Krokiet,
+  MP3val and untrunc in "installed files\"; the Python files in
+  "Old Python Program\". Phase -1 B (all but services.msc), C, D, E (first
+  three) and Phase 1 steps 1-5 (SPARE ready) are ticked.
+- The Claude app runs in an account with OneDrive and OBS folders, so the
+  user set up in their usual account, not Transfer. The checklist now says to
+  stay in it (OneDrive cannot reach C:\RECOVERY-TOOLS or SPARE; the ffmpeg
+  Path, Obsidian and the Claude app are per account) and adds: AutoPlay off,
+  "Automatically restart" off (a crash then stops at the blue screen instead
+  of rebooting with the SSD attached), both undone in Phase 9.
+- Not delivered yet (harmless, cosmetic): the mapfile chip on the page reads
+  "bad sector: 167 places, 610,816 bytes" instead of "167 bad sector (...)".
 
 ## Next
 

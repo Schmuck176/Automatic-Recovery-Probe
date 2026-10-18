@@ -475,7 +475,7 @@ function renderMapStep() {
       <div class="figure"><b>${esc(nominal(m.domain_end - m.domain_start))}</b><span>drive copied (${commas(m.domain_end - m.domain_start)} bytes)</span></div></div>
       <p class="small soft">${m.finished ? "ddrescue finished." : "<b>ddrescue was stopped before the end</b>: the parts it never reached count as never read."}
       Started ${esc(m.start_time || "?")}, last saved ${esc(m.current_time || "?")}${m.version ? ", ddrescue " + esc(m.version) : ""}.</p>
-      ${(m.by_status || []).map((s) => `<span class="tag">${commas(s.count)} ${esc(s.name)} (${commas(s.bytes)} bytes)</span>`).join(" ")}
+      ${(m.by_status || []).map((s) => `<span class="tag">${esc(s.name)}: ${commas(s.count)} ${s.count === 1 ? "place" : "places"}, ${commas(s.bytes)} bytes</span>`).join(" ")}
       ${(m.warnings || []).map((w) => `<div class="msg warn">${esc(w)}</div>`).join("")}</div>`;
     setStep("map", "done", "Chosen");
   } else if (mapInfo && !mapInfo.ok) {

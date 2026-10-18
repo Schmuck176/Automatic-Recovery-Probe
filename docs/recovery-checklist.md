@@ -112,8 +112,15 @@ how it was set up (check the last two lines are true):
 Why: a fresh account has no OneDrive. OneDrive seeing a million new files would try
 to sync them all and can quietly swap real files for cloud placeholders.
 
-> The power and Defender settings below only apply to the account you set them in.
-> Do them signed in as **`Transfer`**.
+> **Set everything up in your usual account instead of `Transfer`? Then stay in it.**
+> OneDrive only syncs folders inside your user folder (Desktop, Documents, Pictures and
+> the like), and nothing in this job goes there: the program and its results are in
+> `C:\RECOVERY-TOOLS`, the copies go on `SPARE`. Switching now would mean installing
+> Obsidian again, redoing the ffmpeg **Path** (section D, step 4 — it belongs to one
+> account) and linking the Claude app again. The power, Windows Update and Defender
+> settings count for every account either way.
+
+- [ ] In the account you use: Settings → **Bluetooth & devices** → **AutoPlay** → turn **off** *Use AutoPlay for all media and devices*, so nothing offers to import photos when a drive appears.
 
 > **Can't find your downloads?** If you downloaded the tools while signed in to your
 > *normal* account, they're in *that* account's Downloads folder, not Transfer's.
@@ -131,6 +138,7 @@ An update that's already downloaded will still reboot you, even offline. So:
 - [ ] Only now: Windows Update → **Pause updates** → longest option offered.
 - [ ] Advanced options → turn **off** "Restart this device as soon as possible when a restart is required".
 - [ ] `Win+R` → type `services.msc` → find **Windows Update** → Startup type **Disabled** → Stop. Try the same for **Update Orchestrator Service** — it usually refuses, which is fine.
+- [ ] `Win+R` → type `sysdm.cpl` → **Advanced** → under *Startup and Recovery* click **Settings** → untick **Automatically restart** → OK. If Windows ever crashes, it then stays on the blue screen instead of restarting by itself with the recovered SSD plugged in: unplug the SSD, then restart.
 
 ## C. Stop the PC sleeping
 
@@ -182,13 +190,14 @@ Phase 7 is when you reconnect and decide whether you need them at all.
 
 ## E. Test everything before you disconnect
 
-Make a test folder with a few photos, a video, a zip, a PDF and an MP3 (copies of
-ordinary files of yours — not anything from the recovered SSD).
+Make a test folder (for example `C:\RECOVERY-TOOLS\test-files`) with a few photos, a
+video, a zip, a PDF and an MP3 (copies of ordinary files of yours — not anything from
+the recovered SSD).
 
 - [ ] **Double-click `recovery-probe.exe`** in `C:\RECOVERY-TOOLS\` → **Yes**. The page opens in your browser and the badge at the top says **Running with administrator rights**.
 - [ ] **Step 1 → Run the self-test.** A few seconds. It must say **"Every check passed: the program works on this PC."** It checks itself on sample photos, music, videos, documents and a Photos database, intact and damaged, and on a small damaged test disk it carries, copying every file off it and comparing them byte for byte. Anything else → take a screenshot (`Win+Shift+S`) and paste it into the Claude chat.
 - [ ] **Step 2** should already show the mapfile, with a red-and-green map of the old drive at the top of the page.
-- [ ] **Step 6** on the test folder: choose the test folder, untick *Use what step 4 found*, click **Check every copied file**. Your good test files should come back **clean** (photos, PDFs, zips, videos and MP3s) or **not testable** (iPhone HEIC photos and camera RAW — always, on purpose).
+- [ ] **Step 6** on the test folder: click **Choose…** beside the folder box, open the test folder, click **Choose this folder**, then **Check every copied file**. (*Use what step 4 found* stays greyed out until step 4 has run — that's right.) Your good test files should come back **clean** (photos, PDFs, zips, videos and MP3s) or **not testable** (iPhone HEIC photos and camera RAW — always, on purpose).
 - [ ] Close the black window. The page then says the program isn't running — that's right.
 - [ ] **Krokiet:** open it, find **Diagnostic Info** (in its About / build information section) and check that it found **FFmpeg** and **FFprobe**. Then run **Broken Files** on the test folder with **Video (ffmpeg)** ticked. Your good video should *not* be listed. If every video is listed with "Failed to run ffmpeg", ffmpeg isn't set up (section D).
 - [ ] Now disconnect from the internet.
@@ -532,6 +541,8 @@ This rescues more photos than the repair tools do.
   - Advanced options → turn the restart setting back on
   - Power Options → back to **Balanced**
   - Remove the Defender exclusion for `SPARE`
+  - `sysdm.cpl` → Advanced → Startup and Recovery → Settings → tick **Automatically restart** again
+  - AutoPlay back on, if you want it
   - In Recovery Probe, step 7 should say *"Windows' setting for new disks is as it was."* If it doesn't, click **Put Windows' setting back**
   - Reconnect and let Windows catch up
 
