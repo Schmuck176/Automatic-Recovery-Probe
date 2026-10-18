@@ -33,7 +33,7 @@ change it.
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, works out from the mapfile exactly which files the damage touched, copies everything off the recovered SSD without letting Windows write to it (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
 >
-> The program's page says **Version 2026-10-18** (or later) at the top. The older
+> The program's page says **Version 2026-10-18 (2)** (or later) at the top. The older
 > files `recovery_probe.py`, `probe_selftest.py`, `RUN_PROBE.bat` and
 > `RUN_SELFTEST.bat` aren't needed any more — the program does all of that and more.
 > You can delete them, or leave them; they do no harm.

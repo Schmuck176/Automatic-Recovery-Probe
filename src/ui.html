@@ -562,7 +562,9 @@ function renderConnect() {
     else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
     else h += `<button class="second" id="b-offline">Switch it off</button>`;
     h += `</div>`;
-    if (sel.read_only === false && !sel.offline) {
+    if (sel.read_only === false && !sel.offline && prepared && isCopy(sel)) {
+      h += `<div class="msg warn">Windows switched this disk on by itself, although it was set to leave new disks switched off. Click <b>Protect disk ${sel.number}</b> now. If that gives an error, unplug the recovered SSD and ask for help before going on.</div>`;
+    } else if (sel.read_only === false && !sel.offline) {
       h += `<p class="small soft">It is switched on and Windows can write to it. Protecting it marks it read-only and switches it off and on again, so Windows uses it read-only from then on.</p>`;
     }
   }
@@ -631,8 +633,16 @@ function renderCopy() {
   let h = noteHtml("copy");
   if (j && j.state !== "running") {
     if (j.state === "failed") h += `<div class="msg err">${esc(j.error)}</div>`;
-    if (j.state === "stopped") h += `<div class="msg warn">Stopped before the end. Start it again to copy the rest: what is already copied is kept.</div>`;
-    if (j.summary && j.summary.length) h += `<div class="panel">${j.summary.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
+    const why = j.data && j.data.why_stopped;
+    let lines = j.summary || [];
+    if (j.state === "stopped" && why && lines.length) {
+      // Why it stopped, and what to do: the summary's first line.
+      h += `<div class="msg warn">${esc(lines[0])}</div>`;
+      lines = lines.slice(1);
+    } else if (j.state === "stopped") {
+      h += `<div class="msg warn">Stopped before the end. Start it again to copy the rest: what is already copied is kept.</div>`;
+    }
+    if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
       ${j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the folder</button>${j.outputs[1] ? `<button class="second" data-open="${esc(j.outputs[1])}">Show the list of every file</button>` : ""}</div>` : ""}</div>`;
   }
   $("r-copy").innerHTML = h;

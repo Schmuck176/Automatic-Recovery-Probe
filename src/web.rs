@@ -1249,6 +1249,18 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             .n("lost_bytes", o.lost_bytes)
             .n("renamed", o.renamed)
             .n("recopied", o.recopied)
+            .s(
+                "why_stopped",
+                if o.disk_lost.is_some() {
+                    "disk"
+                } else if o.dest_lost.is_some() {
+                    "dest"
+                } else if o.keeps_failing.is_some() {
+                    "failing"
+                } else {
+                    ""
+                },
+            )
             .b("stopped", o.stopped)
             .s("out", &opts_out)
             .end();

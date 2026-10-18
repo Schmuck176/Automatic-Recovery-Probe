@@ -77,6 +77,21 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.waitForFunction(() => /Test disk/.test(document.getElementById("st-connect").textContent), null, { timeout: 10000 });
   check(true, "step 3: the test disk can be chosen");
   check((await page.textContent("#connect")).includes("the copy ddrescue made"), "step 3: the test disk is recognised as the copy");
+  // Another disk (on GitHub's Windows machine, its second drive): nothing
+  // to protect there, and no button that would.
+  const other = await page.evaluate(() => {
+    const radios = [...document.querySelectorAll("input[name=disk]")];
+    const i = radios.findIndex((r) => !r.disabled && !r.closest("label").textContent.includes("test disk image"));
+    return i;
+  });
+  if (other >= 0) {
+    await page.locator("input[name=disk]").nth(other).check();
+    const told = await page.waitForFunction(() => document.getElementById("connect").textContent.includes("needs no protecting"),
+      null, { timeout: 10000 }).then(() => true, () => false);
+    check(told && (await page.locator("#b-protect").count()) === 0, "step 3: another disk gets no Protect button");
+    await diskRadio.check();
+    await page.waitForFunction(() => /Test disk/.test(document.getElementById("st-connect").textContent), null, { timeout: 10000 });
+  }
 
   // Step 4.
   await page.click("#b-check");

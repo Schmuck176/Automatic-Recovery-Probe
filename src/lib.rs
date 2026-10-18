@@ -32,4 +32,4 @@ pub mod win;
 
 pub const APP: &str = "Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-18";
+pub const VERSION: &str = "2026-10-18 (2)";
