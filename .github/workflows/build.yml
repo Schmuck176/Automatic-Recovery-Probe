@@ -10,6 +10,7 @@ jobs:
   windows:
     name: Windows (the real target)
     runs-on: windows-latest
+    timeout-minutes: 75
     permissions:
       contents: write
     env:
@@ -41,6 +42,7 @@ jobs:
           cargo test --release --locked 2>&1 | tee "$RUNNER_TEMP/report/20-unit-tests.txt"
       - name: Starting a copy with administrator rights, as a double-click does
         if: ${{ !cancelled() }}
+        timeout-minutes: 3
         run: |
           set -o pipefail
           target/release/recovery-probe.exe check-start-elevated 2>&1 | tee "$RUNNER_TEMP/report/22-start-elevated.txt"
@@ -115,6 +117,7 @@ jobs:
   linux:
     name: Linux (more checks)
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
