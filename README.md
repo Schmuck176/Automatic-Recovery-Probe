@@ -1,20 +1,39 @@
 # Recovery Probe
 
-Finds damage in files recovered with ddrescue: the kind that opens fine and
-looks normal. Every file is sorted into **damaged**, **not testable** or
-**clean**, and every Apple Photos Library on the way is found and
-inventoried, so it can be moved out of harm's way before any duplicate
-finder runs.
+A Windows program for getting files back off a ddrescue copy safely, and
+finding every bit of damage in them — including the kind that opens fine and
+looks normal.
 
-This is the Windows program. It is a Rust port of `reference/recovery_probe.py`
-and gives the same answer as it for every file, detail text included: each
-change is checked against the Python version file by file, on thousands of
-test files, on real Windows (see `.github/workflows/build.yml`).
+**Double-click `recovery-probe.exe`.** It asks Windows for administrator
+rights (to read the recovered disk directly; it never writes to it), and
+opens a page in the PC's own web browser that goes through the job one step
+at a time:
 
-## What it checks
+1. **Check the program works on this PC** — a built-in self-test on sample
+   files and a small damaged test disk, where every right answer is known.
+2. **The ddrescue mapfile** — found in the program's folder, and drawn as a
+   map of the old drive with every place that was never read.
+3. **Connect the recovered SSD, protected** — Windows is told to leave new
+   disks switched off, the SSD is marked read-only, and the setting is put
+   back. Nothing, not even Windows itself, can write to it.
+4. **See what the damage touched** — the *map check*: from the mapfile and
+   the SSD's own exFAT structures, exactly which files lost which bytes,
+   which folders are damaged, and which files Windows cannot even list.
+5. **Copy everything off the SSD** — straight from the disk, past Windows:
+   also the files Windows cannot list, and the data no folder names any more.
+6. **Check every copied file** — every file's structure (the *probe*),
+   together with what step 4 found: a file the drive lost data from is
+   marked **NEVER_READ** even when it looks perfect.
+7. **Finish.**
+
+Results are kept in a `results` folder next to the program. `docs/` has the
+checklist the whole recovery follows, and the tools it uses.
+
+## What the checks say
 
 | Verdict | Meaning |
 |---|---|
+| NEVER_READ | ddrescue never read part of the file (from the map check): those bytes are zeros or leftovers on the copy. |
 | TRUNCATED | The file ends before its own format says it should, or its last disk sectors were never read. |
 | HOLE | A block of zeros in the middle, shaped exactly like unreadable disk sectors. |
 | MISMATCH | The content doesn't match the name, or the start of the file was never read. |
@@ -23,24 +42,50 @@ test files, on real Windows (see `.github/workflows/build.yml`).
 | LIBRARY | An Apple Photos Library (information, not a fault). |
 | not testable | Nothing here can verify this type (HEIC and camera RAW always land here). |
 
-It only ever reads. It never changes, moves or deletes a file.
+The checks only ever read. They never change, move or delete a file.
+
+## Also from the command line
+
+```
+recovery-probe self-test
+recovery-probe map-check --map <mapfile> --disk \\.\PhysicalDriveN --out <folder>
+recovery-probe rescue --disk \\.\PhysicalDriveN --out <folder> --everything --lost
+recovery-probe scan <folder>
+recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
+recovery-probe map-info <mapfile>
+recovery-probe list-disks
+```
 
 ## No third-party code
 
-The program uses nothing but Rust's own standard library. For Photos Library
-databases it uses the SQLite that comes with Windows (`winsqlite3.dll`).
+The program uses nothing but Rust's own standard library and Windows' own
+parts: no code from anyone else runs over the recovered files. For Photos
+Library databases it uses the SQLite that comes with Windows
+(`winsqlite3.dll`).
+
+## How it is tested
+
+Every push is built and tested on GitHub's Windows and Linux machines
+(`.github/workflows/build.yml`); the results land on the `ci-windows` and
+`ci-linux` branches, with the Windows program itself.
+
+- The probe gives the same answer as the original Python version
+  (`reference/recovery_probe.py`) for every file, detail text included.
+- The map check and the copying are tested on hundreds of damaged test disks
+  made by `tools/exfat_image.py`, against an independent oracle
+  (`tools/test_mapcheck.py`), against `fsck.exfat` and `dissect.fat`, and
+  against the Linux kernel's exFAT driver.
+- Against Windows itself: test disks attached as virtual disks, with what
+  Windows lists and opens compared with what the map check predicts, record
+  by record (`tools/windows_check.py`); and the disk protection, byte for
+  byte (`tools/guard_check.py`).
+- The page in a real browser, step by step (`tools/ui_check.js`).
 
 ## Building
 
 ```
 cargo build --release
 cargo test --release
-```
-
-Comparing with the Python version:
-
-```
-python tools/make_fixtures.py edge  fixtures/edge
-python tools/make_fixtures.py mutate tests/seeds fixtures/mut
-python tools/compare_with_python.py target/release/recovery-probe fixtures/edge fixtures/mut
+target/release/recovery-probe self-test
+python tools/test_mapcheck.py target/release/recovery-probe work --random 40
 ```
