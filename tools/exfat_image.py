@@ -473,7 +473,12 @@ class Volume:
 # ---------------------------------------------------------------- the disk
 
 def _guid(rng):
-    return str(uuid.UUID(bytes=rng.randbytes(16), version=4)).upper()
+    # Version and variant bits set by hand: uuid.UUID(version=4) does not
+    # give the same answer on every Python version.
+    b = bytearray(rng.randbytes(16))
+    b[6] = (b[6] & 0x0F) | 0x40
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(b))).upper()
 
 
 class Disk:
