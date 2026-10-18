@@ -80,7 +80,7 @@ pub fn run_scan(target: &str, opts: &ScanOpts) -> i32 {
     let mut scanned: u64 = 0;
     println!("{APP} - version {VERSION}\nScanning {target}\nWriting to {out}\nCtrl+C to stop.\n");
     install_ctrl_c();
-    walk_and_probe(target, opts.hole_bytes, opts.do_hole, Some(&INTERRUPTED), |ev| match ev {
+    let still_there = walk_and_probe(target, opts.hole_bytes, opts.do_hole, Some(&INTERRUPTED), |ev| match ev {
         Event::Lib(_, info) => {
             println!("  PHOTOS LIBRARY  {}\n                  (detected by {})", info.path, info.how);
             libraries.push(info);
@@ -108,6 +108,10 @@ pub fn run_scan(target: &str, opts: &ScanOpts) -> i32 {
             }
         }
     });
+    if !still_there {
+        println!("\n{}", crate::walk::GONE);
+        return 1;
+    }
     if INTERRUPTED.load(Ordering::Relaxed) {
         println!("\nStopped early.");
     }
@@ -377,6 +381,12 @@ pub fn run_rescue(
             }
             if o.already_there > 0 {
                 say(format!("{} files were already in that folder and were left as they were.", commas(o.already_there)));
+            }
+            if o.recopied > 0 {
+                say(format!(
+                    "{} files an earlier run had left did not hold what the disk holds, so they were copied again.",
+                    commas(o.recopied)
+                ));
             }
             if !o.partial.is_empty() {
                 say(format!(

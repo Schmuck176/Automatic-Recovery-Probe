@@ -253,17 +253,21 @@ whatever size they are.
 > damaged files to tidy up. (With step 3 done first, Windows never gets the chance.)
 
 - [ ] **6.** `SPARE` is plugged in; the recovered SSD is **not**. Double-click `recovery-probe.exe` → **Yes**.
-- [ ] **7. Step 3 → Get Windows ready.** It answers that new disks now stay switched off. *(Plug in anything else you need, like `SPARE`, before this — it would arrive switched off too.)*
-- [ ] **8. Plug in the recovered SSD.** Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**. Nothing appears in File Explorer — that's the point.
-- [ ] **9.** Click it, then **Protect disk N**. The page answers that the disk is read-only and Windows' setting is back to normal. Step 3 gets a green tick.
+- [ ] **7. Step 3 → Get Windows ready.** It answers that new disks now stay switched off. *(Plug in anything else you need, like `SPARE`, before this — it would arrive switched off too. If it does: click it in the step 3 list, then **Switch disk N on, writable**.)*
+- [ ] **8. Plug in the recovered SSD.** Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, already chosen. Nothing appears in File Explorer — that's the point.
+- [ ] **9.** Click **Protect disk N**. The page answers that the disk is read-only and Windows' setting is back to normal. Step 3 gets a green tick.
   - *Plugged it in before step 7?* Click it and **Protect** anyway: the program switches it off and on again, read-only. Then carry on.
   - *Not marked "the copy ddrescue made"?* Stop and tell Claude before going further.
+  - *The page shows an error instead?* Unplug the recovered SSD, and tell Claude.
 - [ ] **10. Step 4 → Find what the damage touched.** A minute or two. It reads the SSD directly and shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), and how many **folders** are damaged. The red marks on the map at the top now show what each place held. Write the three numbers down. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
 - [ ] **11. Step 5 → copy everything.** Click **Choose…**, click `SPARE`, then **Choose this folder**: the program puts the copies in a `WORK` folder on it (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
   - This copies **every** file straight off the SSD, including the ones Windows can't list, into `SPARE\WORK`, with the same folders. It takes hours (a full 1 TB over USB: roughly 2–4). The bar at the bottom shows how far it is and about how long is left.
   - You can click **Stop** and start it again later (same folder): what's already copied is kept and skipped.
+  - While steps 4 and 5 run, Windows is set to leave newly plugged-in disks switched off again (a banner at the top says so), so if the SSD's cable is knocked out and goes back in, the SSD arrives switched off rather than open for Windows to write to. The setting is put back when the step ends.
+  - **If the page says the SSD stopped answering:** nothing is lost. Check its cable is in firmly. If it came out, plug it back in (it arrives switched off), click **Protect disk N** in step 3, then **Start copying** again: it carries on where it stopped. The same goes for step 4: run it again.
   - A few names change slightly, because Windows can't use them (a name ending in a space gets `_` instead). `rescue-log.csv` in `SPARE\WORK` lists every one, and every file.
 - [ ] **12.** When it says **Done**, read the summary. Files that *"could only be copied in part"* are damaged — they go to `BROKEN` in Phase 6 (`rescue-log.csv` lists them as "partly copied"). Files that *"could not be copied"*: take a screenshot and tell Claude.
+  - *The PC lost power or crashed during the copy?* Unplug the recovered SSD **before** you switch the PC back on. Then do steps 6–9 again and **Start copying** again into the same folder: it checks what it copied before and copies again anything the crash spoilt.
 - [ ] **13. Step 7:** click **Switch it off** (if shown), then unplug the recovered SSD and put it in a drawer. It's your untouched master.
 
 ## Find every Photos Library — before anything else touches the files

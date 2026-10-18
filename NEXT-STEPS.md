@@ -98,8 +98,20 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
       tail of the path (unit test copies_whose_names_were_changed_are_found_too).
 - [x] 4. Scale (before the changes): 1M files on Linux: map check 0.6 s /
       97 MB, rescue 33 s / 94 MB, scan 39 s / 59 MB (tools/make_big_disk.py).
-- [ ] 6. Disk protection with a real USB disk: removable media, drop-out and
-      return mid-copy (policy already restored), 4 KB sector bridges.
+- [x] 6. Disk protection with a real USB disk: while steps 4/5 run the policy
+      is OfflineAll again (web.rs keep_new_disks_off; kept after the SSD
+      stopped answering), because Windows forgets a re-plugged virtual
+      disk's read-only mark (guard_check.py C). guard-online refuses to
+      switch on a could-be-SSD disk unless read-only; guard-release switches
+      SPARE on (refused for could-be-SSD disks). Page chooses the copy by
+      itself. tools/dropout_check.py tests unplugging mid-copy on Windows CI.
+      4 KB bridges: GPT is looked for at 512 and 4096, reads are 4 KB aligned.
+      Removable-media disks cannot be switched off: Protect would show an
+      error; the checklist says to unplug and ask.
+- [x] Extra: copies an earlier run left are checked (start and end) against
+      the disk before being kept (a power cut can leave zeros); the scan stops
+      when the checked folder goes away (walk.rs GONE); the list is kept on
+      disk, not in memory (1M files: ~100 MB on a first run).
 - [ ] 7. CI green, deliver the exe (only while the program is closed: ask).
 - [ ] 8. Walk Phase 1 against the program; update checklist; answer the user.
 

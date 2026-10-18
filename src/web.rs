@@ -1193,6 +1193,13 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
         if o.already_there > 0 {
             summary.push(format!("{} files were already there from an earlier run and were left as they were.", commas(o.already_there)));
         }
+        if o.recopied > 0 {
+            summary.push(format!(
+                "{} files an earlier run had left did not hold what the disk holds (the PC may have lost power), so \
+                 they were copied again.",
+                commas(o.recopied)
+            ));
+        }
         if o.lost_pieces > 0 {
             summary.push(format!(
                 "Saved {} of data that no folder record names any more ({}) in \"lost data (no name)\".",
@@ -1241,6 +1248,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             .n("lost_pieces", o.lost_pieces)
             .n("lost_bytes", o.lost_bytes)
             .n("renamed", o.renamed)
+            .n("recopied", o.recopied)
             .b("stopped", o.stopped)
             .s("out", &opts_out)
             .end();
@@ -1308,7 +1316,7 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
     let mut scanned = 0u64;
     let mut bytes = 0u64;
     let mut last = Instant::now();
-    walk_and_probe(folder, hole_bytes, holes, Some(&ctx.stop), |ev| match ev {
+    let still_there = walk_and_probe(folder, hole_bytes, holes, Some(&ctx.stop), |ev| match ev {
         Event::Lib(_, info) => {
             ctx.line(&format!("Photos Library: {}", info.path));
             libraries.push(info);
@@ -1340,6 +1348,9 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
         }
     });
     ctx.amount(scanned, total.max(scanned));
+    if !still_there {
+        return Err(crate::walk::GONE.to_string());
+    }
     let stopped = ctx.stopping();
     let mut summary = Vec::new();
     let mut outputs = vec![out.to_string()];

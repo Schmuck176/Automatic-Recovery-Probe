@@ -307,11 +307,20 @@ pub enum Event {
 }
 
 /// Probe every file under `root`. `stop` ends the walk early (and then no
-/// LibDone events are sent, as in the Python version).
-pub fn walk_and_probe(root: &str, hole_bytes: u64, do_hole: bool, stop: Option<&AtomicBool>, mut emit: impl FnMut(Event)) {
+/// LibDone events are sent, as in the Python version). Returns false when
+/// `root` itself went away part-way (its drive unplugged?): the walk then
+/// stops rather than calling every file after that UNREADABLE.
+pub fn walk_and_probe(
+    root: &str,
+    hole_bytes: u64,
+    do_hole: bool,
+    stop: Option<&AtomicBool>,
+    mut emit: impl FnMut(Event),
+) -> bool {
     let root = abspath(root);
     let mut libs: Vec<LibInfo> = Vec::new();
     let mut stopped = false;
+    let mut gone = false;
     walk(&root, |dirpath, dirnames, filenames| {
         dirnames.retain(|d| !SYSTEM_DIRS.contains(&d.as_str()));
         let how = looks_like_library(dirpath, dirnames);
@@ -345,6 +354,11 @@ pub fn walk_and_probe(root: &str, hole_bytes: u64, do_hole: bool, stop: Option<&
                     size: 0,
                 },
             };
+            if r.verdict == "UNREADABLE" && std::fs::metadata(&root).is_err() {
+                gone = true;
+                stopped = true;
+                return false;
+            }
             if let Some(h) = here {
                 let lib = &mut libs[h];
                 if is_damage(r.verdict) {
@@ -363,12 +377,17 @@ pub fn walk_and_probe(root: &str, hole_bytes: u64, do_hole: bool, stop: Option<&
         true
     });
     if stopped {
-        return;
+        return !gone;
     }
     for (i, info) in libs.into_iter().enumerate() {
         emit(Event::LibDone(i, info));
     }
+    true
 }
+
+/// What to say when the folder being checked went away part-way.
+pub const GONE: &str = "The folder being checked went away part-way through - was its drive unplugged? Nothing is \
+lost: plug the drive back in, check it shows in File Explorer, and run this check again.";
 
 #[cfg(test)]
 mod tests {
@@ -384,6 +403,40 @@ mod tests {
         assert_eq!(normpath("a/../.."), "..");
         assert_eq!(join("/", "x"), "/x");
         assert_eq!(join("/a", "x"), "/a/x");
+    }
+
+    #[test]
+    fn a_folder_that_goes_away_stops_the_check() {
+        let dir = std::env::temp_dir().join(format!("rp-walk-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for i in 0..40 {
+            std::fs::write(dir.join("sub").join(format!("f{i:02}.txt")), b"some text").unwrap();
+        }
+        let root = dir.display().to_string();
+        let mut rows = 0;
+        let mut unreadable = 0;
+        let ok = walk_and_probe(&root, 4096, true, None, |ev| {
+            if let Event::Row(r) = ev {
+                rows += 1;
+                if r.verdict == "UNREADABLE" {
+                    unreadable += 1;
+                }
+                if rows == 3 {
+                    // The drive is unplugged.
+                    std::fs::remove_dir_all(&dir).unwrap();
+                }
+            }
+        });
+        assert!(!ok, "the check says the folder went away");
+        assert_eq!(unreadable, 0, "and calls no file unreadable because of it");
+        assert_eq!(rows, 3);
+        // A folder that stays: all is well.
+        let dir2 = std::env::temp_dir().join(format!("rp-walk-stays-{}", std::process::id()));
+        std::fs::create_dir_all(&dir2).unwrap();
+        std::fs::write(dir2.join("a.txt"), b"x").unwrap();
+        assert!(walk_and_probe(&dir2.display().to_string(), 4096, true, None, |_| {}));
+        std::fs::remove_dir_all(&dir2).ok();
     }
 
     #[test]
