@@ -56,7 +56,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     const t0 = Date.now();
     const r = await fetch(url + api);
     await r.text();
-    console.log(`     ${api} answered in ${Date.now() - t0} ms`);
+    const ms = Date.now() - t0;
+    console.log(`     ${api} answered in ${ms} ms`);
+    if (api === "api/disks") check(ms < 5000, "the program lists the disks quickly (" + ms + " ms)");
   }
   await page.goto(url);
   await page.waitForSelector("#map-picture svg", { timeout: 10000 });
@@ -105,20 +107,29 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.click("#r-scan details summary");
   await shot("3-checked");
 
-  // Stopping a long job, and a job that cannot start.
+  // A job that cannot start says why.
   await page.fill("#copy-to", "");
   await page.click("#b-copy");
-  check((await page.textContent("#r-copy")).includes("Choose where the copies go first"), "an empty folder is refused with a reason");
+  const refused = await page.waitForFunction(
+    () => document.getElementById("r-copy").textContent.includes("Choose where the copies go first"), null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(refused, "an empty folder is refused with a reason");
+  if (!refused) await shot("fail-empty-folder");
+
+  // Closing the program: the page says so. (On Windows a refused connection
+  // takes a couple of seconds to fail, so allow some time.)
+  server.kill();
+  const told = await page.waitForFunction(
+    () => document.getElementById("restore-banner").textContent.includes("not running any more"), null, { timeout: 15000 })
+    .then(() => true, () => false);
+  check(told, "while the program is closed, the page says so");
+  if (!told) await shot("fail-closed");
+  errors.length = 0; // (the page's own requests failed while it was closed)
 
   // The state survives a restart of the program.
-  server.kill();
-  await new Promise((r) => setTimeout(r, 500));
-  await new Promise((r) => setTimeout(r, 3500));
   const server2 = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
     { stdio: "ignore" });
-  await new Promise((r) => setTimeout(r, 800));
-  check((await page.textContent("#restore-banner")).includes("not running any more"), "while the program is closed, the page says so");
-  errors.length = 0; // (the page's own requests failed while it was closed)
+  await new Promise((r) => setTimeout(r, 1500));
   await page.goto(url);
   await page.waitForFunction(() => /Done/.test(document.getElementById("st-check").textContent), null, { timeout: 10000 });
   check(true, "after closing and opening the program, step 4's results are still there");
@@ -135,6 +146,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await shot("5-dark");
 
   check(errors.length === 0, "no errors in the page" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
+  const others = pageErrors.filter((x) => !/ERR_CONNECTION_REFUSED|Failed to fetch|Failed to load resource/.test(x));
+  check(others.length === 0, "no errors in the page at any point" + (others.length ? ": " + others.slice(0, 3).join(" | ") : ""));
   await browser.close();
   server2.kill();
   const failed = results.filter((r) => !r[0]).length;

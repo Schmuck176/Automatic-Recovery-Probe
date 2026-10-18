@@ -495,7 +495,7 @@ function diskLine(d) {
   if (d.system) tags += '<span class="tag">Windows itself</span>';
   if (det.matches_mapfile) tags += '<span class="tag ok">the copy ddrescue made</span>';
   if (d.read_only) tags += '<span class="tag ok">read-only</span>';
-  else if (d.read_only === false && !d.system) tags += '<span class="tag warn">can be written to</span>';
+  else if (d.read_only === false && det.matches_mapfile) tags += '<span class="tag warn">can be written to</span>';
   if (d.offline) tags += '<span class="tag">switched off</span>';
   let what = "";
   if (det.volume) what = `exFAT volume “${esc(det.volume.label)}”, ${esc(size(det.volume.size))}`;
