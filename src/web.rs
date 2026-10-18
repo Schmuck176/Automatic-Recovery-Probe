@@ -342,6 +342,16 @@ fn stamp() -> String {
     crate::fmt::now_stamp()
 }
 
+/// `dir/name.ext`, or `dir/name-2.ext`... when a run in the same minute
+/// already used that name.
+fn fresh(dir: &Path, name: &str, ext: &str) -> PathBuf {
+    let first = dir.join(format!("{name}{ext}"));
+    if !first.exists() {
+        return first;
+    }
+    (2..).map(|k| dir.join(format!("{name}-{k}{ext}"))).find(|p| !p.exists()).expect("a free name")
+}
+
 // ---------------------------------------------------------------- JSON
 
 struct Obj(String);
@@ -1053,7 +1063,7 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
     if map.is_empty() {
         return Err("Choose the mapfile first (step 2).".to_string());
     }
-    let out = lock(app).results.join(format!("map-check-{}", stamp()));
+    let out = fresh(&lock(app).results, &format!("map-check-{}", stamp()), "");
     let opts = crate::mapcheck::Options {
         map_path: map.to_string(),
         earlier_maps: if earlier.is_empty() { Vec::new() } else { vec![earlier.to_string()] },
@@ -1164,7 +1174,7 @@ fn start_scan(app: &Arc<Mutex<App>>, folder: &str, holes: bool, hole_kb: u64, jo
     if folder.trim().is_empty() || !Path::new(folder).is_dir() {
         return Err(format!("Choose a folder to check first ({folder:?} is not one)."));
     }
-    let out = lock(app).results.join(format!("scan-{}.csv", stamp())).display().to_string();
+    let out = fresh(&lock(app).results, &format!("scan-{}", stamp()), ".csv").display().to_string();
     let folder = folder.to_string();
     let join_dir = join_dir.to_string();
     start_job(app, "scan", "Checking every copied file", move |ctx| {
