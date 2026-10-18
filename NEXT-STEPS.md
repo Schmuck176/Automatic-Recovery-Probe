@@ -108,6 +108,15 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
       4 KB bridges: GPT is looked for at 512 and 4096, reads are 4 KB aligned.
       Removable-media disks cannot be switched off: Protect would show an
       error; the checklist says to unplug and ask.
+- [x] Scale after the changes (Linux, 1M files): first copy 11 MB peak;
+      stopped at 500k then resumed: identical copies and list; re-checking a
+      complete copy (start and end of every file against the disk) 75 s,
+      350 MB peak.
+- [x] Windows CI f1a1285: dropout_check 30/30 (copy stopped with "os error
+      433", nothing failed, policy kept OfflineAll, re-plugged disk arrived
+      offline, copy finished identical to a straight run; SPARE released).
+- Note: the repository is private, so GitHub Actions minutes are limited
+  (Windows counts double). Batch changes; cancel superseded runs.
 - [x] Extra: copies an earlier run left are checked (start and end) against
       the disk before being kept (a power cut can leave zeros); the scan stops
       when the checked folder goes away (walk.rs GONE); the list is kept on
