@@ -109,7 +109,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
 
   // A job that cannot start says why.
   await page.fill("#copy-to", "");
-  await page.click("#b-copy");
+  // (Clicked through the page itself: on Windows the page sometimes moves
+  // under the pointer while results redraw.)
+  await page.evaluate(() => document.getElementById("b-copy").click());
   const refused = await page.waitForFunction(
     () => document.getElementById("r-copy").textContent.includes("Choose where the copies go first"), null, { timeout: 5000 })
     .then(() => true, () => false);
