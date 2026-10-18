@@ -1113,10 +1113,16 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             ));
         }
         if o.renamed > 0 {
-            summary.push(format!(
-                "{} copies have slightly different names, because Windows cannot use the original ones (the log lists them).",
-                commas(o.renamed)
-            ));
+            summary.push(if o.renamed == 1 {
+                "1 copy has a slightly different name, because Windows cannot use the original one (the log lists it)."
+                    .to_string()
+            } else {
+                format!(
+                    "{} copies have slightly different names, because Windows cannot use the original ones (the log \
+                     lists them).",
+                    commas(o.renamed)
+                )
+            });
         }
         if !o.partial.is_empty() {
             summary.push(format!("{} files could only be copied in part: the missing parts are zeros.", commas(o.partial.len() as u64)));

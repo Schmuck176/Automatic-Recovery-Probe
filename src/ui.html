@@ -129,6 +129,7 @@ table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin-top: 8
 th, td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 th { font-weight: 600; color: var(--ink-soft); }
 td.num, th.num { text-align: right; white-space: nowrap; }
+td.verdict { white-space: nowrap; overflow-wrap: normal; }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--act); font-weight: 600; }
 pre.report { white-space: pre-wrap; font: 0.82rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; background: var(--paper); padding: 10px 12px; border-radius: 6px; max-height: 420px; overflow: auto; }
@@ -649,7 +650,7 @@ function renderScan() {
       const damaged = ["NEVER_READ", "TRUNCATED", "HOLE", "MISMATCH", "DB_DAMAGED", "UNREADABLE"].reduce((a, k) => a + (c[k] || 0), 0);
       h += `<div class="panel"><div class="figures">${figure(damaged, "damaged files", true)}${figure(c.OK, "clean")}${figure(c.SKIPPED, "not testable here")}${figure(d.scanned, "files checked")}</div>`;
       const kinds = Object.keys(MEANING).filter((k) => c[k]);
-      if (kinds.length) h += `<table><tr><th>Verdict</th><th class="num">Files</th><th>Meaning</th></tr>${kinds.map((k) => `<tr><td><b>${k}</b></td><td class="num">${commas(c[k])}</td><td class="small">${esc(MEANING[k])}</td></tr>`).join("")}</table>`;
+      if (kinds.length) h += `<table><tr><th>Verdict</th><th class="num">Files</th><th>Meaning</th></tr>${kinds.map((k) => `<tr><td class="verdict"><b>${k}</b></td><td class="num">${commas(c[k])}</td><td class="small">${esc(MEANING[k])}</td></tr>`).join("")}</table>`;
       if (c.SKIPPED) h += `<p class="small soft">“Not testable” is mostly HEIC photos and camera RAW files: nothing on Windows can check them fully, so the program refuses to call them fine. The Mac checks those later.</p>`;
       if (d.libraries && d.libraries.length) {
         h += `<h3>Photos Libraries found</h3><p class="small">Never point a duplicate finder at one of these. The checklist moves them out of the way next.</p><table><tr><th>Library</th><th class="num">Photos</th><th class="num">Damaged inside</th></tr>` +
@@ -657,7 +658,7 @@ function renderScan() {
       }
       if (d.flagged && d.flagged.length) {
         h += `<details><summary>The damaged files (${commas(d.flagged_total)})</summary><div class="scroll"><table><tr><th>Verdict</th><th>File</th></tr>` +
-          d.flagged.slice(0, 500).map((r) => `<tr><td><b>${esc(r.verdict)}</b></td><td><span class="path">${esc(r.path)}</span><br><span class="small soft">${esc(r.detail)}</span></td></tr>`).join("") + `</table></div></details>`;
+          d.flagged.slice(0, 500).map((r) => `<tr><td class="verdict"><b>${esc(r.verdict)}</b></td><td><span class="path">${esc(r.path)}</span><br><span class="small soft">${esc(r.detail)}</span></td></tr>`).join("") + `</table></div></details>`;
       }
       h += `</div>`;
     }
