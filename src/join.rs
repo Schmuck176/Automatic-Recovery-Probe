@@ -34,7 +34,7 @@ pub struct MapItem {
     pub only_past_end: bool,
     /// What the unread places hold on the disk now: zeros, data or mixed.
     pub content: String,
-    /// HIDDEN: Windows may still list it.
+    /// HIDDEN: Windows still opens it by its full path.
     pub maybe: bool,
     pub ranges: String,
 }
@@ -142,7 +142,7 @@ pub struct Outcome {
     pub ambiguous: Vec<(MapItem, Vec<Seen>)>,
     /// Files that lost data with no copy in the scanned folder.
     pub missing: Vec<MapItem>,
-    /// Files Windows cannot (or may not) list: with and without a copy here.
+    /// Files Windows cannot list: with and without a copy here.
     pub hidden_found: usize,
     pub hidden_missing: Vec<MapItem>,
 }
@@ -244,8 +244,8 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
     )];
     if !o.missing.is_empty() {
         t.push(format!(
-            "{} of them have no copy in this folder (listed in map-check-not-here.csv): they may be in a Photos \
-             Library you moved, or Windows could not list them - run the rescue step.",
+            "{} of them have no copy in this folder (listed in ...-map-check-not-here.csv): they may be in another \
+             folder you check separately (WORK or PHOTOSLIB), or were never copied - step 5 copies everything.",
             commas(o.missing.len() as u64)
         ));
     }
@@ -259,13 +259,17 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
     let hidden_total = o.hidden_found + o.hidden_missing.len();
     if hidden_total > 0 {
         t.push(format!(
-            "Of the {} files Windows cannot (or may not) list, {} have a copy here{}.",
+            "Of the {} files Windows cannot list, {} have a copy here{}.",
             commas(hidden_total as u64),
             commas(o.hidden_found as u64),
             if o.hidden_missing.is_empty() {
                 String::new()
             } else {
-                format!("; {} do not - run the rescue step to copy them", commas(o.hidden_missing.len() as u64))
+                format!(
+                    "; {} do not (they may be in another folder you check separately, or were never copied - step 5 \
+                     copies them)",
+                    commas(o.hidden_missing.len() as u64)
+                )
             }
         ));
     }

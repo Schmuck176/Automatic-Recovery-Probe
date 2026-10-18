@@ -1030,7 +1030,22 @@ fn check_disk(app: &Arc<Mutex<App>>, spec: &str) -> Result<(), String> {
             return Err(format!("{spec} is not a disk"));
         }
     }
-    Ok(())
+    // Disk numbers change when drives are plugged in and out: make sure this
+    // one is still the copy the mapfile describes.
+    let map = lock(app).setting("mapfile");
+    let Some((s, e)) = mapfile_domain(&map) else { return Ok(()) };
+    let src = crate::disk::open_source(spec).map_err(|err| format!("could not open {spec}: {err}"))?;
+    let table = crate::gpt::read(&*src, &[]);
+    match table.original_disk_size() {
+        Some(made_for) if made_for != e - s => Err(format!(
+            "This disk is not the copy ddrescue made: its partition table was made for a {}-byte drive, but the \
+             mapfile describes a {}-byte drive. Disk numbers change when drives are plugged in and out: choose the \
+             recovered SSD again in step 3.",
+            commas(made_for),
+            commas(e - s)
+        )),
+        _ => Ok(()),
+    }
 }
 
 fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) -> Result<u64, String> {
