@@ -121,18 +121,54 @@ pub struct Seen {
     pub size: u64,
     pub verdict: &'static str,
     pub detail: String,
+    /// A repaired version put back in place of the copy (step 8): its size
+    /// may differ, and what the map check says was the original's.
+    pub repaired: bool,
 }
 
 /// Collects, during a scan, the files whose names the map check mentions.
 pub struct Collector {
     names: HashSet<String>,
     pub seen: HashMap<String, Vec<Seen>>,
+    /// Repaired versions put back (full paths, lower case), and document
+    /// packages put back whole.
+    repaired: HashSet<String>,
+    repaired_dirs: Vec<String>,
+}
+
+fn key_of(p: &str) -> String {
+    let s = p.replace('/', "\\").to_lowercase();
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
 impl Collector {
     pub fn new(items: &[MapItem]) -> Collector {
         let names = items.iter().filter(|i| i.kind != "FOLDER").map(|i| i.name_key()).collect();
-        Collector { names, seen: HashMap::new() }
+        Collector { names, seen: HashMap::new(), repaired: HashSet::new(), repaired_dirs: Vec::new() }
+    }
+    /// Note the repaired versions put back into `folder` (step 8), from its
+    /// repair-returns.csv.
+    pub fn note_returns(&mut self, folder: &str) {
+        let base = key_of(&crate::walk::abspath(folder));
+        let base = base.trim_end_matches('\\').to_string();
+        for n in crate::repair::returned_now(std::path::Path::new(folder)).into_values() {
+            if !n.repaired {
+                continue;
+            }
+            let k = format!("{base}\\{}", n.path.to_lowercase());
+            if n.package {
+                self.repaired_dirs.push(format!("{k}\\"));
+            } else {
+                self.repaired.insert(k);
+            }
+        }
+    }
+    fn is_repaired(&self, path: &str) -> bool {
+        if self.repaired.is_empty() && self.repaired_dirs.is_empty() {
+            return false;
+        }
+        let k = key_of(path);
+        self.repaired.contains(&k) || self.repaired_dirs.iter().any(|d| k.starts_with(d))
     }
     /// Call for every file the scan checks.
     pub fn saw(&mut self, r: &Row) {
@@ -144,14 +180,14 @@ impl Collector {
                 _ => return,
             }
         }
-        {
-            self.seen.entry(name).or_default().push(Seen {
-                path: r.path.clone(),
-                size: r.size,
-                verdict: r.verdict,
-                detail: r.detail.clone(),
-            });
-        }
+        let repaired = self.is_repaired(&r.path);
+        self.seen.entry(name).or_default().push(Seen {
+            path: r.path.clone(),
+            size: r.size,
+            verdict: r.verdict,
+            detail: r.detail.clone(),
+            repaired,
+        });
     }
 }
 
@@ -177,6 +213,8 @@ fn common_tail(a: &[String], b: &[String]) -> usize {
 pub struct Outcome {
     /// Copies of files that lost data: (map item, copy, the scan's own verdict).
     pub matched: Vec<(MapItem, Seen)>,
+    /// Of those, repaired versions put back (step 8): checked as they are now.
+    pub repaired: Vec<(MapItem, Seen)>,
     /// Copies found only by name and size (more than one candidate).
     pub ambiguous: Vec<(MapItem, Vec<Seen>)>,
     /// Files that lost data with no copy in the scanned folder.
@@ -194,8 +232,11 @@ pub fn find(items: &[MapItem], c: &Collector) -> Outcome {
             continue;
         }
         let want = components(&it.path);
-        let same: Vec<&Seen> =
-            c.seen.get(&it.name_key()).map(|v| v.iter().filter(|s| s.size == it.size).collect()).unwrap_or_default();
+        let same: Vec<&Seen> = c
+            .seen
+            .get(&it.name_key())
+            .map(|v| v.iter().filter(|s| s.size == it.size || s.repaired).collect())
+            .unwrap_or_default();
         let best = same.iter().map(|s| common_tail(&components(&s.path), &want)).max().unwrap_or(0);
         let picks: Vec<Seen> =
             same.iter().filter(|s| common_tail(&components(&s.path), &want) == best).map(|s| (*s).clone()).collect();
@@ -203,6 +244,7 @@ pub fn find(items: &[MapItem], c: &Collector) -> Outcome {
             ("HIDDEN", 0) => o.hidden_missing.push(it.clone()),
             ("HIDDEN", _) => o.hidden_found += 1,
             (_, 0) => o.missing.push(it.clone()),
+            (_, 1) if picks[0].repaired => o.repaired.push((it.clone(), picks[0].clone())),
             (_, 1) => o.matched.push((it.clone(), picks[0].clone())),
             _ => o.ambiguous.push((it.clone(), picks)),
         }
@@ -240,7 +282,7 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
         marked.insert(s.path.clone(), never_read_row(it, s, false));
     }
     for (it, all) in &o.ambiguous {
-        for s in all {
+        for s in all.iter().filter(|s| !s.repaired) {
             marked.insert(s.path.clone(), never_read_row(it, s, true));
         }
     }
@@ -260,6 +302,7 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
     let named: HashSet<&str> = o
         .matched
         .iter()
+        .chain(o.repaired.iter())
         .map(|(_, s)| s.path.as_str())
         .chain(o.ambiguous.iter().flat_map(|(_, v)| v.iter().map(|s| s.path.as_str())))
         .collect();
@@ -270,7 +313,7 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
             not_on_unread += 1;
         }
     }
-    let lost = o.matched.len() + o.ambiguous.len() + o.missing.len();
+    let lost = o.matched.len() + o.repaired.len() + o.ambiguous.len() + o.missing.len();
     let mut t = vec![format!(
         "Map check: {} files lost data where ddrescue could not read. {} of them are in this folder and are marked {VERDICT}{}.",
         commas(lost as u64),
@@ -281,6 +324,12 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
             format!(" ({} found by name and size only)", commas(o.ambiguous.len() as u64))
         }
     )];
+    if !o.repaired.is_empty() {
+        t.push(format!(
+            "{} of them were repaired and put back (step 8): those are checked as they are now, not marked {VERDICT}.",
+            commas(o.repaired.len() as u64)
+        ));
+    }
     if !o.missing.is_empty() {
         t.push(format!(
             "{} of them have no copy in this folder (listed in ...-map-check-not-here.csv): they may be in another \
@@ -436,5 +485,31 @@ mod tests {
         assert_eq!(without_number("plain.jpg"), None);
         let t = common_tail(&components(r"Photos\Summer 2019 \IMG_0001.JPG"), &components(r"E:\WORK\Photos\Summer 2019_\IMG_0001.JPG"));
         assert_eq!(t, 3);
+    }
+
+    #[test]
+    fn a_repaired_copy_put_back_is_checked_as_it_is() {
+        let dir = std::env::temp_dir().join(format!("rp-join-returned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Photos")).unwrap();
+        std::fs::write(
+            dir.join(crate::repair::RETURNS_NAME),
+            "action,id,path_in_work,kind,size_before,sha256_before,size_after,sha256_after,when,from\r\n\
+             RETURNED,R0001,Photos\\IMG_0003.JPG,file,300000,aa,299000,bb,2026-10-19 11:00:00,repaired\\x\r\n",
+        )
+        .unwrap();
+        let items = vec![item("DAMAGED", r"Photos\IMG_0003.JPG", 300_000, 4096)];
+        let mut c = Collector::new(&items);
+        let folder = dir.display().to_string();
+        c.note_returns(&folder);
+        let path = format!("{folder}{}Photos{}IMG_0003.JPG", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR);
+        c.saw(&row("OK", &path, 299_000));
+        let o = find(&items, &c);
+        assert!(o.matched.is_empty() && o.missing.is_empty() && o.repaired.len() == 1, "{o:?}");
+        let mut rows = Vec::new();
+        let lines = apply(&o, &mut rows, &mut Vec::new());
+        assert!(rows.is_empty(), "{rows:?}");
+        assert!(lines.iter().any(|l| l.contains("repaired and put back")), "{lines:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

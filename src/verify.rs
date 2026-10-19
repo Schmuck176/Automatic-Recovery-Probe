@@ -23,6 +23,9 @@ pub struct Report {
     pub extra: Vec<String>,
     /// Lines with no checksum (lists made before checksums were kept).
     pub no_checksum: u64,
+    /// Of the copies checked, repaired versions put back (step 8): checked
+    /// against the checksum written when each was put back.
+    pub repaired: u64,
     pub stopped: bool,
     pub written: Option<String>,
 }
@@ -31,6 +34,8 @@ struct Want {
     rel: String,
     size: u64,
     sha: String,
+    /// A repaired version put back in place of the copy.
+    repaired: bool,
 }
 
 fn components(rel: &str) -> impl Iterator<Item = &str> {
@@ -65,10 +70,29 @@ pub fn run(
             return;
         }
         let rel = if row[4].is_empty() { row[1].clone() } else { row[4].clone() };
-        wants.push(Want { rel, size: row[2].parse().unwrap_or(0), sha });
+        wants.push(Want { rel, size: row[2].parse().unwrap_or(0), sha, repaired: false });
     })
     .map_err(|e| format!("could not read {}: {e}", log.display()))?;
-    r.listed = wants.len() as u64;
+    // Repaired versions put back (step 8): each file is checked against the
+    // checksum written when it was put back; a document package put back
+    // whole is checked as a whole.
+    let now = crate::repair::returned_now(folder);
+    let packages: Vec<&crate::repair::Now> = now.values().filter(|n| n.package && n.repaired).collect();
+    let in_package = |rel_lower: &str| {
+        packages.iter().any(|p| {
+            let k = p.path.to_lowercase();
+            rel_lower.len() > k.len() && rel_lower.starts_with(&k) && rel_lower.as_bytes()[k.len()] == b'\\'
+        })
+    };
+    wants.retain(|w| !in_package(&w.rel.to_lowercase()));
+    for w in &mut wants {
+        if let Some(n) = now.get(&w.rel.to_lowercase()).filter(|n| !n.package) {
+            w.sha = n.sha.clone();
+            w.size = n.size;
+            w.repaired = n.repaired;
+        }
+    }
+    r.listed = wants.len() as u64 + packages.len() as u64;
     let total: u64 = wants.iter().map(|w| w.size).sum();
     progress(&format!("{} copies to check ({}), against {}", commas(r.listed), size(total), log.display()));
     let base = crate::rescue::verbatim(folder);
@@ -89,6 +113,9 @@ pub fn run(
             Ok(Some(got)) if got == w.sha => {
                 r.ok += 1;
                 r.bytes += w.size;
+                if w.repaired {
+                    r.repaired += 1;
+                }
             }
             Ok(Some(_)) => r.changed.push(w.rel.clone()),
             Ok(None) => {
@@ -105,6 +132,28 @@ pub fn run(
             last = std::time::Instant::now();
         }
     }
+    for pk in &packages {
+        if r.stopped || stop() {
+            r.stopped = true;
+            break;
+        }
+        listed.insert(pk.path.to_lowercase());
+        let mut p: PathBuf = base.clone();
+        for c in components(&pk.path) {
+            p.push(c);
+        }
+        match crate::repair::hash_of(&p, stop) {
+            Ok(Some((bytes, got))) if got == pk.sha => {
+                r.ok += 1;
+                r.repaired += 1;
+                r.bytes += bytes;
+            }
+            Ok(Some(_)) => r.changed.push(pk.path.clone()),
+            Ok(None) => r.stopped = true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => r.missing.push(pk.path.clone()),
+            Err(_) => r.changed.push(pk.path.clone()),
+        }
+    }
     amount(done, total);
     if !r.stopped {
         // Files the list does not name.
@@ -115,9 +164,13 @@ pub fn run(
                 let name = e.file_name().to_string_lossy().into_owned();
                 let here = if rel.is_empty() { name.clone() } else { format!("{rel}\\{name}") };
                 match e.file_type() {
-                    Ok(t) if t.is_dir() => stack.push((e.path(), here)),
+                    Ok(t) if t.is_dir() => {
+                        if !listed.contains(&here.to_lowercase()) {
+                            stack.push((e.path(), here));
+                        }
+                    }
                     Ok(_) => {
-                        if rel.is_empty() && name.starts_with("rescue-log") {
+                        if rel.is_empty() && (name.starts_with("rescue-log") || name == crate::repair::RETURNS_NAME) {
                             continue;
                         }
                         if !listed.contains(&here.to_lowercase()) {
@@ -157,9 +210,17 @@ pub fn summary(r: &Report) -> Vec<String> {
         t.push(format!("Stopped before the end: {} of {} copies checked.", commas(r.ok + bad as u64), commas(r.listed)));
     } else if bad == 0 {
         t.push(format!(
-            "All {} copies are exactly what was copied off the disk ({}).",
+            "All {} copies are exactly what was copied off the disk ({}){}.",
             commas(r.ok),
-            size(r.bytes)
+            size(r.bytes),
+            if r.repaired > 0 {
+                format!(
+                    " - or, for {} of them, exactly the repaired version put back in its place (step 8)",
+                    commas(r.repaired)
+                )
+            } else {
+                String::new()
+            }
         ));
     } else {
         t.push(format!(

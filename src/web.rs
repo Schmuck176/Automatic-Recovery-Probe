@@ -1084,6 +1084,10 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         "rescue" => start_rescue(app, &g("disk"), &g("out"), on("everything"), on("lost")).map(|id| format!("\"job\":{id}")),
         "image" => start_image(app, &g("disk"), &g("out")).map(|id| format!("\"job\":{id}")),
         "verify" => start_verify(app, &g("folder")).map(|id| format!("\"job\":{id}")),
+        "isolate" => start_repair_step(app, "isolate", &g("folder"), "").map(|id| format!("\"job\":{id}")),
+        "put-back" => start_repair_step(app, "put-back", &g("folder"), "").map(|id| format!("\"job\":{id}")),
+        "undo-put-back" => start_repair_step(app, "undo", &g("folder"), &g("id")).map(|id| format!("\"job\":{id}")),
+        "evaluate" => start_repair_step(app, "evaluate", &g("folder"), "").map(|id| format!("\"job\":{id}")),
         "scan" => {
             let kb: u64 = g("hole_kb").parse().unwrap_or(crate::formats::DEFAULT_HOLE_KB);
             start_scan(app, &g("folder"), on("holes"), kb, &g("join")).map(|id| format!("\"job\":{id}"))
@@ -1412,6 +1416,151 @@ fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, Stri
     })
 }
 
+/// The latest check of the copies (step 7) of this folder: its results CSV.
+fn scan_csv_for(app: &Arc<Mutex<App>>, folder: &str) -> Option<PathBuf> {
+    let a = lock(app);
+    let csv = a.setting("last_scan_csv");
+    let same = |x: &str, y: &str| {
+        let n = |p: &str| p.trim().replace('/', "\\").trim_end_matches('\\').to_lowercase();
+        !x.trim().is_empty() && n(x) == n(y)
+    };
+    (same(&a.setting("last_scan_folder"), folder) && Path::new(&csv).is_file()).then(|| PathBuf::from(csv))
+}
+
+/// Step 8: copy the damaged files out, put the repaired ones back (or undo
+/// one), evaluate.
+fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) -> Result<u64, String> {
+    let work = PathBuf::from(folder.trim());
+    if folder.trim().is_empty() || !work.is_dir() {
+        return Err("Choose the folder the copies went into first (step 7's folder).".to_string());
+    }
+    if !work.join(crate::rescue::LOG_NAME).is_file() {
+        return Err(format!(
+            "{} has no {}: choose the folder step 6 copied into.",
+            folder.trim(),
+            crate::rescue::LOG_NAME
+        ));
+    }
+    let repair = crate::repair::repair_dir(&work)?;
+    let scans: Vec<PathBuf> = scan_csv_for(app, folder).into_iter().collect();
+    if matches!(step, "isolate" | "evaluate") && scans.is_empty() {
+        return Err(
+            "Check every copied file in step 7 first, with \"Use what step 5 found\" ticked: that is what says which \
+             copies are damaged."
+                .to_string(),
+        );
+    }
+    let id = id.trim().to_string();
+    if step == "undo" && id.is_empty() {
+        return Err("Type the number of the file to undo, such as R0012.".to_string());
+    }
+    let (kind, title) = match step {
+        "isolate" => ("isolate", "Copying the damaged files out"),
+        "put-back" => ("put-back", "Putting the repaired files back"),
+        "undo" => ("put-back", "Undoing a put-back"),
+        _ => ("evaluate", "Evaluating what is damaged"),
+    };
+    let step = step.to_string();
+    start_job(app, kind, title, move |ctx| {
+        let stop = || ctx.stopping();
+        let repair_s = repair.display().to_string();
+        match step.as_str() {
+            "isolate" => {
+                let o = crate::repair::isolate(&work, &scans, &mut |s| ctx.line(s), &stop)?;
+                let mut groups: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+                for i in &o.copied {
+                    *groups.entry(i.group.clone()).or_default() += 1;
+                }
+                let g: Vec<String> = groups.iter().map(|(k, v)| Obj::new().s("group", k).n("files", *v).end()).collect();
+                let data = Obj::new()
+                    .n("copied", o.copied.len() as u64)
+                    .n("already", o.already as u64)
+                    .n("left", o.left.len() as u64)
+                    .n("problems", o.problems.len() as u64)
+                    .raw("groups", &arr(g))
+                    .s("repair", &repair_s)
+                    .end();
+                Ok(Outcome {
+                    summary: crate::repair::isolate_summary(&o),
+                    outputs: vec![repair_s.clone(), repair.join(crate::repair::LIST_NAME).display().to_string()],
+                    data,
+                    stopped: o.stopped,
+                    problem: (!o.problems.is_empty()).then(|| "some damaged files could not be copied out".to_string()),
+                })
+            }
+            "put-back" => {
+                let o = crate::repair::put_back(&work, &mut |s| ctx.line(s), &stop)?;
+                let back: Vec<String> = o
+                    .returned
+                    .iter()
+                    .map(|(id, path, from)| Obj::new().s("id", id).s("path", path).s("from", from).end())
+                    .collect();
+                let data = Obj::new()
+                    .n("returned", o.returned.len() as u64)
+                    .n("already", o.already as u64)
+                    .n("skipped", o.skipped.len() as u64)
+                    .n("waiting", o.waiting as u64)
+                    .raw("back", &arr(back))
+                    .s("repair", &repair_s)
+                    .end();
+                Ok(Outcome {
+                    summary: crate::repair::put_back_summary(&o, &repair),
+                    outputs: vec![repair_s.clone()],
+                    data,
+                    stopped: o.stopped,
+                    problem: (!o.skipped.is_empty()).then(|| "some repaired files were not put back".to_string()),
+                })
+            }
+            "undo" => {
+                let m = crate::repair::undo(&work, &id)?;
+                Ok(Outcome {
+                    summary: vec![m],
+                    outputs: vec![repair_s.clone()],
+                    data: Obj::new().s("repair", &repair_s).b("undone", true).end(),
+                    stopped: false,
+                    problem: None,
+                })
+            }
+            _ => {
+                let ev = crate::repair::evaluate(&work, &scans, &mut |s| ctx.line(s), &stop)?;
+                let pk: Vec<String> = ev
+                    .packages
+                    .iter()
+                    .filter(|p| p.damaged > 0)
+                    .take(300)
+                    .map(|p| {
+                        Obj::new()
+                            .s("path", &p.path)
+                            .s("what", p.what)
+                            .n("files", p.files)
+                            .n("bytes", p.bytes)
+                            .n("damaged", p.damaged)
+                            .n("put_back", p.put_back)
+                            .s("verdict", &p.verdict)
+                            .end()
+                    })
+                    .collect();
+                let data = Obj::new()
+                    .n("put_back", ev.put_back)
+                    .n("waiting", ev.waiting)
+                    .n("left", ev.left)
+                    .n("packages", ev.packages.len() as u64)
+                    .n("intact_packages", ev.intact_packages)
+                    .raw("damaged_packages", &arr(pk))
+                    .s("repair", &repair_s)
+                    .end();
+                Ok(Outcome {
+                    summary: crate::repair::evaluation_summary(&ev),
+                    outputs: ev.written.iter().map(|w| w.display().to_string()).chain(std::iter::once(repair_s.clone())).collect(),
+                    data,
+                    stopped: ev.stopped,
+                    problem: None,
+                })
+            }
+        }
+    })
+}
+
 fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
     let dir = Path::new(folder.trim());
     if folder.trim().is_empty() || !dir.is_dir() {
@@ -1493,6 +1642,7 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
         }
     };
     let mut collector = crate::join::Collector::new(&items);
+    collector.note_returns(folder);
     let mut counts: HashMap<&'static str, u64> = VERDICTS.iter().map(|v| (*v, 0)).collect();
     let mut rows: Vec<Row> = Vec::new();
     let mut skipped: Vec<Row> = Vec::new();
@@ -1552,6 +1702,12 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
         counts.insert(crate::join::VERDICT, rows.iter().filter(|r| r.verdict == crate::join::VERDICT).count() as u64);
     }
     write_results_csv(out, &rows).map_err(|e| format!("could not write {out}: {e}"))?;
+    {
+        let mut a = lock(&ctx.app);
+        a.settings.insert("last_scan_csv".to_string(), out.to_string());
+        a.settings.insert("last_scan_folder".to_string(), folder.to_string());
+        a.save();
+    }
     let c = |k: &str| counts.get(k).copied().unwrap_or(0);
     summary.push(format!(
         "{} files checked ({}){}.",

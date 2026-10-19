@@ -36,7 +36,18 @@ at a time:
    together with what step 5 found: a file the drive lost data from is
    marked **NEVER_READ** even when it looks perfect. And: are the copies
    still exactly what was copied (against `rescue-log.csv`)?
-8. **Finish** — take the SSD out, and put Windows' setting back once it is
+8. **Repair the damaged files: isolate, repair, put back, evaluate** — the
+   damaged copies are copied (never moved) into `REPAIR` beside the copies,
+   sorted by what can repair them, each name tagged `[R0012]`;
+   `repair-list.csv` records where each belongs and its SHA-256. Repaired
+   versions saved in `REPAIR\repaired` go back to exactly that place, only if
+   the file there is still the damaged original, which moves to
+   `REPAIR\originals`; `repair-returns.csv` logs both checksums (the copies
+   check and the scan know about it), and a put-back can be undone. Packages
+   are never split: damaged media inside a library go back inside it, a
+   document kept as a folder goes out and back whole, and a library's own
+   database or an app is left to its own app (evaluated, not copied out).
+9. **Finish** — take the SSD out, and put Windows' setting back once it is
    unplugged.
 
 Results are kept in a `results` folder next to the program. `docs/` has the
@@ -55,7 +66,7 @@ checklist the whole recovery follows, and the tools it uses.
 | LIBRARY | An Apple Photos Library (information, not a fault). |
 | not testable | Nothing here can verify this type (HEIC and camera RAW always land here). |
 
-The checks only ever read. They never change, move or delete a file.
+The checks only ever read. They never change, move or delete a file. The only change the program ever makes to the copies is step 8's put-back, file by file, logged and undoable.
 
 ## Also from the command line
 
@@ -65,6 +76,10 @@ recovery-probe image --disk \\.\PhysicalDriveN --map <mapfile> --out <folder>
 recovery-probe map-check --map <mapfile> --disk <image or \\.\PhysicalDriveN> --out <folder>
 recovery-probe rescue --disk <image or \\.\PhysicalDriveN> --out <folder> --everything --lost
 recovery-probe verify <folder the copies went into>
+recovery-probe isolate <folder the copies went into> --scan <scan results .csv>
+recovery-probe put-back <folder the copies went into>
+recovery-probe undo-put-back <folder the copies went into> R0012
+recovery-probe evaluate <folder the copies went into> --scan <scan results .csv>
 recovery-probe scan <folder>
 recovery-probe sha256 <file>
 recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore

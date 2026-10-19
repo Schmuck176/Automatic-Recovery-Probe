@@ -141,6 +141,44 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     null, { timeout: 60000 }).then(() => true, () => false);
   check(verified, "step 7: every copy is exactly what was copied (" + (await page.textContent("#r-verify")).slice(0, 80) + ")");
 
+  // Step 8: isolate, repair, put back, evaluate, undo.
+  const waitText = (id, re, ms) => page.waitForFunction(([i, r]) => new RegExp(r).test(document.getElementById(i).textContent),
+    [id, re], { timeout: ms || 60000 }).then(() => true, () => false);
+  const repairDir = path.join(path.dirname(copyTo), "REPAIR");
+  await page.click("#b-isolate");
+  const isolated = await waitText("r-isolate", "Copied \\d+ damaged files out");
+  check(isolated, "step 8: the damaged files are copied out (" + (await page.textContent("#r-isolate")).slice(0, 90) + ")");
+  const photoGroup = path.join(repairDir, "to-repair", "1 Photos (photo repair tool)");
+  const tagged = fs.existsSync(photoGroup) ? fs.readdirSync(photoGroup).find((n) => /^IMG_0003 \[R\d+\]\.JPG$/.test(n)) : undefined;
+  check(tagged && fs.existsSync(path.join(repairDir, "repair-list.csv")),
+    "step 8: the damaged photo is in REPAIR with its number (" + tagged + "), and repair-list.csv says where it belongs");
+  const original = fs.readFileSync(path.join(copyTo, "Photos", "IMG_0003.JPG"));
+  if (tagged) {
+    // "Repair" it: a version with the never-read bytes filled in, saved the way repair tools name things.
+    const fixed = Buffer.from(fs.readFileSync(path.join(photoGroup, tagged)));
+    for (let i = 0; i < fixed.length; i++) if (fixed[i] === 0) fixed[i] = 0x55;
+    fs.writeFileSync(path.join(repairDir, "repaired", tagged.replace(/\.JPG$/, "_repaired.JPG")), fixed);
+    await page.click("#b-putback");
+    const back = await waitText("r-putback", "Put back 1 repaired files");
+    check(back, "step 8: the repaired photo is put back (" + (await page.textContent("#r-putback")).slice(0, 90) + ")");
+    check(fs.readFileSync(path.join(copyTo, "Photos", "IMG_0003.JPG")).equals(fixed),
+      "step 8: WORK now holds the repaired version, at the same place");
+    check(fs.readFileSync(path.join(repairDir, "originals", "Photos", "IMG_0003.JPG")).equals(original),
+      "step 8: the damaged original is kept in REPAIR\\originals");
+    await page.click("#b-verify");
+    const okAfter = await waitText("r-verify", "exactly the repaired version put back");
+    check(okAfter, "step 7 again: the copies check knows about the repaired version (" + (await page.textContent("#r-verify")).slice(0, 100) + ")");
+    await page.click("#b-evaluate");
+    const evaluated = await waitText("r-evaluate", "damaged files:");
+    check(evaluated, "step 8: the evaluation says what is put back and what is still damaged (" + (await page.textContent("#r-evaluate")).slice(0, 100) + ")");
+    await page.fill("#undo-id", tagged.match(/\[(R\d+)\]/)[1]);
+    await page.click("#b-undo");
+    const undone = await waitText("r-putback", "is back in WORK");
+    check(undone && fs.readFileSync(path.join(copyTo, "Photos", "IMG_0003.JPG")).equals(original),
+      "step 8: undo puts the original back in WORK");
+  }
+  await shot("3b-repair");
+
   // A job that cannot start says why.
   await page.fill("#copy-to", "");
   // (Clicked through the page itself: on Windows the page sometimes moves

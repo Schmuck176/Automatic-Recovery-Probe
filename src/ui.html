@@ -200,7 +200,7 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 
     <li id="s-connect">
       <div class="step-head"><h2>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
-      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until the SSD is unplugged again; step 8 then puts the setting back.</p>
+      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until the SSD is unplugged again; step 9 then puts the setting back.</p>
       <div id="connect"></div>
     </li>
 
@@ -253,6 +253,25 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
       <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares. Use it after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
       <div class="row"><button class="second" id="b-verify">Check the copies are unchanged</button></div>
       <div id="r-verify"></div>
+    </li>
+
+    <li id="s-repair">
+      <div class="step-head"><h2>Repair the damaged files: isolate, repair, put back</h2><span class="state" id="st-repair"></span></div>
+      <p>The copies in WORK stay as they are. The damaged ones are <b>copied</b> into a <code>REPAIR</code> folder beside WORK, sorted by what can repair them, each with a number in its name (like <code style="white-space:nowrap">[R0012]</code>) that says exactly where it belongs. Repaired, they go back to exactly that place, and the damaged originals are kept in <code>REPAIR\originals</code>. Nothing is ever taken out of a package (a Photos library, an app, a Pages document): what is damaged inside one goes back to the same place inside it.</p>
+      <p class="small soft" id="repair-where"></p>
+      <h3>1. Isolate</h3>
+      <div class="row"><button id="b-isolate">Copy the damaged files out</button></div>
+      <div id="r-isolate"></div>
+      <h3>2. Repair</h3>
+      <p class="small">Each folder in <code>REPAIR\to-repair</code> is named after what repairs its files. Repair those copies only, and save each repaired file anywhere in <code>REPAIR\repaired</code>, keeping its number in its name (<code>IMG_0003 [R0012]_repaired.JPG</code> is fine). <code>REPAIR\READ ME.txt</code> says more.</p>
+      <div class="row" id="repair-open"></div>
+      <h3>3. Put back</h3>
+      <div class="row"><button id="b-putback">Put the repaired files back</button></div>
+      <div class="row"><input type="text" id="undo-id" aria-label="Number of the file to undo" placeholder="R0012" style="max-width:9em"><button class="second" id="b-undo">Undo a put-back</button></div>
+      <div id="r-putback"></div>
+      <h3>4. Evaluate</h3>
+      <div class="row"><button class="second" id="b-evaluate">Evaluate what is damaged</button></div>
+      <div id="r-evaluate"></div>
     </li>
 
     <li id="s-finish">
@@ -555,7 +574,7 @@ function renderConnect() {
       <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
       <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>Get Windows ready</button>
       ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>
-      ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too: choose it in the list below and click <b>Switch disk N on, writable</b>. Windows stays set like this until the recovered SSD has been unplugged (step 8 puts it back).</p>' : ""}${noteHtml("prepare")}</div>`;
+      ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too: choose it in the list below and click <b>Switch disk N on, writable</b>. Windows stays set like this until the recovered SSD has been unplugged (step 9 puts it back).</p>' : ""}${noteHtml("prepare")}</div>`;
   }
   const list = disks;
   if (list.length) {
@@ -628,7 +647,7 @@ function renderImage() {
   if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("image_dir");
   let h = noteHtml("image");
   if (setting("image") && setting("image_sha") && !(j && j.state === "running")) {
-    h += `<div class="msg ok">The image <span class="path">${esc(setting("image"))}</span> is made and checked. The recovered SSD is not needed any more: switch it off and unplug it (step 8), then put Windows' setting back. Steps 5 and 6 read the image.</div>`;
+    h += `<div class="msg ok">The image <span class="path">${esc(setting("image"))}</span> is made and checked. The recovered SSD is not needed any more: switch it off and unplug it (step 9), then put Windows' setting back. Steps 5 and 6 read the image.</div>`;
   }
   if (j && j.state !== "running") {
     if (j.state === "failed" && j.error) h += `<div class="msg err">${esc(j.error)}</div>`;
@@ -773,6 +792,52 @@ function renderScan() {
   $("r-scan").innerHTML = h;
 }
 
+function repairFolder() {
+  const f = $("scan-folder").value.trim();
+  return f || setting("scan_folder") || setting("copy_to");
+}
+function renderRepair() {
+  const jobs = ["isolate", "put-back", "evaluate"].map(lastOf).filter(Boolean);
+  const latest = jobs.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
+  const [cls, text] = stateText(latest);
+  setStep("repair", cls, text);
+  const f = repairFolder();
+  const checked = f && setting("last_scan_folder") && setting("last_scan_folder").replace(/[\\/]+$/, "").toLowerCase() === f.replace(/[\\/]+$/, "").toLowerCase();
+  $("repair-where").textContent = !f ? "Copy everything off first (step 6), then check every copied file (step 7)."
+    : checked ? `The copies: ${f}. What is damaged comes from step 7's check of them; REPAIR goes beside them.`
+    : `The copies: ${f}. Check every copied file in step 7 first, with "Use what step 5 found" ticked: that says which copies are damaged.`;
+  $("b-isolate").disabled = busy() || !checked;
+  $("b-evaluate").disabled = busy() || !checked;
+  $("b-putback").disabled = busy() || !f;
+  $("b-undo").disabled = busy() || !f;
+  const repair = jobs.map((j) => j.data && j.data.repair).find(Boolean);
+  const openHtml = repair ? `<button class="second" data-open="${esc(repair)}">Open the REPAIR folder</button>` : "";
+  if ($("repair-open").dataset.html !== openHtml) { $("repair-open").innerHTML = openHtml; $("repair-open").dataset.html = openHtml; }
+  const show = (kind, el, extra) => {
+    const j = lastOf(kind);
+    let h = noteHtml(kind);
+    if (j && j.state !== "running") {
+      if (j.state === "failed" && j.error && !(j.summary || []).length) h += `<div class="msg err">${esc(j.error)}</div>`;
+      const ls = j.summary || [];
+      if (ls.length) h += `<div class="msg ${j.state === "done" ? "ok" : (j.state === "stopped" ? "warn" : "err")}">${ls.map(esc).join("<br>")}</div>`;
+      if (extra) h += extra(j);
+    }
+    if ($(el).dataset.html !== h) { $(el).innerHTML = h; $(el).dataset.html = h; }
+  };
+  show("isolate", "r-isolate");
+  show("put-back", "r-putback", (j) => {
+    const back = (j.data && j.data.back) || [];
+    return back.length ? `<details><summary>Put back this time (${commas(back.length)})</summary><ul class="small">${back.slice(0, 200).map((b) => `<li><b>${esc(b.id)}</b> ${esc(b.path)}</li>`).join("")}</ul></details>` : "";
+  });
+  show("evaluate", "r-evaluate", (j) => {
+    const pk = (j.data && j.data.damaged_packages) || [];
+    if (!pk.length) return j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the evaluation</button></div>` : "";
+    return `<div class="scroll"><table><tr><th>Package</th><th class="num">Files</th><th class="num">Damaged</th><th class="num">Put back</th><th>What to do</th></tr>` +
+      pk.map((p) => `<tr><td class="path">${esc(p.path)}<br><span class="small soft">${esc(p.what)}, ${esc(size(p.bytes))}</span></td><td class="num">${commas(p.files)}</td><td class="num">${commas(p.damaged)}</td><td class="num">${commas(p.put_back)}</td><td class="small">${esc(p.verdict)}</td></tr>`).join("") +
+      `</table></div>` + (j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the evaluation</button></div>` : "");
+  });
+}
+
 function renderFinish() {
   const chosen = disks.find((d) => d.spec === setting("disk"));
   let h = "";
@@ -816,7 +881,7 @@ function renderJob() {
 
 function render() {
   if (!S) return;
-  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderFinish(); renderJob(); drawMap();
+  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -882,6 +947,14 @@ $("b-image").onclick = async () => {
   startJob("image", { action: "image", disk: setting("disk"), out: to });
 };
 $("b-check").onclick = () => startJob("check", { action: "mapcheck", map: setting("mapfile"), disk: source() });
+$("b-isolate").onclick = () => startJob("isolate", { action: "isolate", folder: repairFolder() });
+$("b-putback").onclick = () => startJob("put-back", { action: "put-back", folder: repairFolder() });
+$("b-undo").onclick = () => {
+  const id = $("undo-id").value.trim();
+  if (!id) { note("put-back", "err", "Type the number of the file to undo, such as R0012."); return; }
+  startJob("put-back", { action: "undo-put-back", folder: repairFolder(), id });
+};
+$("b-evaluate").onclick = () => startJob("evaluate", { action: "evaluate", folder: repairFolder() });
 $("b-verify").onclick = () => {
   const f = $("scan-folder").value.trim();
   if (!f) { note("verify", "err", "Choose the folder the copies went into first (above)."); return; }

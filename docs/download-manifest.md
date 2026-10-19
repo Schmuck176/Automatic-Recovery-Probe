@@ -41,7 +41,7 @@ account — it runs ~70 virus scanners on it).
 - Its source is in your GitHub repository **Schmuck176/Recovery-Probe** (private). GitHub's own Windows machines build it from that source and test it on every change: against the old Python probe file by file, on hundreds of damaged test disks, against what Windows itself makes of them, and in a real web browser.
 - It uses only Rust's own standard parts and Windows' own parts — no code from anyone else runs over your files. It reads the Photos Library databases with SQLite, which is part of Windows (`winsqlite3.dll`).
 - It never writes to the recovered SSD. It writes only into the folder you choose for the copies and into `C:\RECOVERY-TOOLS\results\`.
-- What it does: checks itself (step 1); reads the mapfile (step 2); keeps Windows from writing to the recovered SSD (step 3); makes an image of the SSD, a complete second copy checked by reading it back (step 4); works out which files and folders sit on the places the old drive never gave up, which files Windows can't even list, and rebuilds folders whose own record was lost (step 5, "the map check"); copies everything off, including those, with a SHA-256 checksum per file (step 6); checks every copied file's structure, together with what step 5 found, and checks the copies against their checksums (step 7 — the first part is the old "probe", plus NEVER_READ); takes the SSD out safely (step 8).
+- What it does: checks itself (step 1); reads the mapfile (step 2); keeps Windows from writing to the recovered SSD (step 3); makes an image of the SSD, a complete second copy checked by reading it back (step 4); works out which files and folders sit on the places the old drive never gave up, which files Windows can't even list, and rebuilds folders whose own record was lost (step 5, "the map check"); copies everything off, including those, with a SHA-256 checksum per file (step 6); checks every copied file's structure, together with what step 5 found, and checks the copies against their checksums (step 7 — the first part is the old "probe", plus NEVER_READ); copies the damaged files out to repair, sorted by what repairs them, puts the repaired ones back exactly where they belong (keeping the originals) and says what is still damaged inside every library, app and document (step 8); takes the SSD out safely (step 9).
 - **Python** is no longer needed (the old probe was a Python program). Already installed? It does no harm.
 
 ## 2. Programs that other programs need
@@ -62,7 +62,7 @@ account — it runs ~70 virus scanners on it).
 - **https://github.com/qarmin/czkawka/releases** — you have the folder `windows_krokiet_on_windows_all_backends` (version 12.0.1, released 29 July 2026) ✔
 - That's an **official** build: `windows_krokiet_on_windows_all_backends.zip` is one of the files on the 12.0.1 release page. ("all_backends" means it bundles several ways of drawing its window — if the `.exe` doesn't open, try the `.bat` files next to it.)
 - Nothing to install: it runs from its folder.
-- Used for (all optional, Phases 4 and 6): broken-file checks (images, PDFs, archives, audio, video), bad extensions, similar images (near-twins of damaged photos). Only its **Save** button is used: **never Trash, Delete or Move** — nothing in `WORK` is ever changed.
+- Used for (all optional, Phases 4 and 6): broken-file checks (images, PDFs, archives, audio, video), bad extensions, similar images (near-twins of damaged photos). Its saved lists can go into `SPARE\REPAIR\damaged-lists`, so Recovery Probe copies those files out to repair too. Only its **Save** button is used: **never Trash, Delete or Move** — nothing in `WORK` is ever changed.
 
 > ⚠️ **Krokiet ignores files smaller than 16 KB** in every scan except Empty Files,
 > until you change *File Size (Kilobytes) → Min* to **0**. Phase 4 does this first.
@@ -189,5 +189,5 @@ fixed file, paying won't produce one either.
 | PDF | Recovery Probe (Phase 3) + Krokiet PDF check (Phase 4) |
 | Zip and 7z archives | Recovery Probe (Phase 3) + Krokiet archive check + **7-Zip** test (Phase 4) |
 | Word, Excel, PowerPoint, ePub, RAR | Recovery Probe (Phase 3) + **7-Zip** test (Phase 4) — Krokiet doesn't open these |
-| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3) + Photos' own Repair on the Mac, on a copy (Phase 5) |
+| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3), repairs damaged photos inside them and puts them back in place (Phase 6) + Photos' own Repair on the Mac, on a copy (Phase 7) |
 | Everything else | Copied exactly, with a checksum; the map check names it if the drive lost any of it |

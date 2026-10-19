@@ -12,7 +12,7 @@ first SSD is the only copy in existence.
 
 **What you need as well:** **one more drive, for the image** — at least 1 TB free
 (the image is 1,000 GB; Windows shows it as 932 GB). An ordinary external hard disk is
-fine. A 4 TB one can later hold a second copy of your files as well (Phase 7).
+fine. A 4 TB one can later hold a second copy of your files as well (Phase 8).
 
 **What you're doing, in short:**
 
@@ -22,7 +22,10 @@ fine. A 4 TB one can later hold a second copy of your files as well (Phase 7).
    `SPARE\WORK`, with a checksum for each file.
 3. **Check every copy once**, for a report. Nothing in `WORK` is ever moved,
    renamed or deleted.
-4. **Work only on copies of the few damaged files**, in a `REPAIR` folder.
+4. **Repair the few damaged files without touching `WORK` by hand:** the program
+   copies them out (isolate), you repair those copies, the program puts each repaired
+   file back exactly where it belongs, keeping the damaged original, and then says
+   what is still damaged (evaluate).
 5. **Keep two copies of your files**, on two drives, one of them away from home, and
    check them against the checksums once or twice a year.
 
@@ -46,7 +49,10 @@ anything that deletes or moves files by the thousand.
    *and* a small copy of every photo; a duplicate finder sees those as duplicates.
 3. **Nothing in `WORK` is ever moved, renamed or deleted** — not by you, not by
    Krokiet, not by a repair tool. What the checks find goes into reports. Damaged
-   files are *copied* into `REPAIR`.
+   files are *copied* into `REPAIR`. The one change ever made to `WORK` is the
+   program's **Put back** (step 8): a repaired file replaces its damaged original at
+   exactly the same place, only if that original is still exactly as copied; the
+   original is kept in `REPAIR\originals`, every one is listed, and each can be undone.
 
 > **The files you need**, together in `C:\RECOVERY-TOOLS\`:
 >
@@ -66,7 +72,7 @@ anything that deletes or moves files by the thousand.
 > *"Do you want to allow this app to make changes to your device?"* — click **Yes**
 > (it needs that to read the recovered SSD directly; it never writes to it). A black
 > window opens — **leave it open**, it *is* the program — and your web browser shows
-> the program's page: eight numbered steps, each with one button. Nothing on the page
+> the program's page: nine numbered steps, each with one button. Nothing on the page
 > goes to the internet; it works offline. What each step found is kept in
 > `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing.
 >
@@ -79,7 +85,8 @@ anything that deletes or moves files by the thousand.
 > | 5 | Finds what the damage touched (the "map check") |
 > | 6 | Copies everything off, with a checksum per file |
 > | 7 | Checks every copied file; checks the copies are unchanged |
-> | 8 | Finish: take the SSD out, put Windows' setting back |
+> | 8 | Repairs the damaged files: isolate, repair, put back, evaluate |
+> | 9 | Finish: take the SSD out, put Windows' setting back |
 >
 > - Browser didn't open? The black window shows an address — copy it into the browser.
 > - The page says **"The program is not running any more"**? Its black window was
@@ -94,7 +101,7 @@ anything that deletes or moves files by the thousand.
 
 ## How the machines are used
 
-Windows does almost everything. The Mac is optional (Phase 5): it is the only thing
+Windows does almost everything. The Mac is optional (Phases 5 and 7): it is the only thing
 that can fully decode HEIC photos and camera RAW, and open a Photos Library.
 
 The **original recovery SSD never goes near the Mac.** Only `SPARE` does, and that's
@@ -104,7 +111,8 @@ write add-on is installed on the Mac (Phase 5 checks).
 ## The tools
 
 **Recovery Probe** (`recovery-probe.exe`) does the essential work: the image, the map
-check, the copying and the checks. Everything else is optional: **Krokiet**, **7-Zip**
+check, the copying, the checks, and taking the damaged files out to repair and putting
+them back. Everything else is optional: **Krokiet**, **7-Zip**
 and **MP3val** for extra checks that only read (Phase 4), **ffmpeg** for Krokiet's
 video check, **`sips`** on the Mac (built in, only reads), and **untrunc** and the
 paid repair tools, used only on the copies in `REPAIR` (Phase 6).
@@ -186,7 +194,7 @@ need to download one again.
 - [ ] **7-Zip** (`7z2603-x64.exe`) — run it.
 - [ ] **TeraCopy** (`teracopy.exe`) — optional: Recovery Probe does the copying (TeraCopy would miss the files Windows can't list). Install it if you like it for other copying.
 - [ ] **Obsidian** (`Obsidian-1.13.7.exe`) — run it. Open this checklist in it so you can tick boxes.
-- [ ] **MultiPar** (`MultiPar1336_setup.exe`) — optional now (Phase 7 explains why). Install it or not, as you like.
+- [ ] **MultiPar** (`MultiPar1336_setup.exe`) — optional now (Phase 8 explains why). Install it or not, as you like.
 - [ ] **Krokiet** (the folder `windows_krokiet_on_windows_all_backends`) — nothing to install. Move the whole folder into `C:\RECOVERY-TOOLS\`. You run the `.exe` inside it. *(If a window doesn't appear, try one of the `.bat` files in the same folder — each starts it with a different way of drawing the window.)*
 - [ ] **MP3val** (the folder `mp3val-0.1.8_with_frontend-0.1.1-bin-win32`) — nothing to install. Move it into `C:\RECOVERY-TOOLS\`. Run the *frontend* `.exe` inside it.
 - [ ] **untrunc** (the folder `untrunc_x64`) — nothing to install. Move it into `C:\RECOVERY-TOOLS\`. Not needed until Phase 6.
@@ -202,7 +210,7 @@ need to download one again.
 ### On the Mac, while still online
 
 - [ ] Nothing to install — `sips` is part of macOS.
-- [ ] **Check the Mac's free space** (Apple menu → About This Mac → Storage, or System Settings → General → Storage). Phase 5 may need to copy a Photos Library onto it.
+- [ ] **Check the Mac's free space** (Apple menu → About This Mac → Storage, or System Settings → General → Storage). Phase 7 may need to copy a Photos Library onto it.
 
 ### Paid repair tools
 
@@ -280,7 +288,7 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 - [ ] **10.** Plug `SPARE` in **the way the recovered SSD will be plugged in**: the same USB port and cable, and if the recovered SSD sits in a USB case or adapter, the same kind of case or adapter.
 - [ ] **11.** In the step 3 list, click `SPARE`'s disk. You want: **switched off**, no **removable media** tag, the page saying *"It arrived switched off, so Windows' setting works for a disk plugged in this way"*, and no new drive in File Explorer.
   - *It says **removable media**, or `SPARE` got a drive letter?* **Stop.** That way of plugging in isn't safe for the recovered SSD. Tell Claude: a different case or adapter, a SATA port inside the PC, or a hardware write blocker are the ways round it.
-- [ ] **12.** Click **Switch disk N on, writable** for `SPARE`. It gets its drive letter back. (Windows stays set to leave new disks switched off until the recovered SSD has been unplugged; step 8 of the program puts the setting back.)
+- [ ] **12.** Click **Switch disk N on, writable** for `SPARE`. It gets its drive letter back. (Windows stays set to leave new disks switched off until the recovered SSD has been unplugged; step 9 of the program puts the setting back.)
 
 ## Bring in the recovered SSD — protected
 
@@ -301,8 +309,8 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 - [ ] **16.** When it says **Done**, read the result. You want **"…and it reads back exactly as it was written"** and **"The SSD gave every byte."**
   - *It lists places the SSD could not read?* They are zeros in the image, and the map check counts them as never read, so nothing is hidden. But tell Claude: the SSD itself is then failing, which matters for keeping it.
   - *It says the image does NOT read back the same?* The `IMAGE` drive has a problem. Don't use that image; tell Claude.
-- [ ] **17. Step 8:** click **Switch it off** (if shown), then unplug the recovered SSD and put it in a drawer. It's your untouched master, and it is not needed again.
-- [ ] **18.** Still in step 8, click **Put Windows' setting back**. It answers *"Windows' setting for new disks is as it was."* (It refuses while the recovered SSD is still plugged in.)
+- [ ] **17. Step 9:** click **Switch it off** (if shown), then unplug the recovered SSD and put it in a drawer. It's your untouched master, and it is not needed again.
+- [ ] **18.** Still in step 9, click **Put Windows' setting back**. It answers *"Windows' setting for new disks is as it was."* (It refuses while the recovered SSD is still plugged in.)
 
 Next to the image, in `IMAGE\`, there are now `recovered-ssd.img.sha256` (its
 checksum) and `recovered-ssd.img.txt` (what it is, where it came from). Keep all three
@@ -336,7 +344,7 @@ their text; if they don't, step 4's image isn't there: check `IMAGE` is plugged 
 # PHASE 3 — The full check 🪟 (1–3 hrs, runs by itself)
 
 - [ ] **1. Step 7 → Check every copied file**: folder `E:\WORK` (it's filled in already), **"Look for holes" ticked**, **"Use what step 5 found" ticked**.
-- [ ] **2.** When it finishes, the page shows how many files are damaged, clean and not testable, and lists the damaged ones. The results are in `C:\RECOVERY-TOOLS\results\`, named `scan-DATE…`: the results (`scan-DATE.csv`), `scan-DATE-not-testable.csv`, and `scan-DATE-photo-libraries.csv` (one row per Photos Library, with everything learnt about it). **Rename `scan-DATE.csv` to `check-work.csv`** (and its companions the same way) so you know later which run was which.
+- [ ] **2.** When it finishes, the page shows how many files are damaged, clean and not testable, and lists the damaged ones. The results are in `C:\RECOVERY-TOOLS\results\`, named `scan-DATE…`: the results (`scan-DATE.csv`), `scan-DATE-not-testable.csv`, and `scan-DATE-photo-libraries.csv` (one row per Photos Library, with everything learnt about it). **Don't rename or move them**: step 8 reads the newest one to know which copies are damaged.
 - [ ] **3.** The page also lists every **Photos Library** it found. That's information only: the libraries stay exactly where they are in `WORK`.
 
 **What the check does:** it reads every file's structure without opening it as a
@@ -377,7 +385,7 @@ These look for problems the drive failure didn't cause — files that were alrea
 broken before it died. They take days of computer time, and they're optional. Every
 one of them **only makes a list**: never click Trash, Delete, Move, Rename, Fix or
 Repair in any of them. Save each list into `C:\RECOVERY-TOOLS\results\` with an
-obvious name; the lists go into the damaged list in Phase 6.
+obvious name; in Phase 6 they go into `SPARE\REPAIR\damaged-lists`, so the damaged files they name are copied out to repair too.
 
 **First, three settings in Krokiet** (they're in the same settings area as
 *Included paths*):
@@ -433,15 +441,15 @@ tell. MP3val counts the actual audio.
 
 ---
 
-# PHASE 5 — The Mac 🍎 (optional, one session)
+# PHASE 5 — The Mac, part 1: check HEIC and RAW 🍎 (optional, one session)
 
 Take **only `SPARE`** to the Mac. The SSD stays in its drawer; the image stays on
-`IMAGE`.
+`IMAGE`. This part only reads `SPARE`.
 
-- [ ] **Before unplugging `SPARE` from the PC**, copy `C:\RECOVERY-TOOLS\results\check-work-photo-libraries.csv` (from Phase 3) onto it (the top of the drive is fine). Job 2 needs it.
+- [ ] **Before unplugging `SPARE` from the PC**, copy the newest `C:\RECOVERY-TOOLS\results\scan-DATE-photo-libraries.csv` (from Phase 3) onto it (the top of the drive is fine). Phase 7 needs it.
 - [ ] **Check the Mac can only read `SPARE`.** Plug it in, select it in Finder → **File → Get Info** → *Sharing & Permissions* should say **"You can only read"**. If it doesn't (an NTFS add-on such as Paragon NTFS, Tuxera NTFS, iBoysoft NTFS or Mounty is installed), **unplug it and tell Claude** — don't create, rename or delete anything on it.
 
-## Job 1 — decode every HEIC and RAW
+## Decode every HEIC and RAW
 
 - [ ] **1.** Open **Terminal** (Applications → Utilities → Terminal). Type this to see the drive's name:
 
@@ -474,14 +482,93 @@ caffeinate -i find -E . \( -name '$RECYCLE.BIN' -o -name 'System Volume Informat
 
 - [ ] **4.** When it finishes, `sips-failures.txt` on your Desktop is your broken HEIC/RAW list (one file per line). If it's empty, nothing failed.
 
-## Job 2 — the Photos Libraries
+## Bring the list back
+
+- [ ] Copy `sips-failures.txt` from the Mac's Desktop back to the PC (email it to yourself or use a USB stick — the Mac can't write to `SPARE`). It goes into `SPARE\REPAIR\damaged-lists` in Phase 6.
+- [ ] Unplug `SPARE` and take it back to the PC.
+
+---
+
+# PHASE 6 — The damaged files: isolate, repair, put back, evaluate 🪟 (reconnect to the internet for the paid tools)
+
+The damaged files are a short list, and the program keeps track of every one: what is
+damaged comes from step 7's check (everything step 5 named, NEVER_READ, TRUNCATED,
+HOLE, MISMATCH, DB_DAMAGED), the files copied only in part, and any other list you put
+in `SPARE\REPAIR\damaged-lists`.
+
+**Packages are never split.** A damaged photo, video or sound file *inside* a library
+is copied out and put back to the same place inside it. A Pages, Numbers or Keynote
+document kept as a folder goes out and back whole. A library's own database or project
+file is not copied out: the library's own app repairs the whole library, on a copy
+(Phase 7). Anything inside an app is not copied out either: an app is reinstalled.
+
+**Housekeeping files stay where they are**, and are never repaired or deleted: Mac `._`
+files (a file's tags, comments and "where from"; for very old Mac files the whole file),
+`.DS_Store` (Finder's view settings and comments), `Thumbs.db` (Windows' thumbnails — it
+can hold the only intact small picture of a photo that is now damaged) and `desktop.ini`
+(a folder's icon and name). They take a few MB in all, and macOS reads the `._` files
+back if the files ever go back to a Mac.
+
+## 1. Isolate
+
+- [ ] **1.** If you have other lists of damaged files — `sips-failures.txt` from the Mac (Phase 5), Krokiet's saved results (Phase 4), a list you typed of files 7-Zip or MP3val reported — make the folder `SPARE\REPAIR\damaged-lists` and put them in it: one file per line. (A line with more after the path, like Krokiet's error message, is fine.)
+- [ ] **2. Step 8 → Copy the damaged files out.** The folder is step 7's (`E:\WORK`). Each damaged file is *copied* into `SPARE\REPAIR\to-repair`, into a folder named after what can repair it, with a number in its name: `IMG_0003 [R0012].JPG`. `REPAIR\repair-list.csv` says exactly where `R0012` is in `WORK`, and its checksum. Nothing in `WORK` changes.
+- [ ] **3.** Read the summary: how many went into each folder, and what was *not* copied out and why (housekeeping files, apps, a library's own database, previews a library makes again by itself). Run it again whenever you add a list: it copies out only what is new.
+
+## 2. Repair — the copies in `REPAIR\to-repair` only
+
+> Set expectations: **a repair tool produces a file that opens, not the file you had.**
+> The damaged part is papered over with plausible filler.
+
+Save every repaired file **anywhere in `SPARE\REPAIR\repaired`**, keeping its number
+in its name — `IMG_0003 [R0012].JPG` or `IMG_0003 [R0012]_repaired.JPG` are both
+fine. If a tool drops the number, add it back by hand. That number is how the program
+knows where the file belongs. Folder by folder:
+
+- [ ] **First, open a sample by hand.** The checks sometimes flag files that are fine. If they open normally, you may need to buy nothing.
+- [ ] **1 Photos:** near-twins first — they rescue more photos than repair tools do. Krokiet → **Similar Images**, Included paths `SPARE\REPAIR\to-repair` *and* `SPARE\WORK`, **Geometric invariance** → **Mirror + Flip + Rotate 90**, then **Compare**. Where a damaged photo has an intact twin (an edited copy, an export, an email attachment), you can copy the twin into `repaired` and give it the damaged file's name and number. **Never delete or move anything from Krokiet's results.** Otherwise, a photo repair tool (Stellar, Repairit: the free previews show the result before you pay).
+- [ ] **2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it), open each in Preview or Photos on the Mac, export what opens with the same name and number, and bring the results back on the stick into `repaired`.
+- [ ] **3 Videos:** **untrunc** (in `C:\RECOVERY-TOOLS\`) fixes MP4/MOV videos that stop partway, with a **good video from the same camera or phone** as a pattern; or a video repair tool. untrunc's output (`…[R0012].MOV_fixed.mov`) keeps the number.
+- [ ] **4 Music and sound:** MP3val's fix button, **on these copies only** (then copy the fixed files into `repaired`).
+- [ ] **5 Office documents:** in Word, Excel or PowerPoint: **File → Open**, choose the file, click the arrow beside **Open** → **Open and Repair**, then save under the same name and number into `repaired`.
+- [ ] **6 PDF documents:** a PDF repair tool, or open it in a PDF reader and save a copy into `repaired`.
+- [ ] **7 Archives and disk images:** 7-Zip: open it and take out what can still be read. (A damaged archive rarely becomes whole again: what you take out goes beside the archive later, by hand.)
+- [ ] **8 Mac documents:** on the Mac, through a USB stick as for folder 2: open each in Pages, Numbers, Keynote or TextEdit and save it with the same name and number.
+- [ ] **9 Everything else:** open each in its own program; ask Claude if unsure.
+
+## 3. Put back
+
+- [ ] **1. Step 8 → Put the repaired files back.** For each repaired file in `REPAIR\repaired`, the program finds where it belongs by its number, checks the file there is still exactly the damaged original, moves that original into `REPAIR\originals` (in the same folders as in `WORK`), and puts the repaired file in its place with the original's dates. `WORK\repair-returns.csv` lists every one, with both checksums.
+- [ ] **2.** Read the summary. A repaired file that is a different kind (a `.jpg` for a `.HEIC`), has no number, or has two versions, is **not** put back — the summary says which and why.
+- [ ] **3.** Changed your mind about one? Type its number (`R0012`) beside **Undo a put-back**: the original goes back, and the repaired version moves to `REPAIR\replaced`.
+- [ ] **4. Step 7 → Check the copies are unchanged** again. You want every copy exactly as copied — or, for the ones put back, exactly the repaired version.
+- [ ] **5. Step 7 → Check every copied file** again, to test the repaired files. (Before that, a file the map check named is marked NEVER_READ; once repaired and put back it is checked as it is now.)
+
+## 4. Evaluate
+
+- [ ] **Step 8 → Evaluate what is damaged.** One line for every package with damage inside — a Photos library, a Final Cut or Logic project, a Pages document, an app — saying how many files inside are damaged and of what kind (your photos, videos and sound; the library's own data; previews it makes again), how many are repaired and put back, what is still damaged, and what to do. Everything is also in `SPARE\REPAIR\evaluation.csv`, with every damaged file outside a package.
+  - *"repair the whole library with its own app"*: Phase 7.
+  - *"reinstall it"* (an app): download it again from the App Store or its maker.
+  - *"still to repair"*: back to section 2, or accept the loss — the damaged file is kept either way.
+- [ ] **Keep every damaged original.** It stays in `WORK` (if not repaired) or in `REPAIR\originals` (if a repaired version took its place): repair tools get better every year.
+
+---
+
+# PHASE 7 — The Mac, part 2: the Photos Libraries 🍎 (optional, one session)
+
+Do this after Phase 6, so the photos repaired inside a library are already back in it.
+Take **only `SPARE`** to the Mac, and check again that it says **"You can only read"**
+(Phase 5).
+
+## The Photos Libraries
 
 > **A library can't be opened while it's on `SPARE`** — Photos needs a Mac-formatted
 > disk. So a library is *copied* to the Mac, whole, and opened there. The one in
-> `WORK` is never changed.
+> `WORK` is never opened or changed by Photos.
 
-Open `check-work-photo-libraries.csv` (the one you copied onto the drive) in Numbers
-or any spreadsheet, and work down it:
+Open the `scan-DATE-photo-libraries.csv` you copied onto the drive in Numbers or any
+spreadsheet, and work down it, together with what step 8's **Evaluate** said about each
+library (`SPARE\REPAIR\evaluation.csv`):
 
 - [ ] **1. Skip any with `database_verdict` = `DB_DAMAGED` for now.** A healthy one, if you have one, answers the question faster.
 - [ ] **2. Start with row 1** (the best guess). Exception: if a smaller library has a much newer `newest_file` date, it may be the one you were actually using and the big one an old archive — try that instead.
@@ -494,6 +581,7 @@ or any spreadsheet, and work down it:
 - [ ] **7. If photos are missing or blank, check that library's `damaged_inside` number** before re-running Repair. If thousands of files inside it were damaged, no amount of repairing brings them back.
 - [ ] **8.** Compare against the other libraries: with one open, spot-check whether photos from the smaller ones are already in it.
 - [ ] **9.** If Photos won't open it at all, **write down the exact error message.**
+- [ ] **10.** The library you keep using lives on the Mac (Photos can only use one on a Mac-formatted disk): back it up there, with Time Machine. The one in `WORK` stays as it is, as part of the copies.
 
 > **Don't merge libraries by hand and don't dedupe across them.** If two overlap,
 > Photos' own Import handles it.
@@ -501,34 +589,18 @@ or any spreadsheet, and work down it:
 > **A library made on a newer macOS won't open on an older one.** If the Mac is behind,
 > update it before deciding a library is dead.
 
-## Job 3 — bring the results back
+## Bring the results back
 
-- [ ] Copy `sips-failures.txt` from the Mac's Desktop back to Windows (email it to yourself or use a USB stick — the Mac can't write to `SPARE`), plus any notes from Job 2.
+- [ ] Your notes from this phase (which library is the real one, what Repair said) go into `RECORDS` in Phase 8.
 - [ ] Unplug `SPARE` and take it back to the PC.
 
 ---
 
-# PHASE 6 — The damaged files 🪟 (reconnect to the internet for the paid tools)
+# PHASE 8 — Keep it safe 🪟 (about 1 hr, plus copying time)
 
-The damaged files are a short list: everything step 5 named, everything Phase 3
-called NEVER_READ, TRUNCATED, HOLE, MISMATCH or DB_DAMAGED, the files
-`rescue-log.csv` calls "partly copied", and — if you did Phases 4 and 5 — what
-Krokiet, 7-Zip, MP3val and `sips` flagged.
-
-- [ ] **1. 💬 Ask Claude for the copying helper.** It reads the program's lists and *copies* each damaged file from `WORK` into `SPARE\REPAIR`, in the same folders, with a list of what it copied and why each one is there. It never changes `WORK` and never takes anything out of a Photos Library or other package: a damaged file inside a library goes on the list, and the library is dealt with whole (Phase 5).
-- [ ] **2. Open a sample of `REPAIR` by hand.** The extra checks sometimes flag files that are fine. If they open normally, you may need to buy nothing.
-- [ ] **3. Near-twins first** — this rescues more photos than repair tools do. Krokiet → **Similar Images**, Included paths `SPARE\REPAIR` *and* `SPARE\WORK`, the `.photoslibrary` exclusion still in place, **Geometric invariance** → **Mirror + Flip + Rotate 90**. Use **Compare** to see pairs side by side. Where a damaged photo has an intact twin (an edited copy, an email attachment, an export), that picture is recovered: note which file it is. **Don't delete or move anything from the results.** Thumbs.db files and a library's previews can hold intact small versions too.
-- [ ] **4. Repair tools — on the copies in `REPAIR` only.** Set expectations: **a repair tool produces a file that opens, not the file you had**; the damaged part is papered over with plausible filler. Try the free previews: Stellar and Repairit both show the repaired result before you pay. **untrunc** (already in `C:\RECOVERY-TOOLS\`) is free and fixes MP4/MOV videos that stop partway — but it needs a **good video from the same camera or phone** as a pattern.
-- [ ] **5. Put each repaired file beside its damaged copy in `REPAIR`**, with a name that says so (`IMG_0123 (repaired).JPG`), and check it with step 7 (and Krokiet, if you like). A repair that hasn't been re-tested is a guess.
-- [ ] **6. Keep every damaged original.** It's the only copy that exists, and repair tools get better every year.
-
----
-
-# PHASE 7 — Keep it safe 🪟 (about 1 hr, plus copying time)
-
-- [ ] **1. A `RECORDS` folder on `SPARE`:** copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` stays where it is: step 7 needs it there.) In three years you'll want to know what was checked.
-- [ ] **2. A second copy, on another drive, kept away from home:** copy `WORK` (with its `rescue-log.csv`), `REPAIR` and `RECORDS` onto it. A 4 TB `IMAGE` drive has room beside the image. On a 2 TB `IMAGE` there's room for one or the other: the image has done its job once `WORK` is checked, and the recovered SSD in the drawer is the master, so replacing the image with the second copy is reasonable — but it's a deletion, so decide it yourself, not because this list says so.
-- [ ] **3. Check the second copy:** in step 7, click **Choose…** beside the folder box, choose the second copy's `WORK` folder, then click **Check the copies are unchanged**. You want every copy exactly as copied.
+- [ ] **1. A `RECORDS` folder on `SPARE`:** copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` and `WORK\repair-returns.csv` stay where they are: step 7 needs them there.) In three years you'll want to know what was checked.
+- [ ] **2. A second copy, on another drive, kept away from home:** copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` onto it. A 4 TB `IMAGE` drive has room beside the image. On a 2 TB `IMAGE` there's room for one or the other: the image has done its job once `WORK` is checked, and the recovered SSD in the drawer is the master, so replacing the image with the second copy is reasonable — but it's a deletion, so decide it yourself, not because this list says so.
+- [ ] **3. Check the second copy:** in step 7, click **Choose…** beside the folder box, choose the second copy's `WORK` folder, then click **Check the copies are unchanged**. You want every copy exactly as copied (or, for the ones put back, exactly the repaired version).
 - [ ] **4. Set a phone reminder every six months** to plug both drives in and run **Check the copies are unchanged** on each `WORK` (the same way). A file that has quietly changed shows up by name; take a good copy of it from the other drive. (Unpowered SSDs slowly lose their data: plugging them in twice a year also keeps them healthy.)
 - [ ] **5.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
 
@@ -545,7 +617,7 @@ Krokiet, 7-Zip, MP3val and `sips` flagged.
   - Remove the Defender exclusions for `SPARE` and `IMAGE`
   - `sysdm.cpl` → Advanced → Startup and Recovery → Settings → tick **Automatically restart** again
   - AutoPlay back on, if you want it
-  - In Recovery Probe, step 8 should say *"Windows' setting for new disks is as it was."* If it doesn't (and the recovered SSD is unplugged), click **Put Windows' setting back**
+  - In Recovery Probe, step 9 should say *"Windows' setting for new disks is as it was."* If it doesn't (and the recovered SSD is unplugged), click **Put Windows' setting back**
   - Reconnect and let Windows catch up
 
 ---
@@ -557,7 +629,9 @@ Krokiet, 7-Zip, MP3val and `sips` flagged.
 | **Any part of a file the old drive never gave up** — even one 512-byte sector, even in a photo that looks perfect, even HEIC and RAW | **Yes** — the map check (Phase 2), marked NEVER_READ (Phase 3) |
 | Files Windows can't even list, because their folder record was never read | **Yes** — found by the map check and copied anyway (Phase 2) |
 | A folder whose own record was never read | **Yes** — found by its contents; its files keep their names (Phase 2). Only the folder's own name is lost |
-| A copy that changes later — on the drive, in a later copy, over the years | **Yes** — the checksum list and *Check the copies are unchanged* (Phases 2 and 7) |
+| A copy that changes later — on the drive, in a later copy, over the years | **Yes** — the checksum list and *Check the copies are unchanged* (Phases 2 and 8) |
+| A repaired file put back in the wrong place, or over a file that had changed | **Can't happen** — each repaired file goes back by its number to exactly where its original was, only if that original is still exactly as copied; the original is kept, and every put-back can be undone (Phase 6) |
+| A package split up by repairs (a library, an app, a document kept as a folder) | **Can't happen** — nothing is taken out of a package; what is damaged inside one goes back to the same place inside it (Phase 6) |
 | File cut short (video stops halfway, JPEG without its end, PDF/zip missing their ending) | **Yes** — Phase 3 |
 | The last part of a file never read (zeros at the end) | **Yes** for photos, PDFs, zips, MP3/FLAC/OGG and MP4/MOV/HEIC — Phase 3. RAW and MKV: Phases 4 and 5 |
 | A video whose index was lost (won't play at all) | **Yes** — Phase 3 |

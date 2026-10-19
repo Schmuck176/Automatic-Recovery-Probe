@@ -22,6 +22,7 @@ pub mod join;
 pub mod mapcheck;
 pub mod mapfile;
 pub mod probe;
+pub mod repair;
 pub mod report;
 pub mod rescue;
 pub mod selftest;

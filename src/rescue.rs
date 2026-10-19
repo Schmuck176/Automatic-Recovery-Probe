@@ -442,7 +442,7 @@ pub const LOG_NAME: &str = "rescue-log.csv";
 /// The list as it grows during a run; folded into rescue-log.csv at the end
 /// (and by the next run, if this one never got to the end).
 pub const UNFINISHED_LOG_NAME: &str = "rescue-log-unfinished.csv";
-const LOG_HEADER: [&str; 7] = ["kind", "path", "size_bytes", "result", "copied_as", "note", "sha256"];
+pub const LOG_HEADER: [&str; 7] = ["kind", "path", "size_bytes", "result", "copied_as", "note", "sha256"];
 
 /// The lists earlier runs into the same folder wrote, read back: one line
 /// per file, folder and piece of lost data (the latest wins, except that a

@@ -28,6 +28,20 @@ Double-click the program to use it step by step in your web browser. Or:
   recovery-probe verify <folder>
         Check every copy in <folder> against the SHA-256 the copying wrote into
         rescue-log.csv: changed, missing and added files.
+  recovery-probe isolate <copies folder> --scan <results .csv> [--scan <results .csv>]...
+        Step 1 of repairing: copy every damaged file out into REPAIR (beside the
+        copies folder), sorted by what repairs it, each name tagged [R0001]...;
+        REPAIR\\repair-list.csv says where each belongs. --scan: the results of
+        checking the copies (scan-....csv); lists in REPAIR\\damaged-lists count too.
+  recovery-probe put-back <copies folder>
+        Step 3: put every repaired file in REPAIR\\repaired (found by its [R....])
+        back where its original is, if that is still the damaged original; the
+        original moves to REPAIR\\originals. Listed in repair-returns.csv.
+  recovery-probe undo-put-back <copies folder> <R0012>
+        Put the original back in place of a repaired version.
+  recovery-probe evaluate <copies folder> [--scan <results .csv>]...
+        Step 4: what is damaged inside every package (libraries, apps, documents
+        kept as folders), what has been put back, what is still damaged.
   recovery-probe sha256 <file>
         A file's SHA-256 (the same as certutil -hashfile <file> SHA256).
   recovery-probe map-info <mapfile>
@@ -286,6 +300,56 @@ fn main() {
             Some(f) => recovery_probe::cli::run_verify(f),
             None => {
                 eprintln!("Which folder?\n\n{USAGE}");
+                2
+            }
+        },
+        Some(cmd @ ("isolate" | "evaluate")) => {
+            let mut scans: Vec<String> = Vec::new();
+            let mut folder: Option<String> = None;
+            let mut i = 1;
+            let mut bad = None;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--scan" => match args.get(i + 1) {
+                        Some(v) => {
+                            scans.push(v.clone());
+                            i += 1;
+                        }
+                        None => bad = Some("--scan needs a file".to_string()),
+                    },
+                    a if folder.is_none() && !a.starts_with("--") => folder = Some(a.to_string()),
+                    a => bad = Some(format!("unexpected argument {a}")),
+                }
+                i += 1;
+            }
+            match (folder, bad) {
+                (Some(f), None) if cmd == "isolate" && scans.is_empty() => {
+                    let _ = f;
+                    eprintln!("isolate needs --scan: the results of checking the copies (scan-....csv)\n\n{USAGE}");
+                    2
+                }
+                (Some(f), None) => recovery_probe::cli::run_repair_step(cmd, &f, &scans, None),
+                (_, Some(e)) => {
+                    eprintln!("{e}\n\n{USAGE}");
+                    2
+                }
+                (None, None) => {
+                    eprintln!("Which folder?\n\n{USAGE}");
+                    2
+                }
+            }
+        }
+        Some("put-back") => match args.get(1) {
+            Some(f) => recovery_probe::cli::run_repair_step("put-back", f, &[], None),
+            None => {
+                eprintln!("Which folder?\n\n{USAGE}");
+                2
+            }
+        },
+        Some("undo-put-back") => match (args.get(1), args.get(2)) {
+            (Some(f), Some(id)) => recovery_probe::cli::run_repair_step("undo", f, &[], Some(id)),
+            _ => {
+                eprintln!("undo-put-back needs the folder and the number (R0012)\n\n{USAGE}");
                 2
             }
         },

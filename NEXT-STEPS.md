@@ -166,6 +166,24 @@ then asked for the fixes. Done on `dev`:
   REPAIR; two copies checked against the checksums); download-manifest.md
   to match.
 
+## Isolate, repair, put back, evaluate (19 October 2026, the user's request)
+
+src/repair.rs, step 8 on the page, CLI isolate / put-back / undo-put-back /
+evaluate. Damaged copies (from step 7's results CSV, rescue-log "partly
+copied", and any list in REPAIR\damaged-lists) are copied into
+REPAIR\to-repair\<group by repair tool>\<name [Rnnnn].ext>; repair-list.csv
+holds id, path in WORK, sha256, why, package. Put back finds REPAIR\repaired
+files by their tag, checks WORK's file is still the original (or the last
+version put back), moves it to REPAIR\originals (rename: same drive), copies
+the repaired one in with the original's dates, logs WORK\repair-returns.csv;
+verify and the scan's join read that log. Packages: libraries' media members
+go out and back one by one; their core and previews are not copied out (role
+by folder names and extension); document packages go out and back whole (tree
+hash); programs and disk images are left. Evaluate walks WORK for package
+roots (names, or Photos library structure) and writes REPAIR\evaluation.csv.
+Unit tests in repair.rs (round trip, undo, interrupted put-back), join.rs;
+tools/ui_check.js drives it in the browser (36 checks).
+
 ## Next
 
 1. One CI run for all of the above; read the reports on ci-windows and
@@ -176,7 +194,5 @@ then asked for the fixes. Done on `dev`:
    the PC afterwards).
 3. The user buys the IMAGE drive, then Phase 1 (rehearsal with SPARE, then
    the image). Help read step 5's results.
-4. Phase 6 copying helper (the checklist promises one): reads the scan CSVs,
-   rescue-log.csv, the map check and sips-failures.txt, and *copies* the
-   damaged files from WORK into REPAIR with a manifest; never changes WORK,
-   never takes files out of a library or package.
+4. Phase 6 is now the program's step 8 (isolate, repair, put back,
+   evaluate); help with the repairs themselves when the user gets there.

@@ -631,3 +631,42 @@ pub fn run_disk_guard(args: &[String]) -> i32 {
         }
     }
 }
+
+/// The repair steps from the command line: isolate, put-back, undo, evaluate.
+pub fn run_repair_step(step: &str, folder: &str, scans: &[String], id: Option<&str>) -> i32 {
+    install_ctrl_c();
+    let work = std::path::Path::new(folder);
+    let scans: Vec<std::path::PathBuf> = scans.iter().map(std::path::PathBuf::from).collect();
+    let stop = || INTERRUPTED.load(Ordering::Relaxed);
+    let show = |lines: Vec<String>| {
+        for l in lines {
+            println!("{l}");
+        }
+    };
+    let result: Result<i32, String> = match step {
+        "isolate" => crate::repair::isolate(work, &scans, &mut |s| println!("  {s}"), &stop).map(|o| {
+            show(crate::repair::isolate_summary(&o));
+            i32::from(!o.problems.is_empty() || o.stopped)
+        }),
+        "put-back" => crate::repair::put_back(work, &mut |s| println!("  {s}"), &stop).map(|o| {
+            let repair = crate::repair::repair_dir(work).unwrap_or_default();
+            show(crate::repair::put_back_summary(&o, &repair));
+            i32::from(!o.skipped.is_empty() || o.stopped)
+        }),
+        "undo" => crate::repair::undo(work, id.unwrap_or("")).map(|m| {
+            println!("{m}");
+            0
+        }),
+        _ => crate::repair::evaluate(work, &scans, &mut |s| println!("  {s}"), &stop).map(|o| {
+            show(crate::repair::evaluation_summary(&o));
+            i32::from(o.stopped)
+        }),
+    };
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            println!("{e}");
+            1
+        }
+    }
+}
