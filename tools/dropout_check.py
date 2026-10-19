@@ -173,6 +173,11 @@ def main():
     want = tree(ref)
     log("     %d files in the straight copy" % len(want[0]))
 
+    # SPARE, made now: while Windows leaves new disks switched off, a new
+    # disk also arrives read-only, so it could not be formatted then.
+    spare = os.path.join(work, "spare.vhd")
+    make_ntfs_vhd(spare)
+
     home = os.path.join(work, "home")
     os.makedirs(home)
     shutil.copyfile(mp, os.path.join(home, "big.map"))
@@ -259,8 +264,6 @@ def main():
 
         # D.
         log("D. A drive that is not the recovered SSD, plugged in while new disks are left switched off:")
-        spare = os.path.join(work, "spare.vhd")
-        make_ntfs_vhd(spare)
         j = page.act(action="guard-prepare")
         check(j.get("ok"), "Get Windows ready again")
         m = attach(spare)
