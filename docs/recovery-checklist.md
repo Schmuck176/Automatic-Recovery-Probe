@@ -45,8 +45,8 @@ anything ever goes wrong, you know at which phase, and which files.
 **Why this way:** the damage is tiny and exactly known. ddrescue failed to read
 610,816 bytes in 167 places, about 0.00006% of the drive. That can damage the
 contents of at most a few hundred files, and the program names them. Everything else
-was read without error. So the risk is no longer the damage: it is the only copy, and
-anything that deletes or moves files by the thousand.
+was read without error. So the risk is no longer the damage: it is having too few
+copies, and anything that deletes or moves files by the thousand.
 
 ## The rules
 
