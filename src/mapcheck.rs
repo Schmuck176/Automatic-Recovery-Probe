@@ -254,11 +254,16 @@ pub struct Report {
     pub map_path: String,
     pub map_version: String,
     pub map_finished: bool,
+    /// When ddrescue last saved the mapfile ("Current time:"), as written there.
+    pub map_time: String,
     pub map_domain: (u64, u64),
     pub map_shift: i128,
     pub map_warnings: Vec<String>,
     /// Reads of the disk that failed while it still answered.
     pub disk_warnings: Vec<String>,
+    /// Places (count, bytes) the SSD itself could not read when the image
+    /// this check reads was made; counted as never read.
+    pub ssd_unread: (u64, u64),
     pub earlier: Vec<Earlier>,
     pub vol_offset: u64,
     pub vol_label: String,
@@ -279,6 +284,9 @@ pub struct Report {
     pub folder_problems: Vec<FolderIssue>,
     pub lost_clusters: u64,
     pub lost_runs: Vec<(u32, u32)>,
+    /// The newest date (created or modified) of any file or folder found,
+    /// as an exFAT timestamp, with its path.
+    pub newest: Option<(u32, String)>,
     pub written: Vec<String>,
 }
 
@@ -302,6 +310,36 @@ impl Report {
     pub fn hidden_maybe(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| e.hidden_maybe).count()
     }
+    /// Is the newest date on the volume more than a day after ddrescue
+    /// finished? Then something changed the SSD after the copy (or that
+    /// file's date is wrong).
+    pub fn newer_than_copy(&self) -> bool {
+        match (&self.newest, local_seconds_of(&self.map_time)) {
+            (Some((ts, _)), Some(done)) => exfat_seconds(*ts).is_some_and(|t| t > done + 86_400),
+            _ => false,
+        }
+    }
+}
+
+/// An exFAT timestamp as seconds (local time as stored, no time zone).
+fn exfat_seconds(ts: u32) -> Option<i64> {
+    let (sec, min, hour) = ((ts & 0x1F) * 2, (ts >> 5) & 0x3F, (ts >> 11) & 0x1F);
+    let (day, month, year) = ((ts >> 16) & 0x1F, (ts >> 21) & 0x0F, 1980 + (ts >> 25));
+    if !(1..=12).contains(&month) || day == 0 || hour > 23 || min > 59 || sec > 59 {
+        return None;
+    }
+    Some(crate::exfat::days_from_civil(year as i64, month, day) * 86_400 + (hour * 3600 + min * 60 + sec) as i64)
+}
+
+/// "2024-04-24 21:38:08" as seconds (local time, no time zone).
+fn local_seconds_of(text: &str) -> Option<i64> {
+    let t = text.trim();
+    let n = |a: usize, b: usize| t.get(a..b).and_then(|x| x.parse::<i64>().ok());
+    let (y, mo, d, h, mi, s) = (n(0, 4)?, n(5, 7)?, n(8, 10)?, n(11, 13)?, n(14, 16)?, n(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(crate::exfat::days_from_civil(y, mo as u32, d as u32) * 86_400 + h * 3600 + mi * 60 + s)
 }
 
 /// Owners of clusters found while walking.
@@ -344,7 +382,19 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str)) -> Result<Report, Str
     // fails means it stopped answering (then the results would leave things
     // out, so there are none), or that it has a bad spot of its own.
     let watched = crate::disk::Watched::new(&*src);
-    let mut report = analyse(&watched, &map, &earlier, &opts.map_path, progress)?;
+    // Reading an image (step 4 makes one): the places the SSD itself could
+    // not read when the image was made are zeros in it, so they count as
+    // never read too.
+    let mut ssd_errors: Vec<(u64, u64, char)> = Vec::new();
+    if let Some(p) = crate::image::read_errors_map(&opts.disk) {
+        let m = read_map(&p.display().to_string())?;
+        ssd_errors = m.bad_areas().iter().map(|a| (a.start, a.end, '-')).collect();
+        progress(&format!(
+            "The image's own list says the SSD could not read {} places when the image was made: they count as never read",
+            commas(ssd_errors.len() as u64)
+        ));
+    }
+    let mut report = analyse_with(&watched, &map, &earlier, &ssd_errors, &opts.map_path, progress)?;
     if watched.errors() > 0 {
         if !watched.answers(report.vol_offset) {
             return Err(disk_lost_text(&watched.last_error()));
@@ -465,6 +515,34 @@ pub fn analyse(
     map_path: &str,
     progress: &mut dyn FnMut(&str),
 ) -> Result<Report, String> {
+    analyse_with(src, map, earlier, &[], map_path, progress)
+}
+
+/// `bad` and `more` (both sorted lists of (start, end, status)) together:
+/// overlapping places become one.
+fn union(bad: Vec<(u64, u64, char)>, more: &[(u64, u64, char)]) -> Vec<(u64, u64, char)> {
+    let mut all: Vec<(u64, u64, char)> = bad.into_iter().chain(more.iter().copied()).collect();
+    all.sort_by_key(|a| (a.0, a.1));
+    let mut out: Vec<(u64, u64, char)> = Vec::new();
+    for a in all {
+        match out.last_mut() {
+            Some(l) if a.0 < l.1 => l.1 = l.1.max(a.1),
+            _ => out.push(a),
+        }
+    }
+    out
+}
+
+/// The same, with `ssd_errors`: places the recovered SSD itself could not
+/// read when its image was made (positions on the disk).
+pub fn analyse_with(
+    src: &dyn Source,
+    map: &Mapfile,
+    earlier: &[(String, Mapfile)],
+    ssd_errors: &[(u64, u64, char)],
+    map_path: &str,
+    progress: &mut dyn FnMut(&str),
+) -> Result<Report, String> {
     let table = gpt::read(src, &[map.domain_end]);
     let table_disk_size = table.original_disk_size();
     let matches_mapfile = table_disk_size.map(|sz| map.domain_start == 0 && sz == map.domain_end);
@@ -495,6 +573,10 @@ pub fn analyse(
             current_time: m.current_time.clone(),
             read_of_bad: before - after,
         });
+    }
+    let ssd_unread = (ssd_errors.len() as u64, ssd_errors.iter().map(|a| a.1 - a.0).sum::<u64>());
+    if !ssd_errors.is_empty() {
+        bad = union(bad, ssd_errors);
     }
     let mut areas: Vec<Area> = Vec::new();
     for (s, e, status) in bad {
@@ -675,6 +757,7 @@ pub fn analyse(
         i < area_spans.len() && area_spans[i].0 < e
     };
     let mut seen = (0u64, 0u64);
+    let mut newest: Option<(u32, String)> = None;
     let mut last_report = std::time::Instant::now();
     let folder_problems = {
         let mut visit = |e: &Entry, list: &ClusterList| {
@@ -689,6 +772,11 @@ pub fn analyse(
             }
             if e.hidden_from_windows {
                 hidden.push((e.clone(), None));
+            }
+            for ts in [e.modified, e.created] {
+                if exfat_seconds(ts).is_some() && newest.as_ref().is_none_or(|(n, _)| ts > *n) {
+                    newest = Some((ts, e.path.clone()));
+                }
             }
             mark(&mut owned, list);
             let kind = if e.is_dir { Kind::Folder } else { Kind::File };
@@ -805,10 +893,12 @@ pub fn analyse(
         map_path: map_path.to_string(),
         map_version: map.version.clone(),
         map_finished: map.finished,
+        map_time: map.current_time.clone(),
         map_domain: (map.domain_start, map.domain_end),
         map_shift: map.output_shift,
         map_warnings: map.warnings.clone(),
         disk_warnings: Vec::new(),
+        ssd_unread,
         earlier: earlier_info,
         vol_offset: vol.offset,
         vol_label: vol.label.clone(),
@@ -827,6 +917,7 @@ pub fn analyse(
         folder_problems,
         lost_clusters,
         lost_runs,
+        newest,
         written: Vec::new(),
     })
 }
@@ -864,6 +955,14 @@ pub fn summary(r: &Report) -> Vec<String> {
     ));
     for w in &r.map_warnings {
         t.push(format!("          note: {w}"));
+    }
+    if r.ssd_unread.0 > 0 {
+        t.push(format!(
+            "          The image's own list: the SSD could not read {} places ({} bytes) when the image was made.",
+            commas(r.ssd_unread.0),
+            commas(r.ssd_unread.1)
+        ));
+        t.push("          They are zeros in the image, and count as never read below.".to_string());
     }
     for e in &r.earlier {
         t.push(format!(
@@ -1015,6 +1114,19 @@ pub fn summary(r: &Report) -> Vec<String> {
             size(r.lost_bytes())
         ));
         t.push("usually files whose folder records were lost; their contents are still on the disk.".to_string());
+    }
+    if let Some((ts, path)) = &r.newest {
+        t.push(String::new());
+        t.push(format!("Newest date on the volume: {} ({}).", crate::exfat::timestamp_string(*ts), shown(path)));
+        if r.newer_than_copy() {
+            t.push(format!(
+                "WARNING: that is after ddrescue finished ({}). Something may have changed this SSD after the copy",
+                r.map_time
+            ));
+            t.push("(a computer it was plugged into, say) - or that file's date is simply wrong. Ask before going on.".to_string());
+        } else if !r.map_time.is_empty() {
+            t.push(format!("That is before ddrescue finished ({}): nothing on the SSD is dated after the copy.", r.map_time));
+        }
     }
     t.push(String::new());
     match &r.drive {
@@ -1467,12 +1579,22 @@ pub fn page_json(r: &Report) -> String {
         })
         .collect();
     let opt = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
+    let newest = match &r.newest {
+        Some((ts, path)) => format!(
+            "{{\"date\":{},\"path\":{},\"after_copy\":{},\"copy_finished\":{}}}",
+            json_str(&crate::exfat::timestamp_string(*ts)),
+            json_str(path),
+            r.newer_than_copy(),
+            json_str(&r.map_time)
+        ),
+        None => "null".to_string(),
+    };
     format!(
         "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"folders_affected\":{},\
          \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\
          \"files_seen\":{},\"folders_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
          \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
-         \"files\":[{}],\"hidden\":[{}],\"hidden_groups\":[{}],\"areas\":[{}]}}",
+         \"newest\":{},\"files\":[{}],\"hidden\":[{}],\"hidden_groups\":[{}],\"areas\":[{}]}}",
         r.bad_bytes(),
         r.areas.len(),
         files.len(),
@@ -1493,6 +1615,7 @@ pub fn page_json(r: &Report) -> String {
         r.cluster_size,
         r.cluster_count,
         r.drive.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
+        newest,
         file_list.join(","),
         hidden.join(","),
         hidden_groups.join(","),

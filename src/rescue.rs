@@ -10,6 +10,7 @@ use crate::disk::{open_source, Source};
 use crate::exfat::{timestamp_to_unix, ClusterList, Entry, Volume};
 use crate::fmt::{commas, csv_row, size};
 use crate::gpt;
+use crate::sha256::Sha256;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
@@ -123,7 +124,7 @@ const PARTIAL: &str = "~recovery-probe-copying.tmp";
 
 /// An absolute path Windows takes literally (no length limit). Only the
 /// chosen folder goes through this; names added to it are used as they are.
-fn verbatim(p: &Path) -> PathBuf {
+pub(crate) fn verbatim(p: &Path) -> PathBuf {
     let abs = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     #[cfg(windows)]
     {
@@ -212,7 +213,8 @@ impl CopyError {
 
 /// Copy one file's data from the disk into `dest` (by way of a temporary
 /// name beside it). Returns a note when something could not be copied (the
-/// missing parts are left as zeros), or None for "stopped".
+/// missing parts are left as zeros) and the copy's SHA-256, or None for
+/// "stopped".
 fn copy_file(
     vol: &Volume,
     e: &Entry,
@@ -220,7 +222,7 @@ fn copy_file(
     dest: &Path,
     stop: &dyn Fn() -> bool,
     copied: &mut dyn FnMut(u64),
-) -> Result<Option<Option<String>>, CopyError> {
+) -> Result<Option<(Option<String>, [u8; 32])>, CopyError> {
     let tmp = dest.with_file_name(PARTIAL);
     let mut f = File::create(&tmp).map_err(|err| CopyError::Write(format!("could not create the copy: {err}")))?;
     let note = copy_data(vol, e, list, &mut f, stop, copied);
@@ -252,11 +254,14 @@ fn copy_data(
     f: &mut File,
     stop: &dyn Fn() -> bool,
     copied: &mut dyn FnMut(u64),
-) -> Result<Option<Option<String>>, CopyError> {
+) -> Result<Option<(Option<String>, [u8; 32])>, CopyError> {
     let want = e.data_length;
     let vdl = e.valid_data_length.min(want);
     let mut written = 0u64;
     let mut note = list.problem.clone();
+    // The SHA-256 of exactly what the copy holds, from the bytes as they
+    // were read off the disk.
+    let mut sha = Sha256::new();
     'runs: for &(first, count) in &list.runs {
         let run_bytes = count as u64 * vol.cluster_size;
         let mut done = 0u64;
@@ -270,6 +275,7 @@ fn copy_data(
                 .read_at(vol.cluster_offset(first) + done, n as usize)
                 .map_err(|err| CopyError::Read(format!("could not read the recovered disk: {err}")))?;
             f.write_all(&data).map_err(|err| CopyError::Write(format!("could not write the copy: {err}")))?;
+            sha.update(&data);
             written += data.len() as u64;
             copied(data.len() as u64);
             if (data.len() as u64) < n {
@@ -286,16 +292,58 @@ fn copy_data(
     // could not be found is left as zeros too (and noted).
     if written < want {
         f.set_len(want).map_err(|err| CopyError::Write(format!("could not write the copy: {err}")))?;
+        sha.update_zeros(want - written);
     }
-    if let Some((secs, nanos)) = timestamp_to_unix(e.modified, e.modified_10ms, e.modified_utc) {
-        let t = if secs >= 0 {
-            std::time::UNIX_EPOCH + std::time::Duration::new(secs as u64, nanos)
-        } else {
-            std::time::UNIX_EPOCH
-        };
-        let _ = f.set_modified(t);
+    let _ = f.set_times(times_of(e));
+    Ok(Some((note, sha.finish())))
+}
+
+/// A copy's dates, from its folder record: modified, last opened and (on
+/// Windows) created. A date the record does not hold properly is left as
+/// it is.
+fn times_of(e: &Entry) -> std::fs::FileTimes {
+    let at = |ts: u32, ms10: u8, utc: u8| {
+        timestamp_to_unix(ts, ms10, utc).map(|(secs, nanos)| {
+            if secs >= 0 {
+                std::time::UNIX_EPOCH + std::time::Duration::new(secs as u64, nanos)
+            } else {
+                std::time::UNIX_EPOCH
+            }
+        })
+    };
+    let mut t = std::fs::FileTimes::new();
+    if let Some(m) = at(e.modified, e.modified_10ms, e.modified_utc) {
+        t = t.set_modified(m);
     }
-    Ok(Some(note))
+    if let Some(a) = at(e.accessed, 0, e.accessed_utc) {
+        t = t.set_accessed(a);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTimesExt;
+        if let Some(c) = at(e.created, e.created_10ms, e.created_utc) {
+            t = t.set_created(c);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (e.created, e.created_10ms, e.created_utc);
+    t
+}
+
+/// Give a copied folder its dates (done at the end of a run: adding files
+/// to a folder changes its modified date).
+fn set_folder_times(p: &Path, t: std::fs::FileTimes) {
+    #[cfg(windows)]
+    let f = {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_WRITE_ATTRIBUTES, with FILE_FLAG_BACKUP_SEMANTICS to open a folder.
+        std::fs::OpenOptions::new().access_mode(0x0000_0100).custom_flags(0x0200_0000).open(p)
+    };
+    #[cfg(not(windows))]
+    let f = File::open(p);
+    if let Ok(f) = f {
+        let _ = f.set_times(t);
+    }
 }
 
 /// The bytes [pos, pos + n) of a file's copy should hold: what copy_data
@@ -385,7 +433,7 @@ pub const LOG_NAME: &str = "rescue-log.csv";
 /// The list as it grows during a run; folded into rescue-log.csv at the end
 /// (and by the next run, if this one never got to the end).
 pub const UNFINISHED_LOG_NAME: &str = "rescue-log-unfinished.csv";
-const LOG_HEADER: [&str; 6] = ["kind", "path", "size_bytes", "result", "copied_as", "note"];
+const LOG_HEADER: [&str; 7] = ["kind", "path", "size_bytes", "result", "copied_as", "note", "sha256"];
 
 /// The lists earlier runs into the same folder wrote, read back: one line
 /// per file, folder and piece of lost data (the latest wins, except that a
@@ -418,7 +466,9 @@ impl Earlier {
         if row.len() < 6 || row[0] == "kind" {
             return;
         }
-        let line = csv_row(&row[..6]);
+        // Seven fields (lists from before the sha256 column have six).
+        let fields: Vec<&str> = (0..7).map(|i| row.get(i).map(|s| s.as_str()).unwrap_or("")).collect();
+        let line = csv_row(&fields);
         if row[0] == "NOTE" {
             if notes && self.seen_notes.insert(line.clone()) {
                 self.notes.push(line);
@@ -475,6 +525,56 @@ impl Partial {
     }
 }
 
+/// The SHA-256 each earlier list gives each copy, so that a copy an
+/// earlier run left can be checked whole before it is kept. (Keyed by a
+/// 64-bit hash of the list's key, to keep a million of them small.)
+struct Hashes {
+    map: HashMap<u64, [u8; 32]>,
+}
+
+fn key_hash(key: &str) -> u64 {
+    // FNV-1a.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+fn parse_hex32(s: &str) -> Option<[u8; 32]> {
+    let b = s.trim().as_bytes();
+    if b.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        let pair = std::str::from_utf8(&b[i * 2..i * 2 + 2]).ok()?;
+        out[i] = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
+impl Hashes {
+    fn read(path: &Path) -> Hashes {
+        let mut h = Hashes { map: HashMap::new() };
+        if let Ok(f) = File::open(path) {
+            let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |row| {
+                if row.len() < 7 || row[0] == "kind" || row[0] == "NOTE" {
+                    return;
+                }
+                if let Some(d) = parse_hex32(&row[6]) {
+                    h.map.insert(key_hash(&log_key(&row[0], &row[1], &row[4])), d);
+                }
+            });
+        }
+        h
+    }
+    fn get(&self, key: &str) -> Option<&[u8; 32]> {
+        self.map.get(&key_hash(key))
+    }
+}
+
 /// The list of this run, written down as it goes (so that a run that never
 /// gets to the end - the PC lost power, say - still leaves it behind), and
 /// folded into rescue-log.csv at the end.
@@ -490,7 +590,10 @@ impl RunLog {
     }
     fn add(&mut self, fields: &[&str]) {
         if let Some(f) = &mut self.file {
-            let _ = f.write_all(csv_row(fields).as_bytes());
+            // Every line has the seven fields of LOG_HEADER.
+            let mut all: Vec<&str> = fields.to_vec();
+            all.resize(LOG_HEADER.len().max(all.len()), "");
+            let _ = f.write_all(csv_row(&all).as_bytes());
             if self.last_flush.elapsed().as_secs() >= 2 {
                 let _ = f.flush();
                 self.last_flush = std::time::Instant::now();
@@ -652,8 +755,14 @@ pub fn rescue(
         let _ = std::fs::remove_file(&unfinished_path);
     }
     // Of the earlier list, only the files copied in part are needed while
-    // copying (a file left as it was is still one of them).
+    // copying (a file left as it was is still one of them), and each copy's
+    // SHA-256 (a copy is only left as it was if all of it still holds what
+    // was copied).
     let earlier = Partial::read(&log_path);
+    let hashes = Hashes::read(&log_path);
+    if earlier.any {
+        progress("Checking the copies an earlier run made: each is read back whole before it is kept.");
+    }
     let mut runlog =
         RunLog::new(&unfinished_path).map_err(|e| format!("could not write {}: {e}", out.join(UNFINISHED_LOG_NAME).display()))?;
 
@@ -674,6 +783,8 @@ pub fn rescue(
     mark(&vol.root_clusters);
     let mut last = std::time::Instant::now();
     let mut made_dirs: HashSet<PathBuf> = HashSet::new();
+    // Each copied folder and the dates it gets at the end.
+    let mut folder_times: Vec<(PathBuf, std::fs::FileTimes)> = Vec::new();
     // Where each folder of the volume is copied to (names made safe for
     // Windows, and kept apart where two would end up the same).
     let mut dirs: HashMap<String, PathBuf> = HashMap::new();
@@ -750,6 +861,7 @@ pub fn rescue(
             match std::fs::create_dir_all(&dest) {
                 Ok(_) => {
                     o.folders += 1;
+                    folder_times.push((dest.clone(), times_of(e)));
                     made_dirs.insert(dest);
                     if !copied_as.is_empty() {
                         runlog.add(&[kind, &e.path, "", "copied", &copied_as, renamed_note.trim()]);
@@ -781,14 +893,25 @@ pub fn rescue(
             // The same size: a copy made by an earlier run - if its start and
             // end hold what the disk holds. Its line in the earlier list says
             // how it was copied.
+            let key = log_key(kind, &e.path, &copied_as);
+            let whole = |want: &[u8; 32]| {
+                crate::sha256::file_hex(&dest, &stop).ok().flatten().is_some_and(|got| got == crate::sha256::hex(want))
+            };
             match copy_matches(&vol, e, list, &dest) {
-                Ok(true) => {
+                // Its start and end hold what the disk holds, and all of it
+                // what was copied before (its SHA-256 in the earlier list).
+                Ok(true) if hashes.get(&key).is_some_and(whole) => {
                     o.already_there += 1;
                     done_bytes += e.valid_data_length.min(e.data_length);
-                    if let Some(note) = earlier.notes.get(&log_key(kind, &e.path, &copied_as)) {
+                    if let Some(note) = earlier.notes.get(&key) {
                         o.partial.push((e.path.clone(), note.clone()));
                     }
-                    runlog.add(&[kind, &e.path, &size_text, "skipped", &copied_as, "already in the folder (left as it was)"]);
+                    let sha = hashes.get(&key).map(|d| crate::sha256::hex(d)).unwrap_or_default();
+                    runlog.add(&[kind, &e.path, &size_text, "skipped", &copied_as, "already in the folder (left as it was)", &sha]);
+                    return;
+                }
+                _ if stop() => {
+                    o.stopped = true;
                     return;
                 }
                 Err(CopyError::Read(_)) if !watched.answers(probe_at) => {
@@ -809,7 +932,8 @@ pub fn rescue(
         };
         match copy_file(&vol, e, list, &dest, &stop, &mut copied) {
             Ok(None) => o.stopped = true,
-            Ok(Some(note)) => {
+            Ok(Some((note, sha))) => {
+                let sha = crate::sha256::hex(&sha);
                 failures_in_a_row = 0;
                 copied_this_run += 1;
                 o.files += 1;
@@ -832,7 +956,7 @@ pub fn rescue(
                 if e.hidden_from_windows && note.is_none() {
                     n.push_str(&format!("Windows cannot list it: {}", e.why_hidden));
                 }
-                runlog.add(&[kind, &e.path, &size_text, result, &copied_as, n.trim()]);
+                runlog.add(&[kind, &e.path, &size_text, result, &copied_as, n.trim(), &sha]);
                 if opts.stop_after_files.is_some_and(|k| copied_this_run >= k) {
                     o.stopped = true;
                     halt.store(true, Ordering::Relaxed);
@@ -934,36 +1058,51 @@ pub fn rescue(
             let name = format!("cluster {first} ({count} clusters).{}", extension_for(&head));
             let dest = lost_dir.join(&name);
             let shown = format!("lost data (no name)\\{name}");
+            let earlier_sha = hashes.get(&log_key("LOST DATA", &shown, "")).map(|d| crate::sha256::hex(d));
             if std::fs::metadata(&dest).is_ok_and(|m| m.is_file() && m.len() == len)
                 && piece_matches(&vol, off, len, &dest).unwrap_or(false)
+                && earlier_sha.as_ref().is_some_and(|want| {
+                    crate::sha256::file_hex(&dest, &|| false).ok().flatten().as_ref() == Some(want)
+                })
             {
-                // Saved by an earlier run.
+                // Saved by an earlier run, and all of it still what was saved.
                 o.lost_pieces += 1;
                 o.lost_bytes += len;
-                runlog.add(&["LOST DATA", &shown, &len.to_string(), "skipped", "", "already in the folder (left as it was)"]);
+                runlog.add(&[
+                    "LOST DATA",
+                    &shown,
+                    &len.to_string(),
+                    "skipped",
+                    "",
+                    "already in the folder (left as it was)",
+                    earlier_sha.as_deref().unwrap_or(""),
+                ]);
                 continue;
             }
             let tmp = lost_dir.join(PARTIAL);
-            let result = (|| -> std::io::Result<()> {
+            let result = (|| -> std::io::Result<String> {
                 let mut f = File::create(&tmp)?;
+                let mut sha = Sha256::new();
                 let mut done = 0u64;
                 while done < len {
                     let n = (len - done).min(8 << 20);
                     let data = vol.src.read_at(off + done, n as usize)?;
                     f.write_all(&data)?;
+                    sha.update(&data);
                     if (data.len() as u64) < n {
                         break;
                     }
                     done += n;
                 }
                 drop(f);
-                std::fs::rename(&tmp, &dest)
+                std::fs::rename(&tmp, &dest)?;
+                Ok(sha.finish_hex())
             })();
             match result {
-                Ok(()) => {
+                Ok(sha) => {
                     o.lost_pieces += 1;
                     o.lost_bytes += len;
-                    runlog.add(&["LOST DATA", &shown, &len.to_string(), "copied", "", "data no folder record names"]);
+                    runlog.add(&["LOST DATA", &shown, &len.to_string(), "copied", "", "data no folder record names", &sha]);
                 }
                 Err(err) => {
                     let _ = std::fs::remove_file(&tmp);
@@ -1018,6 +1157,9 @@ pub fn rescue(
             )
         })?;
     let _ = std::fs::remove_file(&unfinished_path);
+    for (p, t) in &folder_times {
+        set_folder_times(p, *t);
+    }
     o.log = out.join(LOG_NAME).display().to_string();
     Ok(o)
 }

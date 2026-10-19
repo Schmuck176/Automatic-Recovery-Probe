@@ -9,13 +9,13 @@
 //!     "leave them switched off" (the SAN policy, as `diskpart san` shows it);
 //!  2. the SSD arrives switched off (offline): no volume, nothing mounted,
 //!     nothing that could write to it;
-//!  3. the program marks that disk read-only and puts the policy back the
-//!     way it was (Windows forgets the read-only mark of a virtual disk when
-//!     it is unplugged - a real disk's it may remember - so this is done
-//!     every time it is plugged in);
-//!  3a. while steps 4 and 5 read the SSD, the policy is set to "leave new
-//!     disks switched off" again, so a SSD that comes unplugged and is
-//!     plugged in again arrives switched off (web.rs, keep_new_disks_off);
+//!  3. the program marks that disk read-only (Windows forgets the read-only
+//!     mark of a virtual disk when it is unplugged - a real disk's it may
+//!     remember - so this is done every time it is plugged in);
+//!  3a. the policy stays "leave new disks switched off" until the SSD has
+//!     been unplugged (web.rs: hold_new_disks_off, and "Put Windows'
+//!     setting back" is refused while the SSD is attached), so a SSD that
+//!     comes unplugged and is plugged in again arrives switched off;
 //!  4. if the person wants to browse it, the disk is switched on: Windows
 //!     mounts it read-only.
 //!

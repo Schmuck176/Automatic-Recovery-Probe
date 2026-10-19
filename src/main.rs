@@ -22,6 +22,14 @@ Double-click the program to use it step by step in your web browser. Or:
   recovery-probe rescue --disk <disk> --out <folder> [--everything | --path <path>...] [--lost]
         Copy files straight off the disk, past Windows: by default the ones Windows
         cannot list. --lost also saves data no folder record names any more.
+  recovery-probe image --disk <disk> --map <mapfile> --out <folder>
+        Read the whole disk once into one image file (recovered-ssd.img) in <folder>,
+        with its SHA-256, and check it by reading it back. Stopped, it carries on.
+  recovery-probe verify <folder>
+        Check every copy in <folder> against the SHA-256 the copying wrote into
+        rescue-log.csv: changed, missing and added files.
+  recovery-probe sha256 <file>
+        A file's SHA-256 (the same as certutil -hashfile <file> SHA256).
   recovery-probe map-info <mapfile>
         What a ddrescue mapfile says: how much was read, how much never was.
   recovery-probe list-disks
@@ -261,6 +269,40 @@ fn main() {
             Ok((disk, out, pick, lost, status, stop_after)) => run_rescue(&disk, &out, pick, lost, stop_after, &Status::new(status)),
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
+                2
+            }
+        },
+        Some("image") => {
+            let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
+            match (get("--disk"), get("--map"), get("--out")) {
+                (Some(d), Some(m), Some(o)) => recovery_probe::cli::run_image(&d, &m, &o),
+                _ => {
+                    eprintln!("image needs --disk, --map and --out\n\n{USAGE}");
+                    2
+                }
+            }
+        }
+        Some("verify") => match args.get(1) {
+            Some(f) => recovery_probe::cli::run_verify(f),
+            None => {
+                eprintln!("Which folder?\n\n{USAGE}");
+                2
+            }
+        },
+        Some("sha256") => match args.get(1) {
+            Some(f) => match recovery_probe::sha256::file_hex(std::path::Path::new(f), &|| false) {
+                Ok(Some(h)) => {
+                    println!("{h}  {f}");
+                    0
+                }
+                Ok(None) => 1,
+                Err(e) => {
+                    println!("could not read {f}: {e}");
+                    1
+                }
+            },
+            None => {
+                eprintln!("Which file?\n\n{USAGE}");
                 2
             }
         },

@@ -17,6 +17,7 @@ pub mod formats;
 pub mod gpt;
 pub mod guard;
 pub mod holes;
+pub mod image;
 pub mod join;
 pub mod mapcheck;
 pub mod mapfile;
@@ -24,12 +25,14 @@ pub mod probe;
 pub mod report;
 pub mod rescue;
 pub mod selftest;
+pub mod sha256;
 pub mod sqlite;
 pub mod sys;
+pub mod verify;
 pub mod walk;
 pub mod web;
 pub mod win;
 
 pub const APP: &str = "Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-18 (2)";
+pub const VERSION: &str = "2026-10-19";

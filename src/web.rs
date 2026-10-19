@@ -524,16 +524,53 @@ fn json_err(e: &str) -> String {
 
 // ---------------------------------------------------------------- serving
 
+/// The size of the disk the chosen mapfile describes (0: no mapfile), kept
+/// where the window-closing handler below can see it.
+static MAP_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn map_size_now() -> Option<u64> {
+    Some(MAP_SIZE.load(Ordering::Relaxed)).filter(|&s| s > 0)
+}
+
+/// The number of a plugged-in disk that is the recovered SSD: its partition
+/// table was made for the disk the mapfile describes (or, with no mapfile
+/// chosen yet, it holds an exFAT volume). While one is attached, Windows
+/// stays set to leave new disks switched off: if it dropped off and came
+/// back, it must arrive switched off again.
+pub fn recovered_disk_attached(map_size: Option<u64>) -> Option<u32> {
+    for d in crate::win::disks() {
+        if d.system {
+            continue;
+        }
+        let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{}", d.number)) else { continue };
+        let table = crate::gpt::read(&*src, &[]);
+        let it = match map_size {
+            Some(m) => table.original_disk_size() == Some(m),
+            None => crate::mapcheck::find_volume_quick(&*src, &table).is_ok(),
+        };
+        if it {
+            return Some(d.number);
+        }
+    }
+    None
+}
+
 /// Run the page until the program is closed.
 /// When the program's window is closed (or the PC shuts down) while Windows
-/// is still set to leave new disks switched off, put that setting back:
-/// otherwise every drive plugged in later would arrive switched off too.
-/// Windows allows a few seconds for this, and diskpart needs about one.
+/// is still set to leave new disks switched off, put that setting back -
+/// but only once the recovered SSD is no longer plugged in. (Otherwise every
+/// drive plugged in later would arrive switched off too; with the SSD still
+/// attached, the setting stays and the page offers to put it back when the
+/// program is started again.) Windows allows a few seconds for this, and
+/// diskpart needs about one.
 #[cfg(windows)]
 fn restore_setting_on_close() {
     extern "system" fn handler(ctrl: u32) -> i32 {
         // Ctrl+C, Ctrl+Break, the window closed, signing out, shutting down.
-        if matches!(ctrl, 0 | 1 | 2 | 5 | 6) && crate::cli::policy_to_restore().is_some() {
+        if matches!(ctrl, 0 | 1 | 2 | 5 | 6)
+            && crate::cli::policy_to_restore().is_some()
+            && recovered_disk_attached(map_size_now()).is_none()
+        {
             let _ = crate::cli::guard_restore();
         }
         0 // then end the program as usual
@@ -572,6 +609,7 @@ pub fn serve(cfg: Config) -> i32 {
         test_disks: cfg.test_disks.clone(),
     };
     app.load();
+    MAP_SIZE.store(mapfile_domain(&app.setting("mapfile")).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
     // A job that was running when the program was closed did not finish.
     for j in app.last.values_mut() {
         if j.state == "running" {
@@ -753,6 +791,7 @@ fn disks_json(app: &Arc<Mutex<App>>) -> String {
                 .s("model", &d.model)
                 .s("bus", &d.bus)
                 .b("system", d.system)
+                .b("removable", d.removable)
                 .raw("offline", opt_bool(st.as_ref().map(|s| s.offline)))
                 .raw("read_only", opt_bool(st.as_ref().map(|s| s.read_only)))
                 .raw("writable", opt_bool(st.as_ref().and_then(|s| s.writable)))
@@ -978,6 +1017,9 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 }
             }
             a.save();
+            if let Some(m) = f.get("mapfile") {
+                MAP_SIZE.store(mapfile_domain(m).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
+            }
             Ok(String::new())
         }
         "stop" => {
@@ -996,7 +1038,16 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             }
         }
         "guard-prepare" => need_admin(app).and_then(|_| crate::cli::guard_prepare()).map(|m| format!("\"message\":{}", json_str(&m))),
-        "guard-restore" => need_admin(app).and_then(|_| crate::cli::guard_restore()).map(|m| format!("\"message\":{}", json_str(&m))),
+        "guard-restore" => need_admin(app)
+            .and_then(|_| match recovered_disk_attached(map_size_now()) {
+                Some(n) => Err(format!(
+                    "The recovered SSD (disk {n}) is still plugged in, so Windows stays set to leave new disks switched \
+                     off: if it dropped off and came back, it must arrive switched off again. Switch it off and unplug it \
+                     first, then click this again."
+                )),
+                None => crate::cli::guard_restore(),
+            })
+            .map(|m| format!("\"message\":{}", json_str(&m))),
         "guard-protect" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
             crate::guard::protect(n, on("online")).map(|s| {
                 format!(
@@ -1031,6 +1082,8 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         .map(|id| format!("\"job\":{id}")),
         "mapcheck" => start_map_check(app, &g("map"), &g("earlier"), &g("disk")).map(|id| format!("\"job\":{id}")),
         "rescue" => start_rescue(app, &g("disk"), &g("out"), on("everything"), on("lost")).map(|id| format!("\"job\":{id}")),
+        "image" => start_image(app, &g("disk"), &g("out")).map(|id| format!("\"job\":{id}")),
+        "verify" => start_verify(app, &g("folder")).map(|id| format!("\"job\":{id}")),
         "scan" => {
             let kb: u64 = g("hole_kb").parse().unwrap_or(crate::formats::DEFAULT_HOLE_KB);
             start_scan(app, &g("folder"), on("holes"), kb, &g("join")).map(|id| format!("\"job\":{id}"))
@@ -1062,38 +1115,61 @@ fn could_be_recovered(app: &Arc<Mutex<App>>, n: u32) -> bool {
     crate::mapcheck::find_volume_quick(&*src, &table).is_ok()
 }
 
-/// While steps 4 and 5 read the recovered SSD, Windows is set to leave new
-/// disks switched off: if the SSD comes unplugged and is plugged in again
-/// (a cable knocked, a USB hiccup), it arrives switched off, not open for
-/// Windows to write to. True when this job changed the setting (and so puts
-/// it back at the end).
-fn keep_new_disks_off(ctx: &Ctx, guard: bool) -> bool {
+/// While anything reads the recovered SSD, Windows is set to leave new disks
+/// switched off (normally it already is, from "Get Windows ready", and it
+/// stays so until the SSD is unplugged): if the SSD comes unplugged and is
+/// plugged in again (a cable knocked, a USB hiccup), it arrives switched
+/// off, not open for Windows to write to. The setting is put back only by
+/// "Put Windows' setting back", once the SSD is unplugged.
+fn hold_new_disks_off(ctx: &Ctx, guard: bool) {
     if !guard || crate::cli::policy_to_restore().is_some() {
-        return false;
+        return;
     }
     match crate::cli::guard_prepare() {
-        Ok(_) => {
-            ctx.line(
-                "While this runs, Windows leaves newly plugged-in disks switched off, so the recovered SSD stays \
-                 protected even if it is unplugged and plugged in again.",
-            );
-            true
-        }
-        Err(e) => {
-            ctx.line(&format!("(Could not set Windows to leave new disks switched off while this runs: {e})"));
-            false
-        }
+        Ok(_) => ctx.line(
+            "Windows now leaves newly plugged-in disks switched off, so the recovered SSD stays protected even if it \
+             is unplugged and plugged in again. This stays so until the SSD is unplugged.",
+        ),
+        Err(e) => ctx.line(&format!("(Could not set Windows to leave new disks switched off: {e})")),
     }
 }
+
+/// `\\.\PhysicalDriveN` -> N.
+fn physical_number(spec: &str) -> Option<u32> {
+    spec.strip_prefix(r"\\.\PhysicalDrive").and_then(|n| n.parse().ok())
+}
+
+/// A disk image file (made by step 4, or a test disk), not a disk.
+fn is_image_file(spec: &str) -> bool {
+    physical_number(spec).is_none() && Path::new(spec).is_file()
+}
+
+/// Does Windows treat this disk as removable media?
+fn is_removable(spec: &str) -> bool {
+    physical_number(spec).is_some_and(|n| crate::win::disks().iter().any(|d| d.number == n && d.removable))
+}
+
+const REMOVABLE_NOTE: &str = "Windows says this disk is removable media (like a USB stick). For removable disks its \
+setting to leave new disks switched off does not work, so Windows could write to it whenever it is plugged in. Make \
+the image (step 4) now, while it is read-only, and then unplug it; ask for help before plugging it in again.";
 
 fn check_disk(app: &Arc<Mutex<App>>, spec: &str) -> Result<(), String> {
     if spec.is_empty() {
         return Err("Choose the recovered SSD first (step 3).".to_string());
     }
-    if !is_test_disk(app, spec) {
+    if !is_test_disk(app, spec) && !is_image_file(spec) {
         need_admin(app)?;
-        if !spec.starts_with(r"\\.\PhysicalDrive") {
-            return Err(format!("{spec} is not a disk"));
+        let Some(n) = physical_number(spec) else { return Err(format!("{spec} is not a disk")) };
+        // Only ever read a disk Windows cannot write to: protected in step 3
+        // (or still switched off by Windows' setting, which is read-only too).
+        match crate::guard::state(n) {
+            Ok(s) if s.read_only => {}
+            Ok(_) => {
+                return Err(format!(
+                    "Disk {n} can still be written to by Windows. Protect it first in step 3 (that marks it read-only)."
+                ))
+            }
+            Err(e) => return Err(format!("Windows would not say whether disk {n} is protected ({e}). Choose it again in step 3.")),
         }
     }
     // Disk numbers change when drives are plugged in and out: make sure this
@@ -1127,17 +1203,14 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
         out_dir: out.display().to_string(),
     };
     let app2 = app.clone();
-    let guard = cfg!(windows) && !is_test_disk(app, disk);
+    let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
+    let removable = is_removable(disk);
     start_job(app, "mapcheck", "Finding what the damage touched", move |ctx| {
-        let set_here = keep_new_disks_off(ctx, guard);
-        let report = crate::mapcheck::run(&opts, &mut |s: &str| ctx.line(s));
-        // Put Windows' setting back - unless the SSD stopped answering:
-        // then it stays, so the SSD arrives switched off when plugged back in.
-        let lost = matches!(&report, Err(e) if e.starts_with("The recovered SSD stopped answering"));
-        if set_here && !lost {
-            let _ = crate::cli::guard_restore();
+        hold_new_disks_off(ctx, guard);
+        if removable {
+            ctx.line(REMOVABLE_NOTE);
         }
-        let report = report?;
+        let report = crate::mapcheck::run(&opts, &mut |s: &str| ctx.line(s))?;
         {
             let mut a = lock(&app2);
             a.settings.insert("last_map_check".to_string(), opts.out_dir.clone());
@@ -1161,9 +1234,13 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
     }
     let opts_disk = disk.to_string();
     let opts_out = out.to_string();
-    let guard = cfg!(windows) && !is_test_disk(app, disk);
+    let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
+    let removable = is_removable(disk);
     start_job(app, "rescue", "Copying everything off the recovered SSD", move |ctx| {
-        let set_here = keep_new_disks_off(ctx, guard);
+        hold_new_disks_off(ctx, guard);
+        if removable {
+            ctx.line(REMOVABLE_NOTE);
+        }
         let opts = crate::rescue::Options {
             disk: opts_disk,
             out_dir: opts_out.clone(),
@@ -1172,17 +1249,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             stop: Some(ctx.stop.clone()),
             stop_after_files: None,
         };
-        let o = crate::rescue::run(&opts, &mut |s: &str| ctx.line(s), &mut |d, t| ctx.amount(d, t));
-        // Put Windows' setting back - unless the SSD stopped answering:
-        // then it stays, so the SSD arrives switched off when plugged back in.
-        let lost = match &o {
-            Ok(o) => o.disk_lost.is_some(),
-            Err(e) => e.starts_with("The recovered SSD stopped answering"),
-        };
-        if set_here && !lost {
-            let _ = crate::cli::guard_restore();
-        }
-        let o = o?;
+        let o = crate::rescue::run(&opts, &mut |s: &str| ctx.line(s), &mut |d, t| ctx.amount(d, t))?;
         let mut summary = vec![format!(
             "Copied {} files ({}) and {} folders into {}.",
             commas(o.files),
@@ -1270,6 +1337,112 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             data,
             stopped: o.stopped,
             problem: (!o.failed.is_empty()).then(|| format!("{} files could not be copied", o.failed.len())),
+        })
+    })
+}
+
+/// The drive (letter) a folder is on.
+fn drive_of(path: &str) -> Option<crate::win::Drive> {
+    let p = path.trim().trim_start_matches(r"\\?\");
+    let letter = p.get(..2)?.to_uppercase();
+    if !letter.ends_with(':') {
+        return None;
+    }
+    crate::win::drives().into_iter().find(|d| d.letter.eq_ignore_ascii_case(&letter))
+}
+
+fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, String> {
+    check_disk(app, disk)?;
+    if out.trim().is_empty() {
+        return Err("Choose where the image goes first.".to_string());
+    }
+    let map = lock(app).setting("mapfile");
+    let Some((s, e)) = mapfile_domain(&map) else {
+        return Err("Choose the mapfile first (step 2): it says how big the old drive was.".to_string());
+    };
+    let size = e.saturating_sub(s);
+    if let Some(d) = drive_of(out) {
+        if physical_number(disk).is_some_and(|n| d.disk == Some(n)) {
+            return Err(format!("{} is on the recovered SSD itself. Choose a folder on another drive.", d.letter));
+        }
+        if d.fs.eq_ignore_ascii_case("FAT32") || d.fs.eq_ignore_ascii_case("FAT") {
+            return Err(format!(
+                "{} is formatted {}, which cannot hold a file bigger than 4 GB. Use a drive formatted NTFS.",
+                d.letter, d.fs
+            ));
+        }
+    }
+    let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
+    let removable = is_removable(disk);
+    let app2 = app.clone();
+    let disk = disk.to_string();
+    let out = out.to_string();
+    start_job(app, "image", "Making an image of the recovered SSD", move |ctx| {
+        hold_new_disks_off(ctx, guard);
+        if removable {
+            ctx.line(REMOVABLE_NOTE);
+        }
+        let src = crate::disk::open_source(&disk).map_err(|e| format!("could not open {disk}: {e}"))?;
+        let opts = crate::image::Options { disk: disk.clone(), out_dir: out.clone(), size, stop: Some(ctx.stop.clone()) };
+        let o = crate::image::make(&*src, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t))?;
+        if o.verified {
+            let mut a = lock(&app2);
+            a.settings.insert("image".to_string(), o.path.clone());
+            a.settings.insert("image_sha".to_string(), o.sha256.clone());
+            a.save();
+        }
+        let data = Obj::new()
+            .s("path", &o.path)
+            .n("size", o.size)
+            .s("sha256", &o.sha256)
+            .b("verified", o.verified)
+            .b("reused", o.reused)
+            .n("unreadable", o.unreadable.len() as u64)
+            .n("unreadable_bytes", o.unreadable.iter().map(|r| r.1).sum())
+            .b("stopped", o.stopped)
+            .b("disk_lost", o.disk_lost.is_some())
+            .end();
+        Ok(Outcome {
+            summary: crate::image::summary(&o),
+            outputs: vec![o.path.clone()],
+            data,
+            stopped: o.stopped,
+            problem: (!o.stopped && !o.verified).then(|| "the image does not read back the same as it was written".to_string()),
+        })
+    })
+}
+
+fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
+    let dir = Path::new(folder.trim());
+    if folder.trim().is_empty() || !dir.is_dir() {
+        return Err(format!("Choose the folder the copies went into first ({folder:?} is not one)."));
+    }
+    if !dir.join(crate::rescue::LOG_NAME).is_file() {
+        return Err(format!(
+            "{} has no {}: choose the folder step 6 copied into (that list is in it).",
+            folder.trim(),
+            crate::rescue::LOG_NAME
+        ));
+    }
+    let out = fresh(&lock(app).results, &format!("verify-{}", stamp()), ".csv");
+    let dir = dir.to_path_buf();
+    start_job(app, "verify", "Checking the copies are unchanged", move |ctx| {
+        let r = crate::verify::run(&dir, Some(&out), &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &|| ctx.stopping())?;
+        let data = Obj::new()
+            .n("listed", r.listed)
+            .n("ok", r.ok)
+            .n("changed", r.changed.len() as u64)
+            .n("missing", r.missing.len() as u64)
+            .n("extra", r.extra.len() as u64)
+            .b("stopped", r.stopped)
+            .end();
+        let bad = !r.changed.is_empty() || !r.missing.is_empty();
+        Ok(Outcome {
+            summary: crate::verify::summary(&r),
+            outputs: r.written.clone().into_iter().collect(),
+            data,
+            stopped: r.stopped,
+            problem: bad.then(|| "some copies are not what was copied".to_string()),
         })
     })
 }

@@ -432,6 +432,82 @@ pub fn run_rescue(
     }
 }
 
+/// Make (or carry on making, or check) an image of a disk.
+pub fn run_image(disk: &str, map_path: &str, out: &str) -> i32 {
+    let size = match std::fs::read(map_path).map_err(|e| e.to_string()).and_then(|t| crate::mapfile::parse(&String::from_utf8_lossy(&t))) {
+        Ok(m) => m.domain_size(),
+        Err(e) => {
+            println!("Could not read the mapfile {map_path}: {e}");
+            return 1;
+        }
+    };
+    let src = match crate::disk::open_source(disk) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("could not open {disk}: {e}");
+            return 1;
+        }
+    };
+    install_ctrl_c();
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let opts = crate::image::Options { disk: disk.to_string(), out_dir: out.to_string(), size, stop: Some(stop.clone()) };
+    let mut last = std::time::Instant::now();
+    let r = crate::image::make(&*src, &opts, &mut |s| println!("  {s}"), &mut |d, t| {
+        if INTERRUPTED.load(Ordering::Relaxed) {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if last.elapsed().as_secs() >= 5 && t > 0 {
+            println!("  {} of {} ({:.1}%)", crate::fmt::size(d), crate::fmt::size(t), 100.0 * d as f64 / t as f64);
+            last = std::time::Instant::now();
+        }
+    });
+    match r {
+        Ok(o) => {
+            for l in crate::image::summary(&o) {
+                println!("{l}");
+            }
+            if o.verified {
+                0
+            } else {
+                1
+            }
+        }
+        Err(e) => {
+            println!("{e}");
+            1
+        }
+    }
+}
+
+/// Check the copies in a folder against rescue-log.csv.
+pub fn run_verify(folder: &str) -> i32 {
+    install_ctrl_c();
+    // (Not into the folder being checked: that would add a file to it.)
+    let out = std::env::current_dir().unwrap_or_default().join(format!("verify-{}.csv", crate::fmt::now_stamp()));
+    match crate::verify::run(
+        std::path::Path::new(folder),
+        Some(&out),
+        &mut |s| println!("  {s}"),
+        &mut |_, _| {},
+        &|| INTERRUPTED.load(Ordering::Relaxed),
+    ) {
+        Ok(r) => {
+            for l in crate::verify::summary(&r) {
+                println!("{l}");
+            }
+            if r.changed.is_empty() && r.missing.is_empty() && !r.stopped {
+                0
+            } else {
+                1
+            }
+        }
+        Err(e) => {
+            println!("{e}");
+            1
+        }
+    }
+}
+
 /// The folder this program is in (where its notes and results go), or the
 /// temporary folder if that cannot be written to.
 pub fn home_dir() -> std::path::PathBuf {

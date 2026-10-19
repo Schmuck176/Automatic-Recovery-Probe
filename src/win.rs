@@ -35,6 +35,9 @@ pub struct Disk {
     pub bus: String,
     /// It holds Windows itself: never the recovered disk.
     pub system: bool,
+    /// Windows treats it as removable media (like a USB stick): its policy
+    /// for new disks does not apply, so it cannot be kept switched off.
+    pub removable: bool,
     pub drives: Vec<Drive>,
 }
 
@@ -304,11 +307,13 @@ mod imp {
         String::from_utf8_lossy(&b[off..end]).trim().to_string()
     }
 
-    fn identity(f: &std::fs::File) -> (String, String) {
+    /// (model, bus, removable media): STORAGE_DEVICE_DESCRIPTOR's vendor
+    /// and product, BusType, and RemovableMedia (byte 10).
+    fn identity(f: &std::fs::File) -> (String, String, bool) {
         let query = [0u8; 12];
         let b = match ioctl(f, IOCTL_STORAGE_QUERY_PROPERTY, &query, 1024) {
             Some(b) if b.len() >= 36 => b,
-            _ => return (String::new(), String::new()),
+            _ => return (String::new(), String::new(), false),
         };
         let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
         let vendor = cstr_at(&b, u32_at(12));
@@ -324,7 +329,7 @@ mod imp {
             12 => "SD card",
             _ => "",
         };
-        (format!("{vendor} {product}").trim().to_string(), bus.to_string())
+        (format!("{vendor} {product}").trim().to_string(), bus.to_string(), b[10] != 0)
     }
 
     pub fn drives() -> Vec<Drive> {
@@ -409,10 +414,10 @@ mod imp {
                 .filter(|b| b.len() >= 32)
                 .map(|b| u64::from_le_bytes(b[24..32].try_into().unwrap()))
                 .unwrap_or(0);
-            let (model, bus) = identity(&f);
+            let (model, bus, removable) = identity(&f);
             let on_it: Vec<Drive> = drives.iter().filter(|d| d.disk == Some(n)).cloned().collect();
             let system = on_it.iter().any(|d| d.letter.eq_ignore_ascii_case(&sys));
-            out.push(Disk { number: n, size, model, bus, system, drives: on_it });
+            out.push(Disk { number: n, size, model, bus, system, removable, drives: on_it });
         }
         out
     }

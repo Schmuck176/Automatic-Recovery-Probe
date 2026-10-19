@@ -1,7 +1,10 @@
 name: Build and test
+# Only dev and main are built on push: other branches (review notes, the
+# ci-* result branches) must never start a run, because a run publishes its
+# results over ci-windows and ci-linux. Publishing happens only for dev.
 on:
   push:
-    branches-ignore: [ci-windows, ci-linux]
+    branches: [dev, main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -104,7 +107,7 @@ jobs:
           echo "::notice title=Page::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
           exit $status
       - name: Publish the program and the report to the ci-windows branch
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           out="$RUNNER_TEMP/publish"
           mkdir -p "$out"
@@ -183,7 +186,7 @@ jobs:
           node tools/ui_check.js target/release/recovery-probe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
           echo "::notice title=Page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
       - name: Publish the report to the ci-linux branch
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           out="$RUNNER_TEMP/publish"
           mkdir -p "$out"

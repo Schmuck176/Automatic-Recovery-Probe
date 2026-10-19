@@ -284,7 +284,7 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
     if !o.missing.is_empty() {
         t.push(format!(
             "{} of them have no copy in this folder (listed in ...-map-check-not-here.csv): they may be in another \
-             folder you check separately (WORK or PHOTOSLIB), or were never copied - step 5 copies everything.",
+             folder you check separately (WORK or PHOTOSLIB), or were never copied - step 6 copies everything.",
             commas(o.missing.len() as u64)
         ));
     }
@@ -305,7 +305,7 @@ pub fn apply(o: &Outcome, rows: &mut Vec<Row>, skipped: &mut Vec<Row>) -> Vec<St
                 String::new()
             } else {
                 format!(
-                    "; {} do not (they may be in another folder you check separately, or were never copied - step 5 \
+                    "; {} do not (they may be in another folder you check separately, or were never copied - step 6 \
                      copies them)",
                     commas(o.hidden_missing.len() as u64)
                 )

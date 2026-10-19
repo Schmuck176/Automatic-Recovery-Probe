@@ -204,16 +204,30 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
       <div id="connect"></div>
     </li>
 
+    <li id="s-image">
+      <div class="step-head"><h2>Make an image of the SSD: a second copy</h2><span class="state" id="st-image"></span></div>
+      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code>.</p>
+      <div class="row">
+        <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example F:\IMAGE">
+        <button class="second" id="b-image-to">Choose…</button>
+      </div>
+      <p class="small soft" id="image-space"></p>
+      <div class="row"><button id="b-image">Make the image</button></div>
+      <div id="r-image"></div>
+    </li>
+
     <li id="s-check">
       <div class="step-head"><h2>See what the damage touched</h2><span class="state" id="st-check"></span></div>
-      <p>The program reads the recovered SSD directly (it never writes to it) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list.</p>
+      <p>The program reads the image (or the recovered SSD itself, if no image was made) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list. It never writes to either.</p>
+      <p class="small soft" id="check-source"></p>
       <div class="row"><button id="b-check">Find what the damage touched</button></div>
       <div id="r-check"></div>
     </li>
 
     <li id="s-copy">
       <div class="step-head"><h2>Copy everything off the SSD</h2><span class="state" id="st-copy"></span></div>
-      <p>Every file and folder is copied straight off the SSD into a folder on another drive: also the files Windows cannot list, and the data no folder names any more. Choose an empty folder on a drive with room for everything, such as <code>SPARE\WORK</code>.</p>
+      <p>Every file and folder is copied straight off the image (or the SSD) into a folder on another drive: also the files Windows cannot list, and the data no folder names any more. Each copy's SHA-256 goes into the list of every file (<code>rescue-log.csv</code>), so it can be checked later. Choose an empty folder on a drive with room for everything, such as <code>SPARE\WORK</code>.</p>
+      <p class="small soft" id="copy-source"></p>
       <div class="row">
         <input type="text" id="copy-to" aria-label="Copy everything into this folder" placeholder="For example E:\WORK">
         <button class="second" id="b-copy-to">Choose…</button>
@@ -226,15 +240,19 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 
     <li id="s-scan">
       <div class="step-head"><h2>Check every copied file</h2><span class="state" id="st-scan"></span></div>
-      <p>Every file’s structure is read to find damage that looks fine on screen: a photo cut short, a block of zeros where the drive could not be read. With the results of step 4, a file the drive lost data from is marked <b>NEVER_READ</b> even when it looks fine.</p>
+      <p>Every file’s structure is read to find damage that looks fine on screen: a photo cut short, a block of zeros where the drive could not be read. With the results of step 5, a file the drive lost data from is marked <b>NEVER_READ</b> even when it looks fine.</p>
       <div class="row">
         <input type="text" id="scan-folder" aria-label="Check the files in this folder" placeholder="The folder the copies went into">
         <button class="second" id="b-scan-folder">Choose…</button>
       </div>
       <label class="check"><input type="checkbox" id="scan-holes" checked> <span>Look for holes: blocks of zeros where the drive could not be read (slower: every byte is read).</span></label>
-      <label class="check"><input type="checkbox" id="scan-join" checked> <span>Use what step 4 found.</span></label>
+      <label class="check"><input type="checkbox" id="scan-join" checked> <span>Use what step 5 found.</span></label>
       <div class="row"><button id="b-scan">Check every copied file</button></div>
       <div id="r-scan"></div>
+      <h3>Are the copies still exactly what came off the SSD?</h3>
+      <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares. Use it after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
+      <div class="row"><button class="second" id="b-verify">Check the copies are unchanged</button></div>
+      <div id="r-verify"></div>
     </li>
 
     <li id="s-finish">
@@ -320,6 +338,13 @@ let lastJobId = 0;
 const notes = {};      // short messages per step, from actions
 
 function setting(k) { return (S && S.settings && S.settings[k]) || ""; }
+// What steps 5 and 6 read: the image once it is made and checked, otherwise the SSD itself.
+function source() { return setting("image") && setting("image_sha") ? setting("image") : setting("disk"); }
+function sourceText() {
+  const s = source();
+  if (!s) return "";
+  return s === setting("image") ? `Reads from the image ${s} - the SSD is not needed.` : "Reads from the recovered SSD itself (no image made yet).";
+}
 async function save(fields) { await act(Object.assign({ action: "set" }, fields)); await refresh(); }
 function lastOf(kind) {
   if (!S) return null;
@@ -409,7 +434,7 @@ function drawMap() {
     leg += `<span><i class="key" style="background:var(--folder)"></i>never read: in folder records</span>`;
     leg += `<span><i class="key" style="background:var(--quiet)"></i>never read: free space (nothing lost)</span>`;
   } else {
-    leg += `<span><i class="key" style="background:var(--unread)"></i>never read (step 4 shows what each place held)</span>`;
+    leg += `<span><i class="key" style="background:var(--unread)"></i>never read (step 5 shows what each place held)</span>`;
   }
   legend.innerHTML = leg;
 }
@@ -419,15 +444,15 @@ function drawMap() {
 function renderTop() {
   const r = $("rights");
   if (S.elevated) { r.className = "rights"; r.textContent = "Running with administrator rights"; }
-  else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 5 cannot run"; }
+  else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 6 cannot read the SSD"; }
   $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
   const b = $("restore-banner");
-  const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue");
+  const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue" || S.job.kind === "image");
   if (S.policy_to_restore && reading) {
-    const h = `<div class="banner"><p>While this step reads the recovered SSD, Windows leaves newly plugged-in disks switched off, so the SSD stays protected even if it comes unplugged. The setting is put back when the step ends.</p></div>`;
+    const h = `<div class="banner"><p>Windows leaves newly plugged-in disks switched off while the recovered SSD is plugged in, so the SSD stays protected even if it comes unplugged and goes back in.</p></div>`;
     if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; }
   } else if (S.policy_to_restore) {
-    const h = `<div class="banner"><p>Windows is still set to leave newly plugged-in disks switched off (the program changed this). Plug the recovered SSD in now if it is not, and protect it in step 3; put the setting back when you have finished with it.</p>
+    const h = `<div class="banner"><p>Windows is set to leave newly plugged-in disks switched off (the program did this, to protect the recovered SSD). It stays like that while the SSD is plugged in. Once you have switched the SSD off and unplugged it, put the setting back.</p>
       <button id="b-restore-top">Put Windows' setting back</button>${noteHtml("restore")}</div>`;
     if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; $("b-restore-top").onclick = restorePolicy; }
   } else if (b.dataset.html) { b.innerHTML = ""; b.dataset.html = ""; }
@@ -508,6 +533,7 @@ function diskLine(d) {
   if (d.read_only) tags += '<span class="tag ok">read-only</span>';
   else if (d.read_only === false && det.matches_mapfile) tags += '<span class="tag warn">can be written to</span>';
   if (d.offline) tags += '<span class="tag">switched off</span>';
+  if (d.removable) tags += '<span class="tag warn">removable media</span>';
   let what = "";
   if (det.volume) what = `exFAT volume “${esc(det.volume.label)}”, ${esc(size(det.volume.size))}`;
   else if (d.drives && d.drives.length) what = d.drives.map((v) => `${esc(v.letter)} ${esc(v.label)} (${esc(v.fs)})`).join(", ");
@@ -529,7 +555,7 @@ function renderConnect() {
       <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
       <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>Get Windows ready</button>
       ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>
-      ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too. Once the recovered SSD is protected, Windows is set back to normal: then unplug that other drive and plug it in again. Closing the program also sets Windows back.</p>' : ""}${noteHtml("prepare")}</div>`;
+      ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too: choose it in the list below and click <b>Switch disk N on, writable</b>. Windows stays set like this until the recovered SSD has been unplugged (step 8 puts it back).</p>' : ""}${noteHtml("prepare")}</div>`;
   }
   const list = disks;
   if (list.length) {
@@ -552,6 +578,11 @@ function renderConnect() {
   if (sel && !sel.test && S.elevated && !couldBeCopy(sel)) {
     // Another drive (SPARE, say): nothing to protect.
     h += `<p class="small">Disk ${sel.number} is not the copy ddrescue made, so it needs no protecting: the recovered SSD is the disk marked “the copy ddrescue made”.</p>`;
+    if (sel.removable) {
+      h += `<div class="msg warn">Windows says disk ${sel.number} is removable media. Windows' setting to leave new disks switched off does not work for removable disks. If the recovered SSD would be plugged in the same way (the same USB case or cable), it would not be kept switched off: ask for help before plugging it in.</div>`;
+    } else if (prepared && sel.offline) {
+      h += `<p class="small soft">It arrived switched off, so Windows' setting works for a disk plugged in this way.</p>`;
+    }
     if (sel.offline || sel.read_only) {
       h += `<p class="small soft">It is ${sel.offline ? "switched off (it was plugged in while Windows was set to leave new disks switched off)" : "read-only"}. To copy onto it, switch it on:</p>
         <div class="row"><button class="second" id="b-release">Switch disk ${sel.number} on, writable</button></div>`;
@@ -562,6 +593,9 @@ function renderConnect() {
     else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
     else h += `<button class="second" id="b-offline">Switch it off</button>`;
     h += `</div>`;
+    if (sel.removable) {
+      h += `<div class="msg err">Windows says this disk is removable media (like a USB stick). For removable disks Windows' setting to leave new disks switched off does not work, so Windows may write to it while it is plugged in. ${isProtected ? "It is read-only now. Make the image (step 4) straight away, then switch it off and unplug it, and ask for help before plugging it in again." : `Click <b>Protect disk ${sel.number}</b> now (that marks it read-only), then make the image (step 4) straight away and unplug it. Ask for help before plugging it in again.`}</div>`;
+    }
     if (sel.read_only === false && !sel.offline && prepared && isCopy(sel)) {
       h += `<div class="msg warn">Windows switched this disk on by itself, although it was set to leave new disks switched off. Click <b>Protect disk ${sel.number}</b> now. If that gives an error, unplug the recovered SSD and ask for help before going on.</div>`;
     } else if (sel.read_only === false && !sel.offline) {
@@ -585,13 +619,48 @@ function renderConnect() {
   }
 }
 
+function renderImage() {
+  const j = lastOf("image");
+  const [cls, text] = stateText(j);
+  setStep("image", cls, text);
+  $("b-image").disabled = busy() || !setting("disk");
+  const inp = $("image-to");
+  if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("image_dir");
+  let h = noteHtml("image");
+  if (setting("image") && setting("image_sha") && !(j && j.state === "running")) {
+    h += `<div class="msg ok">The image <span class="path">${esc(setting("image"))}</span> is made and checked. The recovered SSD is not needed any more: switch it off and unplug it (step 8), then put Windows' setting back. Steps 5 and 6 read the image.</div>`;
+  }
+  if (j && j.state !== "running") {
+    if (j.state === "failed" && j.error) h += `<div class="msg err">${esc(j.error)}</div>`;
+    const lines = j.summary || [];
+    if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
+  }
+  $("r-image").innerHTML = h;
+}
+
+function renderVerify() {
+  const j = lastOf("verify");
+  $("b-verify").disabled = busy();
+  let h = noteHtml("verify");
+  if (j && j.state !== "running") {
+    const d = j.data || {};
+    const good = j.state === "done" && !d.stopped;
+    if (j.error && j.state === "failed" && !(j.summary || []).length) h += `<div class="msg err">${esc(j.error)}</div>`;
+    const lines = j.summary || [];
+    if (lines.length) h += `<div class="msg ${good ? "ok" : (d.stopped ? "warn" : "err")}">${lines.map(esc).join("<br>")}</div>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the list of problems</button></div>`;
+  }
+  $("r-verify").innerHTML = h;
+}
+
 function figure(n, label, bad) { return `<div class="figure ${bad && n > 0 ? "bad" : ""}"><b>${commas(n)}</b><span>${esc(label)}</span></div>`; }
 
 function renderCheck() {
   const j = lastOf("mapcheck");
   const [cls, text] = stateText(j);
   setStep("check", cls, text);
-  $("b-check").disabled = busy() || !setting("mapfile") || !setting("disk");
+  $("b-check").disabled = busy() || !setting("mapfile") || !source();
+  $("check-source").textContent = sourceText();
   let h = noteHtml("check");
   if (j && j.state !== "running") {
     if (j.state !== "done") h += `<div class="msg err">${esc(j.error || "It did not finish.")}</div>`;
@@ -604,6 +673,11 @@ function renderCheck() {
         <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
         <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD</span></div></div>`;
       if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
+      if (d.newest && d.newest.after_copy) {
+        h += `<div class="msg warn">The newest date on the SSD is ${esc(d.newest.date)} (${esc(d.newest.path)}): after ddrescue finished (${esc(d.newest.copy_finished)}). Something may have changed the SSD after the copy (a computer it was plugged into, say), or that file's date is simply wrong. Ask before going on.</div>`;
+      } else if (d.newest) {
+        h += `<p class="small soft">Newest date on the SSD: ${esc(d.newest.date)}${d.newest.copy_finished ? ` - before ddrescue finished (${esc(d.newest.copy_finished)}), so nothing on it is dated after the copy` : ""}.</p>`;
+      }
       if (d.files && d.files.length) {
         h += `<h3>Files that lost data</h3><div class="scroll"><table><tr><th>File</th><th class="num">Size</th><th class="num">Never read</th></tr>` +
           d.files.slice(0, 300).map((f) => `<tr><td class="path">${esc(f.path)}${f.hidden ? ' <span class="tag warn">Windows cannot list it</span>' : ""}</td><td class="num">${esc(size(f.size))}</td><td class="num">${commas(f.damaged)} bytes</td></tr>`).join("") +
@@ -611,7 +685,7 @@ function renderCheck() {
       }
       if (d.hidden_groups && d.hidden_groups.length) {
         const count = (g) => [g.files ? `${commas(g.files)} file${g.files === 1 ? "" : "s"}` : "", g.folders ? `${commas(g.folders)} folder${g.folders === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
-        h += `<h3>What Windows cannot list</h3><p class="small">Copying with File Explorer or TeraCopy would leave these behind without a word. Step 5 copies them.</p><ul class="groups scroll">` +
+        h += `<h3>What Windows cannot list</h3><p class="small">Copying with File Explorer or TeraCopy would leave these behind without a word. Step 6 copies them.</p><ul class="groups scroll">` +
           d.hidden_groups.map((g) => `<li><b>${g.where ? esc(g.where) + ": " : ""}${esc(count(g))}</b>${g.by_path ? ' <span class="tag">open if you type the full path</span>' : ""}<br>
             <span class="small">${esc(g.why.charAt(0).toUpperCase() + g.why.slice(1))}.</span><br><span class="small soft">For example ${esc(g.examples.join(", "))}${g.files + g.folders > g.examples.length ? "…" : ""}</span></li>`).join("") + `</ul>`;
       }
@@ -627,7 +701,8 @@ function renderCopy() {
   const j = lastOf("rescue");
   const [cls, text] = stateText(j);
   setStep("copy", cls, text);
-  $("b-copy").disabled = busy() || !setting("disk");
+  $("b-copy").disabled = busy() || !source();
+  $("copy-source").textContent = sourceText();
   const inp = $("copy-to");
   if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("copy_to");
   let h = noteHtml("copy");
@@ -649,7 +724,7 @@ function renderCopy() {
 }
 
 const MEANING = {
-  NEVER_READ: "ddrescue never read part of it (step 4): those bytes are zeros or leftovers, even if it looks fine",
+  NEVER_READ: "ddrescue never read part of it (step 5): those bytes are zeros or leftovers, even if it looks fine",
   TRUNCATED: "ends before its own format says it should",
   HOLE: "a block of zeros shaped like unread disk sectors",
   MISMATCH: "its contents do not match its name, or its start was never read",
@@ -700,14 +775,14 @@ function renderScan() {
 function renderFinish() {
   const chosen = disks.find((d) => d.spec === setting("disk"));
   let h = "";
+  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>`;
   if (S.policy_to_restore) {
-    h += `<p>Windows is still set to leave new disks switched off.</p><div class="row"><button id="b-restore">Put Windows' setting back</button></div>${noteHtml("restore")}`;
+    h += `<p>Windows is still set to leave new disks switched off. Once the recovered SSD is unplugged, put the setting back:</p><div class="row"><button id="b-restore">Put Windows' setting back</button></div>${noteHtml("restore")}`;
     setStep("finish", "", "");
   } else {
     h += `<p>Windows' setting for new disks is as it was.</p>`;
   }
-  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>
-    <p class="small soft">The results of every step are in <span class="path">${esc(S.results)}</span>. The checklist says what comes next.</p>`;
+  h += `<p class="small soft">The results of every step are in <span class="path">${esc(S.results)}</span>. The checklist says what comes next.</p>`;
   const el = $("finish");
   if (el.dataset.html !== h) {
     el.innerHTML = h; el.dataset.html = h;
@@ -740,7 +815,7 @@ function renderJob() {
 
 function render() {
   if (!S) return;
-  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderCheck(); renderCopy(); renderScan(); renderFinish(); renderJob(); drawMap();
+  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderFinish(); renderJob(); drawMap();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -772,10 +847,7 @@ async function protect(d) {
     }
     protectedHere.add(d.spec);
     let msg = `Disk ${d.number} is read-only: Windows cannot write to it.`;
-    if (S.policy_to_restore) {
-      const r = await act({ action: "guard-restore" });
-      msg += " " + r.message;
-    }
+    if (S.policy_to_restore) msg += " Windows stays set to leave new disks switched off until the SSD is unplugged.";
     note("connect", "ok", msg);
   } catch (e) { note("connect", "err", e.message); }
   await refresh(); await loadDisks();
@@ -802,12 +874,23 @@ async function startJob(step, fields) {
 }
 
 $("b-test").onclick = () => startJob("test", { action: "selftest" });
-$("b-check").onclick = () => startJob("check", { action: "mapcheck", map: setting("mapfile"), disk: setting("disk") });
+$("b-image").onclick = async () => {
+  const to = $("image-to").value.trim();
+  if (!to) { note("image", "err", "Choose where the image goes first."); return; }
+  await save({ image_dir: to });
+  startJob("image", { action: "image", disk: setting("disk"), out: to });
+};
+$("b-check").onclick = () => startJob("check", { action: "mapcheck", map: setting("mapfile"), disk: source() });
+$("b-verify").onclick = () => {
+  const f = $("scan-folder").value.trim();
+  if (!f) { note("verify", "err", "Choose the folder the copies went into first (above)."); return; }
+  startJob("verify", { action: "verify", folder: f });
+};
 $("b-copy").onclick = async () => {
   const to = $("copy-to").value.trim();
   if (!to) { note("copy", "err", "Choose where the copies go first."); return; }
   await save({ copy_to: to });
-  startJob("copy", { action: "rescue", disk: setting("disk"), out: to, everything: "1", lost: $("copy-lost").checked ? "1" : "0" });
+  startJob("copy", { action: "rescue", disk: source(), out: to, everything: "1", lost: $("copy-lost").checked ? "1" : "0" });
 };
 $("b-scan").onclick = async () => {
   const f = $("scan-folder").value.trim();
@@ -816,7 +899,7 @@ $("b-scan").onclick = async () => {
   startJob("scan", { action: "scan", folder: f, holes: $("scan-holes").checked ? "1" : "0", hole_kb: "4", join: $("scan-join").checked ? setting("last_map_check") : "" });
 };
 $("b-stop").onclick = () => act({ action: "stop" }).then(refresh);
-["copy-to", "scan-folder"].forEach((id) => $(id).addEventListener("input", () => { $(id).dataset.touched = "1"; }));
+["copy-to", "scan-folder", "image-to"].forEach((id) => $(id).addEventListener("input", () => { $(id).dataset.touched = "1"; }));
 $("scan-join").addEventListener("change", () => { $("scan-join").dataset.touched = "1"; });
 $("copy-to").addEventListener("change", () => updateSpace());
 
@@ -861,8 +944,25 @@ $("b-copy-to").onclick = () => openPicker("Choose where the copies go", $("copy-
   if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\WORK";
   $("copy-to").value = p; $("copy-to").dataset.touched = "1"; updateSpace();
 });
+$("b-image-to").onclick = () => openPicker("Choose where the image goes", $("image-to").value || "", false, (p) => {
+  // A whole drive chosen: the image goes into an IMAGE folder on it.
+  if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\IMAGE";
+  $("image-to").value = p; $("image-to").dataset.touched = "1"; updateImageSpace();
+});
+$("image-to").addEventListener("change", () => updateImageSpace());
 $("b-scan-folder").onclick = () => openPicker("Choose the folder to check", $("scan-folder").value || setting("copy_to"), false, (p) => { $("scan-folder").value = p; $("scan-folder").dataset.touched = "1"; });
 
+async function updateImageSpace() {
+  const p = $("image-to").value.trim();
+  const out = $("image-space");
+  if (!p) { out.textContent = ""; return; }
+  const parent = p.replace(/[\\/][^\\/]*$/, "") || p;
+  try {
+    const r = await get(`api/list?path=${encodeURIComponent(parent)}&show=dirs`);
+    const need = mapInfo && mapInfo.ok ? mapInfo.domain_end - mapInfo.domain_start : 0;
+    out.textContent = r.free != null ? `${size(r.free)} free on that drive.${need ? ` The image needs ${size(need)}.` : ""}` : "";
+  } catch { out.textContent = ""; }
+}
 async function updateSpace() {
   const p = $("copy-to").value.trim();
   const out = $("copy-space");
@@ -920,6 +1020,7 @@ async function start() {
   render();
   loadDisks(); // (reading every disk can take a moment: the page does not wait for it)
   updateSpace();
+  updateImageSpace();
   let tick = 0;
   setInterval(async () => {
     tick++;

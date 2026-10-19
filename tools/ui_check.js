@@ -16,6 +16,7 @@ fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(home, { recursive: true });
 fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
 const copyTo = path.join(work, "copies");
+const imageTo = path.join(work, "image");
 const port = 47000 + Math.floor(Math.random() * 900);
 const key = "uitestkey0123456789abcdef";
 const results = [];
@@ -93,34 +94,52 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     await page.waitForFunction(() => /Test disk/.test(document.getElementById("st-connect").textContent), null, { timeout: 10000 });
   }
 
-  // Step 4.
+  // Step 4: the image.
+  await page.fill("#image-to", imageTo);
+  await page.click("#b-image");
+  await waitJob("image");
+  const r4i = await page.textContent("#r-image");
+  check(r4i.includes("reads back exactly as it was written"), "step 4: the image is made and checked (" + r4i.slice(0, 80) + ")");
+  check(fs.existsSync(path.join(imageTo, "recovered-ssd.img")) && fs.existsSync(path.join(imageTo, "recovered-ssd.img.sha256")),
+    "step 4: the image and its checksum are there");
+  check(fs.readFileSync(path.join(imageTo, "recovered-ssd.img")).equals(fs.readFileSync(disk).subarray(0, fs.statSync(path.join(imageTo, "recovered-ssd.img")).size)),
+    "step 4: the image holds exactly the disk's bytes");
+  await page.waitForFunction(() => /Reads from the image/.test(document.getElementById("check-source").textContent), null, { timeout: 10000 })
+    .then(() => check(true, "step 5 reads the image from now on"), () => check(false, "step 5 reads the image from now on"));
+
+  // Step 5.
   await page.click("#b-check");
   await waitJob("check");
   const r4 = await page.textContent("#r-check");
-  check(r4.includes("files lost data") && r4.includes("IMG_0003.JPG"), "step 4: the damaged photo is named");
-  check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 4: files Windows cannot list are shown");
+  check(r4.includes("files lost data") && r4.includes("IMG_0003.JPG"), "step 5: the damaged photo is named");
+  check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 5: files Windows cannot list are shown");
   check((await page.locator("#map-legend").textContent()).includes("folder records"), "the map now says what each place held");
   await shot("2-map-check");
 
-  // Step 5.
+  // Step 6.
   await page.fill("#copy-to", copyTo);
   await page.click("#b-copy");
   await waitJob("copy");
   const r5 = await page.textContent("#r-copy");
   const want = fs.readFileSync(path.join(__dirname, "..", "src", "selftest", "expected.tsv"), "utf8")
     .split("\n").filter((l) => l.startsWith("FOUND\t") && l.split("\t")[2] === "0").length;
-  check(r5.includes(`Copied ${want} files`), `step 5: all ${want} files are copied (` + r5.slice(0, 60) + ")");
-  check(fs.existsSync(path.join(copyTo, "Photos", "Summer 2019_")), "step 5: a name Windows cannot use is made safe");
-  check(fs.existsSync(path.join(copyTo, "Documents", "letter 15.docx")), "step 5: a file Windows cannot list is copied");
+  check(r5.includes(`Copied ${want} files`), `step 6: all ${want} files are copied (` + r5.slice(0, 60) + ")");
+  check(fs.existsSync(path.join(copyTo, "Photos", "Summer 2019_")), "step 6: a name Windows cannot use is made safe");
+  check(fs.existsSync(path.join(copyTo, "Documents", "letter 15.docx")), "step 6: a file Windows cannot list is copied");
 
-  // Step 6.
-  check((await page.inputValue("#scan-folder")) === copyTo, "step 6: the folder to check is the one step 5 copied into");
+  // Step 7.
+  check((await page.inputValue("#scan-folder")) === copyTo, "step 7: the folder to check is the one step 6 copied into");
   await page.click("#b-scan");
   await waitJob("scan");
   const r6 = await page.textContent("#r-scan");
-  check(r6.includes("NEVER_READ"), "step 6: the damaged photo is marked NEVER_READ");
+  check(r6.includes("NEVER_READ"), "step 7: the damaged photo is marked NEVER_READ");
   await page.click("#r-scan details summary");
   await shot("3-checked");
+  // The copies against the checksums the copying wrote.
+  await page.click("#b-verify");
+  const verified = await page.waitForFunction(() => /exactly what was copied/.test(document.getElementById("r-verify").textContent),
+    null, { timeout: 60000 }).then(() => true, () => false);
+  check(verified, "step 7: every copy is exactly what was copied (" + (await page.textContent("#r-verify")).slice(0, 80) + ")");
 
   // A job that cannot start says why.
   await page.fill("#copy-to", "");
@@ -149,7 +168,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await new Promise((r) => setTimeout(r, 1500));
   await page.goto(url);
   await page.waitForFunction(() => /Done/.test(document.getElementById("st-check").textContent), null, { timeout: 10000 });
-  check(true, "after closing and opening the program, step 4's results are still there");
+  check(true, "after closing and opening the program, step 5's results are still there");
 
   // Phone-sized screen: nothing wider than the screen.
   await page.setViewportSize({ width: 390, height: 844 });

@@ -368,13 +368,14 @@ pub mod win {
         String::from_utf8_lossy(&b[off..end]).trim().to_string()
     }
 
-    /// (model, bus) from IOCTL_STORAGE_QUERY_PROPERTY / StorageDeviceProperty.
-    fn identity(f: &File) -> (String, String) {
+    /// (model, bus, removable media) from IOCTL_STORAGE_QUERY_PROPERTY /
+    /// StorageDeviceProperty.
+    fn identity(f: &File) -> (String, String, bool) {
         // STORAGE_PROPERTY_QUERY { PropertyId = 0, QueryType = 0, AdditionalParameters[1] }
         let query = [0u8; 12];
         let b = match ioctl(f, IOCTL_STORAGE_QUERY_PROPERTY, &query, 1024) {
             Some(b) if b.len() >= 36 => b,
-            _ => return (String::new(), String::new()),
+            _ => return (String::new(), String::new(), false),
         };
         let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
         // STORAGE_DEVICE_DESCRIPTOR: Version, Size, DeviceType(1), DeviceTypeModifier(1),
@@ -394,7 +395,7 @@ pub mod win {
             _ => "",
         };
         let model = format!("{vendor} {product}").trim().to_string();
-        (model, bus.to_string())
+        (model, bus.to_string(), b[10] != 0)
     }
 
     impl PhysicalDrive {
@@ -402,7 +403,7 @@ pub mod win {
             let path = format!(r"\\.\PhysicalDrive{n}");
             let f = std::fs::OpenOptions::new().read(true).open(&path)?;
             let size = length(&f);
-            let (model, _) = identity(&f);
+            let (model, _, _) = identity(&f);
             Ok(PhysicalDrive { f, size, number: n, model })
         }
     }
@@ -425,7 +426,7 @@ pub mod win {
             let spec = format!(r"\\.\PhysicalDrive{n}");
             match std::fs::OpenOptions::new().read(true).open(&spec) {
                 Ok(f) => {
-                    let (model, bus) = identity(&f);
+                    let (model, bus, _) = identity(&f);
                     out.push(DiskInfo { number: n, spec, size: length(&f), model, bus, error: None });
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}

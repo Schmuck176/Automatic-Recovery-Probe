@@ -4,14 +4,16 @@ GitHub's Windows machines, as administrator), through the step-by-step page
 the way a person uses it:
 
   A. A test disk with many files arrives switched off ("Get Windows ready"),
-     is protected, and copying starts (step 5). While it copies, Windows is
-     set to leave new disks switched off.
+     is protected, and copying starts. Windows stays set to leave new disks
+     switched off the whole time the disk is plugged in, and the page refuses
+     to put the setting back until it is unplugged.
   B. Part-way, the disk is unplugged (the virtual disk is detached): the copy
      must stop, saying the SSD stopped answering, with nothing listed as
      failed - and Windows must still be set to leave new disks switched off.
   C. Plugged in again, the disk arrives switched off. Protected again, the
      copy starts again and must finish with exactly the copies and the list
-     one straight run gives, and Windows' setting put back.
+     one straight run gives; Windows' setting stays until it is unplugged,
+     and is put back after that.
   D. A drive that is not the recovered SSD (NTFS, like SPARE), plugged in
      while new disks are left switched off: the page switches it on,
      writable. It refuses to do that to the recovered SSD, and refuses to
@@ -195,9 +197,10 @@ def main():
               "the page recognises it as the copy ddrescue made")
         j = page.act(action="guard-protect", disk=spec, online="0")
         check(j.get("ok"), "Protect: %s" % j)
+        check(policy(exe) == "OfflineAll", "Windows stays set to leave new disks switched off after Protect")
         j = page.act(action="guard-restore")
-        check(j.get("ok"), "Windows' setting put back: %s" % j)
-        check(policy(exe) == start_policy, "policy back to %s" % start_policy)
+        check(not j.get("ok"), "putting the setting back is refused while the SSD is plugged in: %s" % j.get("error"))
+        check(policy(exe) == "OfflineAll", "the setting is still to leave new disks switched off")
         copies = os.path.join(work, "copies")
         j = page.act(action="rescue", disk=spec, out=copies, everything="1", lost="1")
         check(j.get("ok"), "copying starts: %s" % j)
@@ -239,8 +242,6 @@ def main():
         spec = "\\\\.\\PhysicalDrive%d" % n
         j = page.act(action="guard-protect", disk=spec, online="0")
         check(j.get("ok"), "Protect: %s" % j)
-        j = page.act(action="guard-restore")
-        check(j.get("ok"), "Windows' setting put back: %s" % j)
         j = page.act(action="rescue", disk=spec, out=copies, everything="1", lost="1")
         check(j.get("ok"), "copying starts again: %s" % j)
         job = page.wait_job()
@@ -249,7 +250,7 @@ def main():
         check(job.get("state") == "done", "the copy finished (%s)" % job.get("state"))
         check(data.get("failed") == 0 and data.get("already_there", 0) > 0,
               "nothing failed; what was copied before was kept (%s)" % data)
-        check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
+        check(policy(exe) == "OfflineAll", "with the SSD still plugged in, Windows still leaves new disks switched off")
         got = tree(copies)
         check(got[0] == want[0], "the copies are exactly those of one straight run (%d / %d files)" % (
             len(got[0]), len(want[0])))
@@ -295,7 +296,11 @@ def main():
         check(not j.get("ok"), "it refuses to do that to the recovered SSD: %s" % j.get("error"))
         info = disk_info(n)
         check(info.get("read_only") is True, "the recovered SSD is still read-only (%s)" % info)
+        detach(vhd)
+        vhd_in = False
+        time.sleep(2)
         j = page.act(action="guard-restore")
+        check(j.get("ok"), "once the SSD is unplugged, the setting is put back: %s" % j)
         check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
     finally:
         if vhd_in:
