@@ -46,7 +46,14 @@ reached from the development workspace. The Windows build of each commit is
   "FINAL 1 TB". The copy sits at the start of it (partition table made for
   the 1 TB disk).
 - The mapfiles are in "C:\RECOVERY-TOOLS\My DDRESCUE map files and
-  screenshots.zip" on the user's PC (never in this repository).
+  screenshots.zip" on the user's PC (never in this repository). The zip holds
+  only the 1 TB drive's two logs and screenshots (DDRescue-GUI, on a Mac).
+- The user's drives (told 19 Oct): the recovered SSD (2 TB); a 4 TB SSD with a
+  ddrescue copy of the whole 2 TB SSD (2 TB left unpartitioned; no log of that
+  copy seen, so it is the spare, not the source); SPARE, 1 TB, NTFS (about
+  930 GB as Windows counts); 2 TB free on the PC (internal; the image goes in
+  an IMAGE folder there, the second copy in Phase 8 beside it). Nothing to
+  buy unless step 5 says the files take more than about 900 GB.
 
 ## Delivered
 
@@ -184,15 +191,40 @@ roots (names, or Photos library structure) and writes REPAIR\evaluation.csv.
 Unit tests in repair.rs (round trip, undo, interrupted put-back), join.rs;
 tools/ui_check.js drives it in the browser (36 checks).
 
+CI for fb074a0 was green (Windows unit tests 41, self-test, map check 42/42,
+Windows checks 18/18, protection 16/16, unplugged 31/31, page 37/37; Linux
+92/92, kernel 23/23, page 36/36). Delivered 19 Oct 13:01 BST with the user's
+yes: recovery-probe.exe (sha256 dcd1d4bc...), the checklist (31 ticks) and
+the manifest, checked byte for byte on the PC.
+
+## The safety check (19 October 2026, the user's request)
+
+"A safety check after all phases that the total size matches, so files were
+not deleted by accident; reassuring checks along the way to find where I go
+wrong." The mapfile can't give a file total (it covers the whole disk), so:
+step 5 adds up every file's size (map-check.json volume.bytes); step 6 ends
+with a two-stage safety check (step 5's files vs rescue-log.csv: number and
+size, failed files, a copying that never finished); step 7's verify adds the
+third stage, the copies here now against their checksums (verify.rs safety,
+copy_safety, ListTotals). Every check is appended to
+results\safety-checks.csv and step 7 lists the latest (history_json). The
+checklist has a "Your numbers" box (Phase 2) and a checkpoint at the end of
+every phase; Phase 8 ends with the final check on both copies. Also: the
+page only redraws a section when it changed (a folded-out report no longer
+folds up every few seconds), and Phase 7's Photos steps were made safe
+(open the copy with Option first; Option+Command repairs the current
+library, so only after checking Settings > General; osxphotos export first
+as a safety net; switch back afterwards). Version "2026-10-19 (2)".
+
 ## Next
 
-1. One CI run for all of the above; read the reports on ci-windows and
+1. One CI run for the safety check; read the reports on ci-windows and
    ci-linux.
-2. Only with the user's yes: put the new recovery-probe.exe, checklist and
-   manifest into C:\RECOVERY-TOOLS (keep their ticks: their checklist lives
-   in "Obsidian MD files\"; stage under a fresh name and check the hash on
-   the PC afterwards).
-3. The user buys the IMAGE drive, then Phase 1 (rehearsal with SPARE, then
-   the image). Help read step 5's results.
-4. Phase 6 is now the program's step 8 (isolate, repair, put back,
-   evaluate); help with the repairs themselves when the user gets there.
+2. Put the new recovery-probe.exe and the checklist into C:\RECOVERY-TOOLS
+   (keep their ticks: their checklist lives in "Obsidian MD files\"; stage
+   under a fresh name and check the hash on the PC afterwards). The user then
+   runs Phase -1 E again (the self-test).
+3. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+   Help read step 5's results; check the files fit on SPARE.
+4. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+   help with the repairs themselves when the user gets there.

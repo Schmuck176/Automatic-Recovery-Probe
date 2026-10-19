@@ -31,11 +31,17 @@ at a time:
    Windows: also the files Windows cannot list, the folders found by their
    contents (in `found folders (name lost)`), and the data no folder names
    any more. Every copy's SHA-256 goes into `rescue-log.csv`; created,
-   modified and accessed dates are kept.
+   modified and accessed dates are kept. A *safety check* then compares the
+   list of copies with what step 5 found on the SSD: the number of files and
+   their total size.
 7. **Check every copied file** — every file's structure (the *probe*),
    together with what step 5 found: a file the drive lost data from is
    marked **NEVER_READ** even when it looks perfect. And: are the copies
-   still exactly what was copied (against `rescue-log.csv`)?
+   still exactly what was copied (against `rescue-log.csv`)? Its safety check
+   adds it up stage by stage — the files on the SSD, in the list of copies,
+   and here now — so a file missing, changed or added is named at the stage
+   where it went wrong. Every check goes into `results\safety-checks.csv`;
+   run after every phase of the checklist, they show when anything changed.
 8. **Repair the damaged files: isolate, repair, put back, evaluate** — the
    damaged copies are copied (never moved) into `REPAIR` beside the copies,
    sorted by what can repair them, each name tagged `[R0012]`;
@@ -75,7 +81,7 @@ recovery-probe self-test
 recovery-probe image --disk \\.\PhysicalDriveN --map <mapfile> --out <folder>
 recovery-probe map-check --map <mapfile> --disk <image or \\.\PhysicalDriveN> --out <folder>
 recovery-probe rescue --disk <image or \\.\PhysicalDriveN> --out <folder> --everything --lost
-recovery-probe verify <folder the copies went into>
+recovery-probe verify <folder the copies went into> [--map-check <map check results folder>]
 recovery-probe isolate <folder the copies went into> --scan <scan results .csv>
 recovery-probe put-back <folder the copies went into>
 recovery-probe undo-put-back <folder the copies went into> R0012

@@ -1,6 +1,6 @@
 # Download Manifest — the tools, where they came from, what they're for
 
-*Version 2026-10-19 — written with Claude Opus 5.5. Goes with
+*Version 2026-10-19 (2) — written with Claude Opus 5.5. Goes with
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
@@ -11,9 +11,10 @@ the checklist, Phase −1 section D.**
 **Software cost: $0.** Only the optional repair software in Section 5 costs money, and
 you decide about that in Phase 6.
 
-**One thing to buy: a drive for the image** — at least 1 TB free; an ordinary external
-hard disk is fine (a 4 TB one also holds the second copy of your files at the end).
-The checklist calls it `IMAGE`. Buy it from a shop you trust; any make will do.
+**Nothing to buy.** The image goes in an `IMAGE` folder on the PC's 2 TB drive, the
+copies on `SPARE` (1 TB, about 930 GB as Windows counts). Only if step 5 says your
+files take more than about 900 GB would `SPARE` be too small; the checklist says what
+to do then.
 
 ---
 
@@ -140,15 +141,15 @@ image data is damaged. Say so and we'll weigh it properly.
 **The Photos Library database** is checked by the probe with no extra download
 (Windows includes the SQLite it needs).
 
-### If a library's database is beyond repair
-Only relevant if Phase 5 finds that Photos won't open a library and Repair can't fix it:
+### Before repairing a library, or if its database is beyond repair
+Phase 7, on the Mac, optional:
 
-- **osxphotos** — reads a Photos database directly and exports the photos *with* their albums, keywords and dates. Free; a one-person project, but well regarded and the only tool that does this. Its author's recommended install, on the Mac in Terminal (needs internet):
+- **osxphotos** (https://pypi.org/project/osxphotos/) — reads a Photos database directly, without Photos, and copies the photos out *with* their original names, album folders and edited versions. Free; a one-person project, but well regarded and the only tool that does this. Tested up to macOS 15 Sequoia; on macOS 26 most of it works. Its author's recommended install, on the Mac in Terminal (needs internet):
   ```
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  uv tool install --python 3.13 osxphotos
+  uv tool install --python 3.12 osxphotos
   ```
-  Ask Claude to walk you through it if you get there.
+  Phase 7, step 7 has the command that copies a library out.
 - It needs a *partly* readable database. If the database is completely gone, you keep the pictures (the files in `originals/`) and lose the albums.
 
 ---
@@ -180,7 +181,8 @@ fixed file, paying won't produce one either.
 |---|---|
 | **Any file the old drive lost data from**, whatever its type | **Recovery Probe's map check** (Phase 2), marked NEVER_READ (Phase 3) |
 | Files Windows can't even list, and folders whose own record was lost | Found by the map check and copied by Recovery Probe (Phase 2) |
-| A copy that changes later | Recovery Probe's checksum list: *Check the copies are unchanged* (Phases 2 and 7) |
+| A copy that changes later | Recovery Probe's checksum list: *Check the copies are unchanged* (every checkpoint, Phases 2–8) |
+| A file deleted, moved or added by mistake, at any point | Recovery Probe's safety check: the files on the SSD, in the list of copies and here now, by number, size and checksum (every checkpoint) |
 | Ordinary photos (JPEG, PNG, GIF, WebP, TIFF) | Recovery Probe (Phase 3) + Krokiet image check (Phase 4) |
 | iPhone photos (HEIC) and camera RAW | Recovery Probe structure (Phase 3) + `sips` full decode (Phase 5) |
 | Video (MP4, MOV, MKV, WebM, AVI…) | Recovery Probe (Phase 3) + Krokiet video decode (Phase 4) + untrunc for repair (Phase 6) |
@@ -189,5 +191,5 @@ fixed file, paying won't produce one either.
 | PDF | Recovery Probe (Phase 3) + Krokiet PDF check (Phase 4) |
 | Zip and 7z archives | Recovery Probe (Phase 3) + Krokiet archive check + **7-Zip** test (Phase 4) |
 | Word, Excel, PowerPoint, ePub, RAR | Recovery Probe (Phase 3) + **7-Zip** test (Phase 4) — Krokiet doesn't open these |
-| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3), repairs damaged photos inside them and puts them back in place (Phase 6) + Photos' own Repair on the Mac, on a copy (Phase 7) |
+| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3), repairs damaged photos inside them and puts them back in place (Phase 6) + on the Mac, on a copy: osxphotos copies everything out first, then Photos' own Repair only if needed (Phase 7) |
 | Everything else | Copied exactly, with a checksum; the map check names it if the drive lost any of it |

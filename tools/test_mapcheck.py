@@ -985,6 +985,16 @@ def check_rescue(exe, d, img, truth, exp, oracle):
                         diffs.append("lost data piece %s differs from the disk" % name)
                         break
         COVERAGE["files rescued and checked byte for byte"] += len(want & got)
+        if mode == "everything" and not diffs:
+            # The safety check: the files the map check found, the list of
+            # copies and the copies read back must agree, stage by stage.
+            p = subprocess.run([os.path.abspath(exe), "verify", out, "--map-check", os.path.join(d, "out")],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=d)
+            vlog = p.stdout.decode("utf-8", "replace")
+            if p.returncode != 0 or "Nothing is missing, and nothing has changed" not in vlog:
+                diffs.append("the safety check does not agree (exit %d): %s" % (p.returncode, vlog[-900:]))
+            else:
+                COVERAGE["safety checks with all three stages the same"] += 1
         if mode == "everything":
             diffs += check_stop_and_again(exe, d, img, out)
         shutil.rmtree(out, ignore_errors=True)

@@ -1,23 +1,32 @@
 # Recovery Checklist — Recovered SSD → safe, checked copies
 
-*Version 2026-10-19 — written with Claude Opus 5.5 for the Recovery Probe program
+*Version 2026-10-19 (2) — written with Claude Opus 5.5 for the Recovery Probe program
 (`recovery-probe.exe`), after an independent review of the program and of the
 2026-10-18 plan. Replaces every earlier copy; where a step is the same as in the
-2026-10-18 copy, the box you ticked there stays ticked here.*
+earlier copy, the box you ticked there stays ticked here.*
 
 **What you have:** a 2 TB SSD holding the ddrescue copy of your dead 1 TB hard drive
-(a GUID partition map with one exFAT volume, as the Mac made it), an empty 2 TB SSD
-(`SPARE`), a Windows PC and a Mac. The old hard drive is gone, so every file on that
-first SSD is the only copy in existence.
+(a GUID partition map with one exFAT volume, as the Mac made it): **the recovered
+SSD**. A 4 TB SSD holding a ddrescue copy of that 2 TB SSD. An empty 1 TB SSD
+(`SPARE`, formatted NTFS). 2 TB of free space on the Windows PC, and a Mac. The old
+hard drive is gone, so the recovered SSD and its 4 TB copy are the only copies of your
+files in existence.
 
-**What you need as well:** **one more drive, for the image** — at least 1 TB free
-(the image is 1,000 GB; Windows shows it as 932 GB). An ordinary external hard disk is
-fine. A 4 TB one can later hold a second copy of your files as well (Phase 8).
+**Nothing to buy**, as long as your files fit on `SPARE`, which holds about 930 GB.
+Step 5 (Phase 2) says how much they take in all; if it's more than about 900 GB, stop
+there and tell Claude.
+
+| Drive | What it's for |
+|---|---|
+| **The recovered SSD** (2 TB) | Read once more, to make the image (Phase 1). Then back in its drawer for good: your untouched master. |
+| **The 4 TB SSD** | Your spare copy of the recovered SSD, in case it fails while the image is made. It stays unplugged, in a drawer. |
+| **The PC's 2 TB drive** | The image (Phase 1): one file of 1,000 GB (Windows shows 932 GB), in a folder `IMAGE`. Later, the second copy of your files (Phase 8). |
+| **`SPARE`** (1 TB) | Your copies (`WORK`) and the repairs (`REPAIR`), from Phase 2 on. It goes to the Mac in Phases 5 and 7. |
 
 **What you're doing, in short:**
 
-1. **Make an image of the recovered SSD** onto that drive: a second complete copy,
-   checked by reading it back. The SSD then goes back in its drawer for good.
+1. **Make an image of the recovered SSD** onto the PC's 2 TB drive: a second complete
+   copy, checked by reading it back. The SSD then goes back in its drawer for good.
 2. **From the image:** find what the damage touched, and copy every file into
    `SPARE\WORK`, with a checksum for each file.
 3. **Check every copy once**, for a report. Nothing in `WORK` is ever moved,
@@ -29,6 +38,10 @@ fine. A 4 TB one can later hold a second copy of your files as well (Phase 8).
 5. **Keep two copies of your files**, on two drives, one of them away from home, and
    check them against the checksums once or twice a year.
 
+**After every phase, a safety check** that nothing went missing: the files on the old
+drive, in the list of copies, and in `WORK` now, by number, size and checksum. If
+anything ever goes wrong, you know at which phase, and which files.
+
 **Why this way:** the damage is tiny and exactly known. ddrescue failed to read
 610,816 bytes in 167 places, about 0.00006% of the drive. That can damage the
 contents of at most a few hundred files, and the program names them. Everything else
@@ -37,11 +50,14 @@ anything that deletes or moves files by the thousand.
 
 ## The rules
 
-1. **The recovered SSD is the only copy until the image is checked.** It is never
-   formatted, never "repaired", never written to, and never plugged in while the PC
-   restarts. **Every time** it is plugged in, Recovery Probe's step 3 comes first: it
-   makes Windows leave the SSD switched off and read-only, so nothing — not even
-   Windows itself — can change it.
+1. **The recovered SSD and its 4 TB copy are the only copies until the image is
+   checked.** Neither is ever formatted, partitioned, "repaired" or written to — not
+   even the 4 TB SSD's empty 2 TB: making a partition there rewrites the start of the
+   disk, which is part of the copy. Neither is plugged in while the PC restarts, and
+   **never both at once**: Windows would see the same disk twice, and may change one
+   of them to tell them apart. **Every time** one is plugged in, Recovery Probe's
+   step 3 comes first: it makes Windows leave the SSD switched off and read-only, so
+   nothing — not even Windows itself — can change it.
 2. **Never point a duplicate finder at an Apple Photos Library, and never take files
    out of a library** or out of any other Mac package (iMovie and Final Cut
    libraries, Logic and GarageBand projects, Keynote/Pages/Numbers files, `.rtfd`,
@@ -53,6 +69,11 @@ anything that deletes or moves files by the thousand.
    program's **Put back** (step 8): a repaired file replaces its damaged original at
    exactly the same place, only if that original is still exactly as copied; the
    original is kept in `REPAIR\originals`, every one is listed, and each can be undone.
+4. **After every phase, the safety check** (step 7 → **Check the copies are
+   unchanged**): three ✓, and the same number of files as in **Your numbers**
+   (Phase 2). **A ✗ means stop:** whatever you did since the last ✓ is where it went
+   wrong, and the page names every file that is missing, changed or added. Don't put
+   it right by hand; tell Claude.
 
 > **The files you need**, together in `C:\RECOVERY-TOOLS\`:
 >
@@ -63,7 +84,7 @@ anything that deletes or moves files by the thousand.
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, makes the image, works out from the mapfile exactly which files the damage touched, copies everything off without letting Windows write to the SSD (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
 >
-> The program's page says **Version 2026-10-19** (or later) at the top. The older
+> The program's page says **Version 2026-10-19 (2)** (or later) at the top. The older
 > files `recovery_probe.py`, `probe_selftest.py`, `RUN_PROBE.bat` and
 > `RUN_SELFTEST.bat` aren't needed any more. You can delete them, or leave them;
 > they do no harm.
@@ -84,7 +105,7 @@ anything that deletes or moves files by the thousand.
 > | 4 | Makes an image of the SSD: a second copy |
 > | 5 | Finds what the damage touched (the "map check") |
 > | 6 | Copies everything off, with a checksum per file |
-> | 7 | Checks every copied file; checks the copies are unchanged |
+> | 7 | Checks every copied file; checks the copies are unchanged, with the safety check |
 > | 8 | Repairs the damaged files: isolate, repair, put back, evaluate |
 > | 9 | Finish: take the SSD out, put Windows' setting back |
 >
@@ -104,9 +125,10 @@ anything that deletes or moves files by the thousand.
 Windows does almost everything. The Mac is optional (Phases 5 and 7): it is the only thing
 that can fully decode HEIC photos and camera RAW, and open a Photos Library.
 
-The **original recovery SSD never goes near the Mac.** Only `SPARE` does, and that's
-safe because macOS can only *read* a Windows-formatted (NTFS) drive — unless an NTFS
-write add-on is installed on the Mac (Phase 5 checks).
+The **recovered SSD and the 4 TB SSD never go near the Mac**: a Mac writes to any
+exFAT drive it sees. Only `SPARE` does, and that's safe because macOS can only *read*
+a Windows-formatted (NTFS) drive — unless an NTFS write add-on is installed on the
+Mac (Phase 5 checks, and the checkpoint after it would show it).
 
 ## The tools
 
@@ -144,7 +166,8 @@ to sync them all and can quietly swap real files for cloud placeholders.
 > **Set everything up in your usual account instead of `Transfer`? Then stay in it.**
 > OneDrive only syncs folders inside your user folder (Desktop, Documents, Pictures and
 > the like), and nothing in this job goes there: the program and its results are in
-> `C:\RECOVERY-TOOLS`, the image goes on `IMAGE`, the copies on `SPARE`. Switching now
+> `C:\RECOVERY-TOOLS`, the image goes in an `IMAGE` folder at the top of the PC's 2 TB
+> drive (never inside Documents, Desktop or Pictures), the copies on `SPARE`. Switching now
 > would mean installing Obsidian again, redoing the ffmpeg **Path** (section D, step 4
 > — it belongs to one account) and linking the Claude app again. The power, Windows
 > Update and Defender settings count for every account either way.
@@ -262,19 +285,19 @@ which files and folders sit on those places, whatever size they are.
 
 # PHASE 1 — Make the image 🪟 (about 2–5 hrs, mostly waiting)
 
-## Prepare the two empty drives first — each on its own
+## Prepare `SPARE` and the PC's 2 TB drive first
 
-> ⚠️ **Format nothing while the recovered SSD is plugged in.** Both SSDs are 2 TB,
-> and formatting the wrong one would erase the only copy. So the empty drives are
-> prepared **alone**.
+> ⚠️ **Format nothing while the recovered SSD or the 4 TB SSD is plugged in.**
+> Formatting the wrong disk would erase a copy of your files. So `SPARE` is prepared
+> **alone**.
 
-- [ ] **1.** Make sure the recovered SSD is **not** plugged in. Plug in **only the empty SSD**.
-- [ ] **2.** Format it as **NTFS**, with the name **`SPARE`**: File Explorer → right-click the drive → **Format** → File system **NTFS**, Volume label **`SPARE`**, Quick Format ticked → Start. *(Not in File Explorer? It may be brand new. Right-click Start → **Disk Management** → if it asks to initialise a disk, choose **GPT** → right-click the empty space on that disk → **New Simple Volume** → NTFS, label `SPARE`.)* This is where the copies go.
+- [ ] **1.** Make sure the recovered SSD and the 4 TB SSD are **not** plugged in. Plug in **only `SPARE`**.
+- [ ] **2.** `SPARE` is already formatted **NTFS** and named **`SPARE`** — you've done this. It should be empty. This is where the copies go: it holds about 930 GB.
 - [ ] **3.** Turn off indexing on it: right-click `SPARE` → Properties → untick "Allow files on this drive to have contents indexed" → apply to all files and folders.
 - [ ] **4.** Note `SPARE`'s drive letter (e.g. `E:`).
 - [ ] **5. Defender exclusion for `SPARE`:** Windows Security → Virus & threat protection → Manage settings → Exclusions → **Add an exclusion → Folder** → `SPARE` (e.g. `E:\`). Otherwise Defender scans every file the program writes and checks (2–3× slower), and if it dislikes a recovered file it *quarantines* it. (The recovered SSD needs no exclusion: it stays switched off, so Defender never sees it.)
-- [ ] **6.** Unplug `SPARE`. Plug in **only the image drive**. Format it the same way: **NTFS**, label **`IMAGE`**, Quick Format. *(Already holds files you want to keep? Then don't format it: it only needs to be NTFS with at least 1,000 GB free.)*
-- [ ] **7.** Turn off indexing on `IMAGE` (as step 3) and add the same Defender exclusion for it (as step 5). Note its drive letter (e.g. `F:`).
+- [ ] **6. The PC's 2 TB drive:** File Explorer → **This PC** → right-click it → **Properties**. It must say **NTFS**, with at least **1,000 GB free** (about 1,800 GB is better: the second copy of your files goes here too, in Phase 8). Note its drive letter (e.g. `D:`). **Don't format it.** Make a folder **`IMAGE`** at the top of it (`D:\IMAGE`) — never inside Documents, Desktop, Pictures or anything OneDrive syncs: OneDrive would try to upload a 932 GB file.
+- [ ] **7.** Right-click the `IMAGE` folder → **Properties** → **Advanced…** → untick *"Allow files in this folder to have contents indexed"* → OK. Then add a Defender exclusion for the `IMAGE` folder, as in step 5.
 
 ## A dress rehearsal with `SPARE` — before the recovered SSD
 
@@ -283,8 +306,8 @@ Windows calls "removable media", and some USB cases and adapters say that about 
 SSD inside them. So first try the way the recovered SSD will be plugged in, with
 `SPARE`, which is empty and has nothing to lose.
 
-- [ ] **8.** Unplug everything except `IMAGE`. Double-click `recovery-probe.exe` → **Yes**.
-- [ ] **9. Step 3 → Get Windows ready.** It answers that new disks now stay switched off. (`IMAGE`, already plugged in, stays as it is.)
+- [ ] **8.** Unplug every USB drive. Double-click `recovery-probe.exe` → **Yes**.
+- [ ] **9. Step 3 → Get Windows ready.** It answers that new disks now stay switched off. (The PC's own drives stay as they are.)
 - [ ] **10.** Plug `SPARE` in **the way the recovered SSD will be plugged in**: the same USB port and cable, and if the recovered SSD sits in a USB case or adapter, the same kind of case or adapter.
 - [ ] **11.** In the step 3 list, click `SPARE`'s disk. You want: **switched off**, no **removable media** tag, the page saying *"It arrived switched off, so Windows' setting works for a disk plugged in this way"*, and no new drive in File Explorer.
   - *It says **removable media**, or `SPARE` got a drive letter?* **Stop.** That way of plugging in isn't safe for the recovered SSD. Tell Claude: a different case or adapter, a SATA port inside the PC, or a hardware write blocker are the ways round it.
@@ -298,21 +321,21 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 > click **Cancel**. Never let Windows repair the recovery drive — "fixing" can delete
 > damaged files to tidy up. (With step 3 done first, Windows never gets the chance.)
 
-- [ ] **13. Plug in the recovered SSD**, the way you rehearsed. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, already chosen. Nothing appears in File Explorer — that's the point.
+- [ ] **13. Plug in the recovered SSD** (the 2 TB one; the 4 TB SSD stays in its drawer), the way you rehearsed. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, already chosen. Nothing appears in File Explorer — that's the point.
 - [ ] **14.** Click **Protect disk N**. The page answers that the disk is read-only. Step 3 gets a green tick.
   - *Not marked "the copy ddrescue made"?* Stop and tell Claude before going further.
   - *Marked **removable media**?* The page says so in red: make the image (next step) straight away, then unplug it, and tell Claude before ever plugging it in again.
   - *The page shows an error instead?* Unplug the recovered SSD, and tell Claude.
-- [ ] **15. Step 4 → Make the image.** In the box, type `F:\IMAGE` (with `IMAGE`'s drive letter: the program makes the folder), then click **Make the image**. The program reads the whole SSD once, front to back, into one file (`recovered-ssd.img`), then reads that file back to check it. A 1 TB image over USB takes roughly 1–3 hours to make and as long again to check. The bar at the bottom shows how far it is.
+- [ ] **15. Step 4 → Make the image.** In the box, type `D:\IMAGE` (with your PC's 2 TB drive's letter), then click **Make the image**. The program reads the whole SSD once, front to back, into one file (`recovered-ssd.img`), then reads that file back to check it. A 1 TB image over USB takes roughly 1–3 hours to make and as long again to check. The bar at the bottom shows how far it is.
   - You can click **Stop** and start it again later: it carries on where it stopped.
   - **If the page says the SSD stopped answering:** nothing is lost. Check its cable is in firmly. If it came out, plug it back in (it arrives switched off), choose it in step 3, click **Protect disk N**, then **Make the image** again: it carries on.
 - [ ] **16.** When it says **Done**, read the result. You want **"…and it reads back exactly as it was written"** and **"The SSD gave every byte."**
-  - *It lists places the SSD could not read?* They are zeros in the image, and the map check counts them as never read, so nothing is hidden. But tell Claude: the SSD itself is then failing, which matters for keeping it.
-  - *It says the image does NOT read back the same?* The `IMAGE` drive has a problem. Don't use that image; tell Claude.
+  - *It lists places the SSD could not read?* They are zeros in the image, and the map check counts them as never read, so nothing is hidden. But tell Claude before going on: the SSD itself is then failing, and the 4 TB copy may still hold those places.
+  - *It says the image does NOT read back the same?* The PC's 2 TB drive has a problem. Don't use that image; tell Claude.
 - [ ] **17. Step 9:** click **Switch it off** (if shown), then unplug the recovered SSD and put it in a drawer. It's your untouched master, and it is not needed again.
 - [ ] **18.** Still in step 9, click **Put Windows' setting back**. It answers *"Windows' setting for new disks is as it was."* (It refuses while the recovered SSD is still plugged in.)
 
-Next to the image, in `IMAGE\`, there are now `recovered-ssd.img.sha256` (its
+Next to the image, in `D:\IMAGE\`, there are now `recovered-ssd.img.sha256` (its
 checksum) and `recovered-ssd.img.txt` (what it is, where it came from). Keep all three
 together.
 
@@ -320,24 +343,43 @@ together.
 
 # PHASE 2 — Find what the damage touched, and copy everything 🪟 (about 3–6 hrs)
 
-Everything in this phase reads the image. `SPARE` and `IMAGE` are plugged in; the
-recovered SSD stays in its drawer. (Step 5 and 6 say **"Reads from the image"** under
-their text; if they don't, step 4's image isn't there: check `IMAGE` is plugged in.)
+Everything in this phase reads the image, on the PC's 2 TB drive. `SPARE` is plugged
+in; the recovered SSD and the 4 TB SSD stay in their drawer. (Step 5 and 6 say
+**"Reads from the image"** under their text; if they don't, step 4's image isn't
+there: tell Claude.)
 
-- [ ] **1. Step 5 → Find what the damage touched.** A few minutes. It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD. The red marks on the map at the top now show what each place held. Write the numbers down. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
+- [ ] **1. Step 5 → Find what the damage touched.** A few minutes. It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down, and the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
+
+> **Your numbers**, from step 5. They never change: every safety check from now on
+> should show the same number of files.
+>
+> | Files on the SSD | Size in all |
+> |---|---|
+> |  |  |
+
 - [ ] **2. Read the date line under the numbers.** It should say the newest date on the SSD is *before* ddrescue finished (24 April 2024). **If it shows a yellow warning instead, stop and tell Claude**: something may have changed the SSD after the copy (a computer it was plugged into, say), or a file simply has a wrong date.
 - [ ] **3.** If the page says some **folders were found by their contents**: those are folders whose own record (with the folder's name) sat on a never-read place. The files inside keep their names, dates and folders; only the folder's own name is lost. Step 6 puts each one in `found folders (name lost)\folder at cluster N`.
 - [ ] **4.** If **data no folder names any more** is more than a few MB, tell Claude before going further. It is usually files whose folder record was lost; a second recovery program can be tried on the image to put names to some of it (safely: it's the image).
-- [ ] **5. Step 6 → Copy everything.** Click **Choose…**, click `SPARE`, then **Choose this folder**: the program puts the copies in a `WORK` folder on it (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
+- [ ] **5. Will it fit on `SPARE`?** It holds about 930 GB. If step 5's *size in all* is more than about 900 GB, **stop and tell Claude** (the copying would refuse to start anyway).
+- [ ] **6. Step 6 → Copy everything.** Click **Choose…**, click `SPARE`, then **Choose this folder**: the program puts the copies in a `WORK` folder on it (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
   - It copies **every** file, including the ones Windows can't list, into `SPARE\WORK`, with the same folders and dates, and writes each file's checksum (SHA-256) into the list `WORK\rescue-log.csv`. It takes hours. The bar at the bottom shows how far it is and about how long is left.
   - You can click **Stop** and start it again later (same folder): what's already copied is checked against its checksum and kept.
   - A few names change slightly, because Windows can't use them (a name ending in a space gets `_` instead). `rescue-log.csv` lists every one, and every file.
   - *The PC lost power or crashed?* Start the program again and **Start copying** again into the same folder: each earlier copy is read back whole and copied again if the crash spoilt it.
-- [ ] **6.** When it says **Done**, read the summary. Files that *"could only be copied in part"* are damaged (`rescue-log.csv` lists them as "partly copied"); they're on the damaged list in Phase 6 anyway. Files that *"could not be copied"*: take a screenshot and tell Claude.
-- [ ] **7. Step 7 → Check the copies are unchanged** (the button under *"Are the copies still exactly what came off the SSD?"*). It reads every copy back and compares it with the checksum written while copying. You want **"All N copies are exactly what was copied off the disk."** Anything else: tell Claude.
+- [ ] **7.** When it says **Done**, read the summary. Files that *"could only be copied in part"* are damaged (`rescue-log.csv` lists them as "partly copied"); they're on the damaged list in Phase 6 anyway. Files that *"could not be copied"*: take a screenshot and tell Claude. Under the summary, the **Safety check** should show two ✓ — *on the SSD* and *copied* — and *"Every file step 5 found on the SSD is in the list of copies, with the same size in all."* Anything else, it says what to do (a copying that didn't get to the end is simply started again).
+- [ ] **8. ✅ Your first checkpoint — Step 7 → Check the copies are unchanged** (the button under *"Are the copies still exactly what came off the SSD?"*). It reads every copy back and compares it with the checksum written while copying. You want **"All N copies are exactly what was copied off the disk."**, and in the **Safety check** three ✓ — on the SSD, copied, here now — with the files on every row the same as **Your numbers**, and *"Nothing is missing, and nothing has changed."* Anything else: tell Claude.
 
 > From now on `SPARE\WORK` is your working copy, and it is **never changed**. The
-> image and the SSD in the drawer are the copies it came from.
+> image and the SSDs in the drawer are the copies it came from.
+>
+> **✅ Checkpoints.** Every phase from here on ends with one: step 7 → **Check the
+> copies are unchanged**, on `SPARE\WORK`. It reads every copy back (under an hour
+> for a full `SPARE`), and you want three ✓, *"Nothing is missing, and nothing has
+> changed"*, and the files on every row the same as **Your numbers**. **A ✗ means
+> stop:** what you did since the last ✓ is where it went wrong, and the page names
+> every file that is missing, changed or added. Don't put it right by hand: tell
+> Claude. **Every safety check so far**, under it, keeps the list with dates, and
+> `C:\RECOVERY-TOOLS\results\safety-checks.csv` keeps every number.
 
 ---
 
@@ -439,12 +481,14 @@ tell. MP3val counts the actual audio.
 > or skip them. That's one more reason nothing here moves files: the copies stay
 > exactly where the program put them.
 
+- [ ] **✅ Checkpoint** (covers Phases 3 and 4): step 7 → **Check the copies are unchanged**. Three ✓, the same number of files as **Your numbers**. *(Skipped Phase 4? Skip this too: Phase 3 only reads.)*
+
 ---
 
 # PHASE 5 — The Mac, part 1: check HEIC and RAW 🍎 (optional, one session)
 
-Take **only `SPARE`** to the Mac. The SSD stays in its drawer; the image stays on
-`IMAGE`. This part only reads `SPARE`.
+Take **only `SPARE`** to the Mac. The SSDs stay in their drawer; the image stays on
+the PC. This part only reads `SPARE`.
 
 - [ ] **Before unplugging `SPARE` from the PC**, copy the newest `C:\RECOVERY-TOOLS\results\scan-DATE-photo-libraries.csv` (from Phase 3) onto it (the top of the drive is fine). Phase 7 needs it.
 - [ ] **Check the Mac can only read `SPARE`.** Plug it in, select it in Finder → **File → Get Info** → *Sharing & Permissions* should say **"You can only read"**. If it doesn't (an NTFS add-on such as Paragon NTFS, Tuxera NTFS, iBoysoft NTFS or Mounty is installed), **unplug it and tell Claude** — don't create, rename or delete anything on it.
@@ -486,6 +530,7 @@ caffeinate -i find -E . \( -name '$RECYCLE.BIN' -o -name 'System Volume Informat
 
 - [ ] Copy `sips-failures.txt` from the Mac's Desktop back to the PC (email it to yourself or use a USB stick — the Mac can't write to `SPARE`). It goes into `SPARE\REPAIR\damaged-lists` in Phase 6.
 - [ ] Unplug `SPARE` and take it back to the PC.
+- [ ] **✅ Checkpoint**, on the PC: step 7 → **Check the copies are unchanged**. Three ✓, the same number of files as **Your numbers**. Files *added* (a `._` or `.DS_Store` file, say) mean the Mac could write to `SPARE` after all: tell Claude before it goes to the Mac again.
 
 ---
 
@@ -541,7 +586,7 @@ knows where the file belongs. Folder by folder:
 - [ ] **1. Step 8 → Put the repaired files back.** For each repaired file in `REPAIR\repaired`, the program finds where it belongs by its number, checks the file there is still exactly the damaged original, moves that original into `REPAIR\originals` (in the same folders as in `WORK`), and puts the repaired file in its place with the original's dates. `WORK\repair-returns.csv` lists every one, with both checksums.
 - [ ] **2.** Read the summary. A repaired file that is a different kind (a `.jpg` for a `.HEIC`), has no number, or has two versions, is **not** put back — the summary says which and why.
 - [ ] **3.** Changed your mind about one? Type its number (`R0012`) beside **Undo a put-back**: the original goes back, and the repaired version moves to `REPAIR\replaced`.
-- [ ] **4. Step 7 → Check the copies are unchanged** again. You want every copy exactly as copied — or, for the ones put back, exactly the repaired version.
+- [ ] **4. ✅ Checkpoint: step 7 → Check the copies are unchanged.** You want every copy exactly as copied — or, for the ones put back, exactly the repaired version — and three ✓, with the same number of files as **Your numbers**. (The size can differ a little: the *here now* row says how much the repaired versions add or take away.)
 - [ ] **5. Step 7 → Check every copied file** again, to test the repaired files. (Before that, a file the map check named is marked NEVER_READ; once repaired and put back it is checked as it is now.)
 
 ## 4. Evaluate
@@ -563,8 +608,10 @@ Take **only `SPARE`** to the Mac, and check again that it says **"You can only r
 ## The Photos Libraries
 
 > **A library can't be opened while it's on `SPARE`** — Photos needs a Mac-formatted
-> disk. So a library is *copied* to the Mac, whole, and opened there. The one in
-> `WORK` is never opened or changed by Photos.
+> disk (APFS or Mac OS Extended). So a library is *copied* to the Mac, whole, and
+> opened there. The one in `WORK` is never opened or changed by Photos: it stays your
+> backup of the library, so Apple's advice to back up before repairing is already
+> taken care of.
 
 Open the `scan-DATE-photo-libraries.csv` you copied onto the drive in Numbers or any
 spreadsheet, and work down it, together with what step 8's **Evaluate** said about each
@@ -574,14 +621,39 @@ library (`SPARE\REPAIR\evaluation.csv`):
 - [ ] **2. Start with row 1** (the best guess). Exception: if a smaller library has a much newer `newest_file` date, it may be the one you were actually using and the big one an old archive — try that instead.
 - [ ] **3. A library with `likely_icloud_placeholders` = yes** may hold small stand-ins, not the real photos ("Optimize Mac Storage" leaves those; the real photos are in iCloud). It's only a guess from the typical file size: a library of genuinely small photos (an early digital camera, scans, screenshots) looks the same. Look at a few photos, and at icloud.com, before trusting it either way.
 - [ ] **4. Copy that one library to the Mac** — drag the whole library from `SPARE` to the Mac. It needs about 20% more free space than its size.
-- [ ] **5. Hold ⌥ Option + ⌘ Command while opening Photos**, choose the copy, and choose **Repair**. On a big library this takes hours.
+- [ ] **5. Open the copy, and only the copy.** Quit Photos. Hold **⌥ Option** (just Option) while opening Photos: it asks which library to use. Click **Other Library…**, choose the copy you just made, then **Choose Library**. (Photos may say it must update the library first: fine, it's the copy.)
   - If Photos offers to make it the **System Photo Library**, say no.
   - Don't turn on **iCloud Photos** for it (Photos → Settings → iCloud stays off): it would start syncing and merging with your iCloud.
-- [ ] **6. Check what survived, in this order** — each can fail on its own: do the photos appear at all? Are the **dates** right? Are the **albums** there? Are **faces and keywords** there?
-- [ ] **7. If photos are missing or blank, check that library's `damaged_inside` number** before re-running Repair. If thousands of files inside it were damaged, no amount of repairing brings them back.
-- [ ] **8.** Compare against the other libraries: with one open, spot-check whether photos from the smaller ones are already in it.
-- [ ] **9.** If Photos won't open it at all, **write down the exact error message.**
-- [ ] **10.** The library you keep using lives on the Mac (Photos can only use one on a Mac-formatted disk): back it up there, with Time Machine. The one in `WORK` stays as it is, as part of the copies.
+- [ ] **6. Check what survived, in this order** — each can fail on its own: do the photos appear at all? Are the **dates** right? Are the **albums** there? Are **faces and keywords** there? **If it all looks right, don't repair it**: go on to step 9.
+- [ ] **7. Before any repair, copy everything out with osxphotos** *(optional, but a good safety net)*. It's a free tool that reads the library's own database, without Photos, and copies every photo and video out under its original name, in folders named after its albums, with the edited version beside the original. If a repair then loses albums or edits, you still have them. In Terminal, once (it needs the internet):
+
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+   Close Terminal and open it again, then:
+
+```
+uv tool install --python 3.12 osxphotos
+```
+
+   Then type this, with a space at the end — **don't press Return yet**:
+
+```
+osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library 
+```
+
+   …drag the copied library from Finder into the Terminal window (that types its
+   path), and press Return. It needs as much free space as the library. If macOS
+   asks whether Terminal may open a folder, click **Allow**. (osxphotos is tested up
+   to macOS 15 Sequoia; on macOS 26 most of it works.)
+
+- [ ] **8. Only if the library won't open, or looks wrong: repair the copy.** ⌥ Option + ⌘ Command repairs whichever library Photos opened last — it doesn't ask which — so first make sure that's the copy: Photos → **Settings → General** → *Library Location* must show the copy. Then quit Photos, hold **⌥ Option + ⌘ Command** while opening it, and click **Repair**. On a big library this takes hours. Then check again, as in step 6.
+  - If photos are still missing or blank, check that library's `damaged_inside` number before running Repair again. If thousands of files inside it were damaged, no amount of repairing brings them back.
+- [ ] **9.** Compare against the other libraries: with one open, spot-check whether photos from the smaller ones are already in it.
+- [ ] **10.** If Photos won't open it at all, even after Repair, **write down the exact error message** and tell Claude. osxphotos (step 7) may still copy the photos out.
+- [ ] **11.** The library you keep using lives on the Mac (Photos can only use one on a Mac-formatted disk): back it up there, with Time Machine. The one in `WORK` stays as it is, as part of the copies.
+- [ ] **12. Switch Photos back to your own library** when you're done: quit Photos, hold **⌥ Option** while opening it, and choose your usual library. Until you do, Photos keeps opening the last one.
 
 > **Don't merge libraries by hand and don't dedupe across them.** If two overlap,
 > Photos' own Import handles it.
@@ -589,32 +661,39 @@ library (`SPARE\REPAIR\evaluation.csv`):
 > **A library made on a newer macOS won't open on an older one.** If the Mac is behind,
 > update it before deciding a library is dead.
 
+> **A very old iPhoto library** (from before Photos replaced iPhoto in 2015) is a
+> different kind. Apple's user forum reports that only a Mac on macOS 12 Monterey or
+> older can open or convert one; newer Photos can only import from it. If one won't
+> open, tell Claude rather than trying anything else on it.
+
 ## Bring the results back
 
-- [ ] Your notes from this phase (which library is the real one, what Repair said) go into `RECORDS` in Phase 8.
+- [ ] Your notes from this phase (which library is the real one, what Repair said) go into `RECORDS` in Phase 8. An osxphotos export stays on the Mac: it's a spare, not part of `WORK`.
 - [ ] Unplug `SPARE` and take it back to the PC.
+- [ ] **✅ Checkpoint**, on the PC: step 7 → **Check the copies are unchanged**. Three ✓, the same number of files as **Your numbers**.
 
 ---
 
 # PHASE 8 — Keep it safe 🪟 (about 1 hr, plus copying time)
 
-- [ ] **1. A `RECORDS` folder on `SPARE`:** copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` and `WORK\repair-returns.csv` stay where they are: step 7 needs them there.) In three years you'll want to know what was checked.
-- [ ] **2. A second copy, on another drive, kept away from home:** copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` onto it. A 4 TB `IMAGE` drive has room beside the image. On a 2 TB `IMAGE` there's room for one or the other: the image has done its job once `WORK` is checked, and the recovered SSD in the drawer is the master, so replacing the image with the second copy is reasonable — but it's a deletion, so decide it yourself, not because this list says so.
-- [ ] **3. Check the second copy:** in step 7, click **Choose…** beside the folder box, choose the second copy's `WORK` folder, then click **Check the copies are unchanged**. You want every copy exactly as copied (or, for the ones put back, exactly the repaired version).
-- [ ] **4. Set a phone reminder every six months** to plug both drives in and run **Check the copies are unchanged** on each `WORK` (the same way). A file that has quietly changed shows up by name; take a good copy of it from the other drive. (Unpowered SSDs slowly lose their data: plugging them in twice a year also keeps them healthy.)
-- [ ] **5.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
+- [ ] **1. A `RECORDS` folder on `SPARE`**, beside `WORK` (not inside it: anything new inside `WORK` shows as *added* in the safety check): copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` and `WORK\repair-returns.csv` stay where they are: step 7 needs them there.) In three years you'll want to know what was checked.
+- [ ] **2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`.
+- [ ] **3. ✅ The final check — both copies.** In step 7, check `SPARE\WORK` with **Check the copies are unchanged**; then click **Choose…** beside the folder box, choose `D:\COPY 2\WORK`, and check it too. For each you want three ✓, *"Nothing is missing, and nothing has changed"*, and the files on every row the same as **Your numbers**: every file the old drive held is in both copies, exactly as copied or as repaired and put back. **Every safety check so far** now shows the whole way here, one line per checkpoint.
+- [ ] **4. One copy away from home.** Once the final check passes, keep `SPARE` somewhere else (a relative's, work) and bring it home twice a year for its check. *(The 4 TB SSD could become that copy instead one day — but only once you decide you no longer want it as a spare of the recovered SSD. That wipes it, so decide it yourself, not because this list says so.)*
+- [ ] **5. Set a phone reminder every six months** to plug `SPARE` in and run **Check the copies are unchanged** on both `WORK` folders (the same way). A file that has quietly changed shows up by name; take a good copy of it from the other one. (Unpowered SSDs slowly lose their data: plugging `SPARE` in twice a year also keeps it healthy.)
+- [ ] **6.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
 
 > **MultiPar / PAR2 is optional now.** A PAR2 set covers at most 32,768 files, so "one
 > set per top-level folder" fails for big folders, and a Photos Library you keep using
 > changes all the time. Two copies plus the checksum list protect better and are
 > simpler. PAR2 still suits a small folder you'll never change.
 
-- [ ] **6. Undo Phase −1:**
+- [ ] **7. Undo Phase −1:**
   - `services.msc` → Windows Update → **Automatic (Delayed Start)** → Start
   - Settings → Windows Update → **Resume updates**
   - Advanced options → turn the restart setting back on
   - Power Options → back to **Balanced**
-  - Remove the Defender exclusions for `SPARE` and `IMAGE`
+  - Remove the Defender exclusions for `SPARE`, the `IMAGE` folder and `D:\COPY 2` (if Defender ever quarantines one of your files after that, the six-monthly check shows it as missing, and Windows Security → **Protection history** can restore it)
   - `sysdm.cpl` → Advanced → Startup and Recovery → Settings → tick **Automatically restart** again
   - AutoPlay back on, if you want it
   - In Recovery Probe, step 9 should say *"Windows' setting for new disks is as it was."* If it doesn't (and the recovered SSD is unplugged), click **Put Windows' setting back**
@@ -629,7 +708,10 @@ library (`SPARE\REPAIR\evaluation.csv`):
 | **Any part of a file the old drive never gave up** — even one 512-byte sector, even in a photo that looks perfect, even HEIC and RAW | **Yes** — the map check (Phase 2), marked NEVER_READ (Phase 3) |
 | Files Windows can't even list, because their folder record was never read | **Yes** — found by the map check and copied anyway (Phase 2) |
 | A folder whose own record was never read | **Yes** — found by its contents; its files keep their names (Phase 2). Only the folder's own name is lost |
-| A copy that changes later — on the drive, in a later copy, over the years | **Yes** — the checksum list and *Check the copies are unchanged* (Phases 2 and 8) |
+| A copy that changes later — on the drive, in a later copy, over the years | **Yes** — the checksum list and *Check the copies are unchanged* (every checkpoint, Phases 2–8) |
+| A file deleted, moved or renamed by mistake — by you, a tool or another computer — at any point | **Yes** — the safety check names it, and the checkpoint after each phase shows when it happened (Phases 2–8) |
+| A file added to `WORK` by mistake (a Mac writing `._` files, a file saved there) | **Yes** — named by the safety check |
+| A copying that stopped early, or files that couldn't be copied | **Yes** — the safety check after step 6 (Phase 2) |
 | A repaired file put back in the wrong place, or over a file that had changed | **Can't happen** — each repaired file goes back by its number to exactly where its original was, only if that original is still exactly as copied; the original is kept, and every put-back can be undone (Phase 6) |
 | A package split up by repairs (a library, an app, a document kept as a folder) | **Can't happen** — nothing is taken out of a package; what is damaged inside one goes back to the same place inside it (Phase 6) |
 | File cut short (video stops halfway, JPEG without its end, PDF/zip missing their ending) | **Yes** — Phase 3 |
@@ -646,4 +728,5 @@ The last row is the loss nothing can find. The mapfile total from Phase 0 — ab
 600 KB — is how much was lost to places the drive could not read.
 
 Realistic outcome: every file copied exactly, with a checksum; every damaged file
-named; nothing deleted, nothing moved, nothing silently assumed good.
+named; nothing deleted, nothing moved, nothing silently assumed good — and a dated list
+of checks showing it stayed that way.

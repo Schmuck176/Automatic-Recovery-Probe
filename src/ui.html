@@ -211,9 +211,9 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 
     <li id="s-image">
       <div class="step-head"><h2>Make an image of the SSD: a second copy</h2><span class="state" id="st-image"></span></div>
-      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code>.</p>
+      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code> on the PC's own second drive.</p>
       <div class="row">
-        <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example F:\IMAGE">
+        <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example D:\IMAGE">
         <button class="second" id="b-image-to">Choose…</button>
       </div>
       <p class="small soft" id="image-space"></p>
@@ -255,7 +255,7 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
       <div class="row"><button id="b-scan">Check every copied file</button></div>
       <div id="r-scan"></div>
       <h3>Are the copies still exactly what came off the SSD?</h3>
-      <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares. Use it after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
+      <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares, then adds it all up in a safety check: the files step 5 found on the SSD, the files in the list of copies, and the files here now. Use it after every phase of the checklist, after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
       <div class="row"><button class="second" id="b-verify">Check the copies are unchanged</button></div>
       <div id="r-verify"></div>
     </li>
