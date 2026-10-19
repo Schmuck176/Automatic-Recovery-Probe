@@ -54,6 +54,10 @@ HIDDEN	Documents\letter 16.docx	0
 HIDDEN	Documents\letter 17.docx	0
 HIDDEN	Documents\letter 18.docx	0
 HIDDEN	Documents\letter 19.docx	0
+HIDDEN	found folders (name lost)\folder at cluster 190	0
+HIDDEN	found folders (name lost)\folder at cluster 190\old 0.pdf	0
+HIDDEN	found folders (name lost)\folder at cluster 190\old 1.pdf	0
+HIDDEN	found folders (name lost)\folder at cluster 190\old 2.pdf	0
 FOUND	Archive	1	0	0
 FOUND	Big folder	1	0	0
 FOUND	Big folder\file number 00 with a longer name.bin	0	870	3803506863
@@ -150,10 +154,14 @@ FOUND	Photos\Summer 2019 \beach 0.jpg	0	8984	1357569020
 FOUND	Photos\Summer 2019 \beach 1.jpg	0	7021	2607146123
 FOUND	Photos\Summer 2019 \beach 2.jpg	0	7804	2088651677
 FOUND	Photos\Summer 2019 \beach 3.jpg	0	6613	3077622833
+FOUND	found folders (name lost)\folder at cluster 190	1	0	0
+FOUND	found folders (name lost)\folder at cluster 190\old 0.pdf	0	3143	668510009
+FOUND	found folders (name lost)\folder at cluster 190\old 1.pdf	0	3746	213811260
+FOUND	found folders (name lost)\folder at cluster 190\old 2.pdf	0	1420	1633698128
 FOUND	notes.txt	0	600	2076634290
 FOUND	家族の写真	1	0	0
 FOUND	家族の写真\写真 0.jpg	0	2982	3742088576
 FOUND	家族の写真\写真 1.jpg	0	2010	3445490560
 FOUND	家族の写真\写真 2.jpg	0	4515	1219540446
-LOST	4
+LOST	5
 PROBLEMS	3

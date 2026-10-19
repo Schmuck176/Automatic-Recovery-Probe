@@ -9,7 +9,7 @@
 //! attempt) or real data (most likely read by an earlier attempt).
 
 use crate::disk::{open_source, Source};
-use crate::exfat::{walk, ClusterList, Entry, FolderIssue, Volume};
+use crate::exfat::{ClusterList, Entry, FolderIssue, Volume};
 use crate::fmt::{commas, csv_row, json_str, size};
 use crate::gpt::{self, Table};
 use crate::mapfile::{self, Mapfile};
@@ -763,6 +763,8 @@ pub fn analyse_with(
     let mut newest: Option<(u32, String)> = None;
     let mut last_report = std::time::Instant::now();
     let folder_problems = {
+        // (Both the walk and the search for lost folders report as they go.)
+        let say = std::cell::RefCell::new(&mut *progress);
         let mut visit = |e: &Entry, list: &ClusterList| {
             if e.is_dir {
                 seen.0 += 1;
@@ -770,7 +772,11 @@ pub fn analyse_with(
                 seen.1 += 1;
             }
             if last_report.elapsed().as_millis() > 500 {
-                progress(&format!("Reading folder records: {} folders, {} files so far", commas(seen.0), commas(seen.1)));
+                (*say.borrow_mut())(&format!(
+                    "Reading folder records: {} folders, {} files so far",
+                    commas(seen.0),
+                    commas(seen.1)
+                ));
                 last_report = std::time::Instant::now();
             }
             if e.hidden_from_windows {
@@ -792,7 +798,7 @@ pub fn analyse_with(
                 }
             }
         };
-        walk(&vol, &mut visit)
+        crate::exfat::walk_until(&vol, &mut visit, &|| false, &mut |m: &str| (*say.borrow_mut())(m))
     };
     progress(&format!("Read every folder: {} folders, {} files", commas(seen.0), commas(seen.1)));
 

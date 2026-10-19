@@ -343,7 +343,7 @@ class Volume:
         names = (len(units) + 14) // 15
         sc = 1 + names
         e = bytearray(32 * (sc + 1))
-        e[0] = 0x05 if n.deleted else 0x85
+        e[0] = 0x85
         e[1] = sc
         struct.pack_into("<H", e, 4, n.attrs)
         struct.pack_into("<III", e, 8, n.mtime, n.mtime, n.mtime)
@@ -351,7 +351,7 @@ class Volume:
         e[21] = 0
         e[22] = e[23] = e[24] = 0x80 | 0  # UTC offsets valid, +00:00
         s = 32
-        e[s] = 0x40 if n.deleted else 0xC0
+        e[s] = 0xC0
         flags = 0
         if n.clusters:
             flags |= 1  # AllocationPossible
@@ -365,10 +365,15 @@ class Volume:
         struct.pack_into("<Q", e, s + 24, n.data_length)
         for k in range(names):
             o = 64 + 32 * k
-            e[o] = 0x41 if n.deleted else 0xC1
+            e[o] = 0xC1
             part = units[15 * k:15 * k + 15]
             struct.pack_into("<%dH" % len(part), e, o + 2, *part)
         struct.pack_into("<H", e, 2, entry_set_checksum(e))
+        if n.deleted:
+            # Deleting clears the "in use" bit of each part and nothing else:
+            # the checksum stays the one made while the file was in use.
+            for k in range(sc + 1):
+                e[32 * k] &= 0x7F
         return bytes(e)
 
     def _dir_bytes(self, d):

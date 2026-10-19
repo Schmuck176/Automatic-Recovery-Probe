@@ -731,6 +731,7 @@ pub fn rescue(
             }
         },
         &|| watched.errors() > 0 && gone(),
+        &mut |m: &str| progress(m),
     );
     if gone() {
         return Err(disk_lost_text(&watched.last_error()));
@@ -803,6 +804,8 @@ pub fn rescue(
     let mut errors_seen = 0u64;
     let mut failures_in_a_row = 0u32;
     let mut copied_this_run = 0u64;
+    // (Both the copying and the search for lost folders report as they go.)
+    let say = std::cell::RefCell::new(&mut *progress);
     let mut visit = |e: &Entry, list: &ClusterList| {
         mark(list);
         if o.stopped {
@@ -1001,7 +1004,7 @@ pub fn rescue(
         }
         if o.files % 64 == 0 || last.elapsed().as_millis() > 500 {
             amount(done_bytes, total_bytes);
-            progress(&format!(
+            (*say.borrow_mut())(&format!(
                 "Copied {} of {} files ({} of {})",
                 commas(o.files + o.already_there),
                 commas(total_files),
@@ -1013,8 +1016,10 @@ pub fn rescue(
     };
     // (Between folders too: a disk that stops answering while a folder is
     // read never gets as far as the next file.)
-    let issues = crate::exfat::walk_until(&vol, &mut visit, &|| stop() || gone());
+    let issues =
+        crate::exfat::walk_until(&vol, &mut visit, &|| stop() || gone(), &mut |m: &str| (*say.borrow_mut())(m));
     drop(visit);
+    drop(say);
     amount(done_bytes, total_bytes);
     if o.disk_lost.is_none() && gone() {
         o.disk_lost = Some(watched.last_error());
@@ -1122,8 +1127,18 @@ pub fn rescue(
         }
     }
     if o.disk_lost.is_none() {
+        // Each note once, with where it is (so two of the same kind in one
+        // folder are two lines): a run started again keeps one line per note.
+        let mut noted: HashSet<(String, String)> = HashSet::new();
         for i in &issues {
-            runlog.note(&i.folder, &i.what);
+            let what = if i.disk_offset > 0 {
+                format!("{} (at byte {} of the disk)", i.what, commas(i.disk_offset))
+            } else {
+                i.what.clone()
+            };
+            if noted.insert((i.folder.clone(), what.clone())) {
+                runlog.note(&i.folder, &what);
+            }
         }
     }
     if let Some(err) = &o.disk_lost {
@@ -1259,17 +1274,28 @@ mod tests {
         let count = Unplugged { inner: &disk, reads_left: AtomicI64::new(i64::MAX) };
         rescue(&count, &opts(&dir.join("count"), None), &mut |_| {}, &mut |_, _| {}).unwrap();
         let reads = i64::MAX - count.reads_left.load(std::sync::atomic::Ordering::Relaxed);
-        for k in [reads / 2, reads * 9 / 10] {
+        // Half-way the disk may still be being read for the totals (with the
+        // search for lost folders), before any copying; later it is copying.
+        for k in [reads / 2, reads * 3 / 4, reads * 9 / 10] {
             let part = dir.join(format!("part-{k}"));
             let cut = Unplugged { inner: &disk, reads_left: AtomicI64::new(k) };
-            let o1 = rescue(&cut, &opts(&part, None), &mut |_| {}, &mut |_, _| {}).unwrap();
-            assert!(o1.stopped && o1.disk_lost.is_some(), "the copy stops when the disk stops answering: {o1:?}");
-            assert!(o1.failed.is_empty(), "nothing is listed as failed: {:?}", o1.failed);
-            assert!(o1.files <= o.files);
+            let copied_before = match rescue(&cut, &opts(&part, None), &mut |_| {}, &mut |_, _| {}) {
+                Ok(o1) => {
+                    assert!(o1.stopped && o1.disk_lost.is_some(), "the copy stops when the disk stops answering: {o1:?}");
+                    assert!(o1.failed.is_empty(), "nothing is listed as failed: {:?}", o1.failed);
+                    assert!(o1.files <= o.files);
+                    o1.files
+                }
+                Err(e) => {
+                    assert!(e.contains("stopped answering"), "{e}");
+                    0
+                }
+            };
             // Plugged in again: the copy carries on and ends up the same.
             let o2 = rescue(&disk, &opts(&part, None), &mut |_| {}, &mut |_, _| {}).unwrap();
-            assert!(!o2.stopped && o2.failed.is_empty() && o2.already_there > 0, "{o2:?}");
-            assert_eq!(o1.files + o2.files, o.files);
+            assert!(!o2.stopped && o2.failed.is_empty(), "{o2:?}");
+            assert!(copied_before == 0 || o2.already_there > 0, "{o2:?}");
+            assert_eq!(copied_before + o2.files, o.files);
             assert_eq!(tree(&part), tree(&whole), "the copies are the same as one whole run's");
             assert_eq!(log_rows(&part), log_rows(&whole), "the list is the same as one whole run's");
         }

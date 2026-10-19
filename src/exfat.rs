@@ -80,6 +80,9 @@ pub struct Volume<'a> {
     pub upcase_clusters: ClusterList,
     pub root_clusters: ClusterList,
     fat_cache: Mutex<HashMap<u64, Vec<u32>>>,
+    /// What each round of the search for folders whose own record is lost
+    /// found (the copying walks the folders twice: to count, then to copy).
+    orphan_rounds: Mutex<Vec<Vec<(u32, ClusterList)>>>,
 }
 
 /// A file's clusters as runs of consecutive clusters: (first, count).
@@ -159,6 +162,7 @@ impl<'a> Volume<'a> {
             upcase_clusters: ClusterList::default(),
             root_clusters: ClusterList::default(),
             fat_cache: Mutex::new(HashMap::new()),
+            orphan_rounds: Mutex::new(Vec::new()),
         };
         if v.cluster_count == 0 || !v.valid_cluster(v.root_cluster) {
             return Err("the exFAT boot sector's cluster count or root folder is out of range".to_string());
@@ -436,16 +440,441 @@ enum Stop {
 /// Folders whose own record has a bad checksum are reported and not
 /// entered (their cluster numbers cannot be trusted).
 pub fn walk(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList)) -> Vec<FolderIssue> {
-    walk_until(vol, visit, &|| false)
+    walk_until(vol, visit, &|| false, &mut |_| {})
 }
 
-/// `walk`, giving up (before reading the next folder) once `stop` says so.
-pub fn walk_until(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList), stop: &dyn Fn() -> bool) -> Vec<FolderIssue> {
+/// Where folders found by their contents go: their own name is lost.
+pub const FOUND_FOLDERS: &str = "found folders (name lost)";
+const WHY_ORPHAN: &str = "its folder's own record (with the folder's name) was in a place ddrescue never read or is \
+damaged, so Windows cannot reach the folder; the program found the folder by its contents";
+
+/// Clusters something found by the walk claims (bit i = cluster i + 2).
+struct Claimed {
+    bits: Vec<u64>,
+}
+
+impl Claimed {
+    fn new(vol: &Volume) -> Claimed {
+        Claimed { bits: vec![0; (vol.cluster_count as usize).div_ceil(64)] }
+    }
+    fn mark(&mut self, list: &ClusterList) {
+        for &(first, count) in &list.runs {
+            for c in first..first.saturating_add(count) {
+                let i = (c as usize).wrapping_sub(2);
+                if i / 64 < self.bits.len() {
+                    self.bits[i / 64] |= 1 << (i % 64);
+                }
+            }
+        }
+    }
+    fn has(&self, c: u32) -> bool {
+        let i = (c as usize).wrapping_sub(2);
+        i / 64 < self.bits.len() && self.bits[i / 64] & (1 << (i % 64)) != 0
+    }
+}
+
+type Start = (String, ClusterList, bool, bool, String);
+
+/// `walk`, giving up (before reading the next folder) once `stop` says so;
+/// `note` hears how a long search for lost folders is getting on.
+///
+/// After the folders reached from the top folder, it walks the folders
+/// whose own record is lost (a never-read place, or a damaged record, in
+/// their parent folder): their clusters are marked in use but nothing found
+/// claims them, and they still hold valid folder records. Each such folder is
+/// walked as "found folders (name lost)\folder at cluster N", so its files
+/// keep their names, dates and folders.
+pub fn walk_until(
+    vol: &Volume,
+    visit: &mut dyn FnMut(&Entry, &ClusterList),
+    stop: &dyn Fn() -> bool,
+    note: &mut dyn FnMut(&str),
+) -> Vec<FolderIssue> {
     let mut issues = Vec::new();
-    // (path, clusters, hidden, maybe, why)
-    let mut stack: Vec<(String, ClusterList, bool, bool, String)> =
-        vec![(String::new(), vol.root_clusters.clone(), false, false, String::new())];
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut claimed = Claimed::new(vol);
+    claimed.mark(&vol.bitmap_clusters);
+    claimed.mark(&vol.upcase_clusters);
+    claimed.mark(&vol.root_clusters);
+    let root: Start = (String::new(), vol.root_clusters.clone(), false, false, String::new());
+    walk_stack(vol, vec![root], visit, stop, &mut issues, &mut visited, &mut claimed);
+    for round in 0..3 {
+        if stop() || vol.bitmap.is_empty() {
+            break;
+        }
+        // (The same every time the same volume is walked to the end.)
+        let earlier = vol.orphan_rounds.lock().unwrap().get(round).cloned();
+        let orphans = match earlier {
+            Some(o) => o,
+            None => {
+                let Some(o) = find_orphan_folders(vol, &claimed, stop, note) else { break };
+                let mut rounds = vol.orphan_rounds.lock().unwrap();
+                if rounds.len() == round {
+                    rounds.push(o.clone());
+                }
+                o
+            }
+        };
+        if orphans.is_empty() {
+            break;
+        }
+        let mut starts: Vec<Start> = Vec::new();
+        for (first, list) in orphans {
+            let path = format!("{FOUND_FOLDERS}\\folder at cluster {first}");
+            // The folder itself, as if its record had been read.
+            let entry = Entry {
+                path: path.clone(),
+                is_dir: true,
+                attributes: 0x10,
+                first_cluster: first,
+                no_fat_chain: false,
+                data_length: list.total() * vol.cluster_size,
+                valid_data_length: list.total() * vol.cluster_size,
+                modified: 0,
+                modified_10ms: 0,
+                modified_utc: 0,
+                created: 0,
+                created_10ms: 0,
+                created_utc: 0,
+                accessed: 0,
+                accessed_utc: 0,
+                record_offset: 0,
+                record_len: 0,
+                record_extents: Vec::new(),
+                hidden_from_windows: true,
+                hidden_maybe: false,
+                why_hidden: WHY_ORPHAN.to_string(),
+            };
+            claimed.mark(&list);
+            visit(&entry, &list);
+            starts.push((path, list, true, false, WHY_ORPHAN.to_string()));
+        }
+        // Walked in cluster order.
+        starts.reverse();
+        walk_stack(vol, starts, visit, stop, &mut issues, &mut visited, &mut claimed);
+    }
+    issues
+}
+
+/// How one in-use file record (type 0x85) at slot `i` of a folder's records
+/// reads, by the rules Windows follows (see `Stop`). The walk and the search
+/// for folders whose own record is lost both go by this, so they always
+/// agree on which records are sound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rec {
+    /// Its parts run past the end of the folder.
+    CutOff,
+    /// One of its parts is blank.
+    BlankInside,
+    /// It claims an impossible number of parts (skipped with all of them).
+    BadCount(usize),
+    /// Its parts are of the wrong kinds (skipped with all the slots it claims).
+    BadParts(usize),
+    /// Well formed, but its checksum is wrong.
+    BadChecksum,
+    /// Sound, with this many parts after the first.
+    Sound(usize),
+}
+
+fn classify(buf: &[u8], i: usize) -> Rec {
+    let slots = buf.len() / 32;
+    let o = i * 32;
+    let sc = buf[o + 1] as usize;
+    if i + sc >= slots {
+        return Rec::CutOff;
+    }
+    if (1..=sc).any(|k| buf[o + 32 * k] == 0x00) {
+        return Rec::BlankInside;
+    }
+    if !(2..=18).contains(&sc) {
+        return Rec::BadCount(sc);
+    }
+    let set = &buf[o..o + 32 * (sc + 1)];
+    let stream = &set[32..64];
+    // Name records first, then any vendor extension records.
+    let name_entries = (stream[3] as usize).div_ceil(15);
+    let structure_ok = stream[0] == 0xC0
+        && stream[3] >= 1
+        && name_entries < sc
+        && (0..name_entries).all(|k| set[64 + k * 32] == 0xC1)
+        && (name_entries..sc - 1).all(|k| set[64 + k * 32] & 0xC0 == 0xC0);
+    if !structure_ok {
+        return Rec::BadParts(sc);
+    }
+    if entry_set_checksum(set) != u16le(set, 2) {
+        return Rec::BadChecksum;
+    }
+    Rec::Sound(sc)
+}
+
+/// Is there a valid file record set (in use, or deleted) at the start of
+/// `buf`? (A deleted set has the "in use" bit of each part cleared; the
+/// checksum was made with it set.)
+fn starts_valid_set(buf: &[u8]) -> bool {
+    if buf.len() < 64 || (buf[0] != 0x85 && buf[0] != 0x05) {
+        return false;
+    }
+    let sc = buf[1] as usize;
+    if !(2..=18).contains(&sc) || buf.len() < 32 * (sc + 1) {
+        return false;
+    }
+    let mut set = buf[..32 * (sc + 1)].to_vec();
+    for k in 0..=sc {
+        set[32 * k] |= 0x80;
+    }
+    classify(&set, 0) == Rec::Sound(sc)
+}
+
+/// One sound, in-use file record found in a folder's records.
+struct SetInfo {
+    slot: usize,
+    is_dir: bool,
+    first: u32,
+    length: u64,
+    alloc: bool,
+}
+
+/// The sound in-use file records in a folder's records, found the way the
+/// walk finds them.
+fn sets_in(buf: &[u8]) -> Vec<SetInfo> {
+    let mut out = Vec::new();
+    let slots = buf.len() / 32;
+    let mut i = 0;
+    while i < slots {
+        let o = i * 32;
+        if buf[o] != 0x85 {
+            i += 1;
+            continue;
+        }
+        match classify(buf, i) {
+            Rec::Sound(sc) => {
+                let stream = &buf[o + 32..o + 64];
+                out.push(SetInfo {
+                    slot: i,
+                    is_dir: u16le(buf, o + 4) & 0x10 != 0,
+                    first: u32le(stream, 20),
+                    length: u64le(stream, 24),
+                    alloc: stream[1] & 1 != 0,
+                });
+                i += sc + 1;
+            }
+            Rec::BadCount(sc) | Rec::BadParts(sc) => i += sc + 1,
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// A sub-folder the walk would go into from this record.
+fn names_folder(vol: &Volume, s: &SetInfo) -> bool {
+    s.is_dir && s.alloc && s.length > 0 && vol.valid_cluster(s.first)
+}
+
+/// Folders whose own record is lost: among the clusters marked in use that
+/// nothing found claims, those that begin with a valid file record set.
+/// Each is followed through the FAT where the FAT chains it, otherwise
+/// cluster after cluster while the records carry on (a record that runs on
+/// from the cluster before, or one beginning the cluster that is no other
+/// folder's start). Left out: folders another such folder names as a
+/// sub-folder (they are walked from there), and ones whose records do not
+/// point at data that is lost too. Returns (first cluster, clusters) of
+/// each, in cluster order.
+fn find_orphan_folders(
+    vol: &Volume,
+    claimed: &Claimed,
+    stop: &dyn Fn() -> bool,
+    note: &mut dyn FnMut(&str),
+) -> Option<Vec<(u32, ClusterList)>> {
+    let cs = vol.cluster_size as usize;
+    let lost = |c: u32| vol.valid_cluster(c) && vol.is_allocated(c) == Some(true) && !claimed.has(c);
+    let head = |c: u32| vol.src.read_at(vol.cluster_offset(c), 32 * 19).unwrap_or_default();
+    // Clusters that begin with a valid record set. (A glance at the start of
+    // every cluster nothing names: on a slow drive and a lot of such data,
+    // that takes a while, so it says how far it has got.)
+    let last = vol.cluster_count.saturating_add(1);
+    let to_look = (2..=last).filter(|&c| lost(c)).count() as u64;
+    let mut looked = 0u64;
+    let mut told = std::time::Instant::now();
+    let mut dirlike: Vec<u32> = Vec::new();
+    for c in 2..=last {
+        if !lost(c) {
+            continue;
+        }
+        looked += 1;
+        if looked % 4096 == 0 {
+            if stop() {
+                return None;
+            }
+            if told.elapsed().as_secs() >= 2 {
+                note(&format!(
+                    "Looking for folders whose own record is lost, in the data no folder record names: {}% done",
+                    looked * 100 / to_look.max(1)
+                ));
+                told = std::time::Instant::now();
+            }
+        }
+        if starts_valid_set(&head(c)) {
+            dirlike.push(c);
+        }
+    }
+    if dirlike.is_empty() {
+        return Some(Vec::new());
+    }
+    let is_dirlike: std::collections::HashSet<u32> = dirlike.iter().copied().collect();
+    // The folders each of those names as its sub-folders (in that cluster,
+    // with what follows it on the disk to finish a record it begins).
+    let mut named: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for &c in &dirlike {
+        if let Ok(b) = vol.src.read_at(vol.cluster_offset(c), cs + 32 * 18) {
+            for s in sets_in(&b) {
+                if s.slot < cs / 32 && names_folder(vol, &s) {
+                    named.insert(s.first);
+                }
+            }
+        }
+    }
+    // Do the records carry on from cluster k - 1 into cluster k?
+    let tail_slots = (cs / 32).min(18);
+    let continues = |k: u32| -> bool {
+        let next = head(k);
+        if next.len() < 32 * 19 || next[0] == 0x00 {
+            return false;
+        }
+        let Ok(tail) = vol.src.read_at(vol.cluster_offset(k - 1) + (cs - 32 * tail_slots) as u64, 32 * tail_slots)
+        else {
+            return false;
+        };
+        if tail.len() < 32 * tail_slots || tail[32 * (tail_slots - 1)] == 0x00 {
+            // The folder's records ended in the cluster before.
+            return false;
+        }
+        // A record set begun in the cluster before and finished in this one.
+        for i in (0..tail_slots).rev() {
+            let t = tail[32 * i];
+            let sc = tail[32 * i + 1] as usize;
+            if (t == 0x85 || t == 0x05) && (2..=18).contains(&sc) && i + sc >= tail_slots {
+                let mut joined = tail[32 * i..].to_vec();
+                joined.extend_from_slice(&next);
+                if starts_valid_set(&joined) {
+                    return true;
+                }
+            }
+        }
+        // Or records of its own, beginning no other folder.
+        is_dirlike.contains(&k) && !named.contains(&k)
+    };
+    let limit = ((256u64 << 20) / vol.cluster_size + 1) as usize;
+    let mut consumed: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut groups: Vec<(u32, ClusterList)> = Vec::new();
+    for &c in &dirlike {
+        if consumed.contains(&c) {
+            continue;
+        }
+        let mut list = ClusterList::default();
+        let f = vol.fat_entry(c).unwrap_or(0);
+        // A FAT chain of two or more clusters, all of them lost, ending properly.
+        let mut chain = vec![c];
+        let mut chained = false;
+        if f != EOC && vol.valid_cluster(f) {
+            let mut cur = c;
+            loop {
+                let Some(n) = vol.fat_entry(cur) else { break };
+                if n == EOC {
+                    chained = chain.len() >= 2;
+                    break;
+                }
+                if !vol.valid_cluster(n) || !lost(n) || consumed.contains(&n) || chain.contains(&n) || chain.len() >= limit {
+                    break;
+                }
+                chain.push(n);
+                cur = n;
+            }
+        }
+        if chained {
+            for &x in &chain {
+                list.push(x);
+                consumed.insert(x);
+            }
+        } else {
+            list.push(c);
+            consumed.insert(c);
+            if f != EOC {
+                let mut k = c + 1;
+                while vol.valid_cluster(k)
+                    && lost(k)
+                    && !consumed.contains(&k)
+                    && list.total() < limit as u64
+                    && continues(k)
+                {
+                    list.push(k);
+                    consumed.insert(k);
+                    k += 1;
+                }
+            }
+        }
+        groups.push((c, list));
+    }
+    // Keep the folders whose records point at clusters marked in use that
+    // nothing else claims, and note the sub-folders each names.
+    let mut kept: Vec<(u32, ClusterList, Vec<u32>)> = Vec::new();
+    for (first, list) in groups {
+        let Ok(buf) = vol.read_clusters(&list) else { continue };
+        let (mut good, mut bad) = (0u32, 0u32);
+        let mut names = Vec::new();
+        for s in sets_in(&buf) {
+            if names_folder(vol, &s) {
+                names.push(s.first);
+            }
+            if !s.alloc || s.length == 0 {
+                continue;
+            }
+            if lost(s.first) {
+                good += 1;
+            } else {
+                bad += 1;
+            }
+        }
+        if good >= 1 && good >= bad {
+            kept.push((first, list, names));
+        }
+    }
+    let mut named_by: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (i, (_, _, names)) in kept.iter().enumerate() {
+        for &n in names {
+            named_by.entry(n).or_default().push(i);
+        }
+    }
+    let mut out = Vec::new();
+    for (i, (first, list, _)) in kept.into_iter().enumerate() {
+        // Another of these folders names it: walked from there.
+        if named_by.get(&first).is_some_and(|by| by.iter().any(|&j| j != i)) {
+            continue;
+        }
+        // Its clusters end where a folder one of these names begins.
+        let mut cut = ClusterList::default();
+        'runs: for &(f, n) in &list.runs {
+            for c in f..f + n {
+                if !cut.runs.is_empty() && named_by.contains_key(&c) {
+                    break 'runs;
+                }
+                cut.push(c);
+            }
+        }
+        out.push((first, cut));
+    }
+    Some(out)
+}
+
+fn walk_stack(
+    vol: &Volume,
+    starts: Vec<Start>,
+    visit: &mut dyn FnMut(&Entry, &ClusterList),
+    stop: &dyn Fn() -> bool,
+    mut issues: &mut Vec<FolderIssue>,
+    visited: &mut std::collections::HashSet<u32>,
+    claimed: &mut Claimed,
+) {
+    let mut stack: Vec<Start> = starts;
     while let Some((dir, clusters, dir_hidden, dir_maybe, dir_why)) = stack.pop() {
         if stop() {
             break;
@@ -500,71 +929,66 @@ pub fn walk_until(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList), sto
                 i += 1;
                 continue;
             }
-            let sc = buf[o + 1] as usize;
             let issue = |what: &str, issues: &mut Vec<FolderIssue>| {
                 issues.push(FolderIssue { folder: shown(&dir), disk_offset: rec_off(i), what: what.to_string() });
             };
-            if i + sc >= slots {
-                issue("a file record cut off at the end of the folder - skipped", &mut issues);
-                i += 1;
-                continue;
-            }
-            if (1..=sc).any(|k| buf[o + 32 * k] == 0x00) {
-                // The rest of the record is blank: to Windows that is the end of the folder.
-                if reading {
-                    stop = Stop::Blank(i);
+            let sc = match classify(&buf, i) {
+                Rec::Sound(sc) => sc,
+                Rec::CutOff => {
+                    issue("a file record cut off at the end of the folder - skipped", &mut issues);
+                    i += 1;
+                    continue;
                 }
-                issues.push(FolderIssue {
-                    folder: shown(&dir),
-                    disk_offset: rec_off(i),
-                    what: "a damaged file record (parts missing) - the file it described cannot be identified; \
-                           Windows stops reading the folder there"
-                        .to_string(),
-                });
-                i += 1;
-                continue;
-            }
-            if !(2..=18).contains(&sc) {
-                // Windows skips it together with every slot it claims, however
-                // many (measured for 0, 1, 19 and 200 parts).
-                issue(
-                    "a damaged file record (impossible number of parts) - Windows skips it, and the records it claims",
-                    &mut issues,
-                );
-                i += sc + 1;
-                continue;
-            }
+                Rec::BlankInside => {
+                    // The rest of the record is blank: to Windows that is the end of the folder.
+                    if reading {
+                        stop = Stop::Blank(i);
+                    }
+                    issue(
+                        "a damaged file record (parts missing) - the file it described cannot be identified; \
+                         Windows stops reading the folder there",
+                        &mut issues,
+                    );
+                    i += 1;
+                    continue;
+                }
+                Rec::BadCount(sc) => {
+                    // Windows skips it together with every slot it claims, however
+                    // many (measured for 0, 1, 19 and 200 parts).
+                    issue(
+                        "a damaged file record (impossible number of parts) - Windows skips it, and the records it \
+                         claims",
+                        &mut issues,
+                    );
+                    i += sc + 1;
+                    continue;
+                }
+                Rec::BadParts(sc) => {
+                    // Windows skips the record and every slot it claims.
+                    issue(
+                        "a damaged file record (its parts are of the wrong kinds) - the file it described cannot be \
+                         identified; Windows skips it",
+                        &mut issues,
+                    );
+                    i += sc + 1;
+                    continue;
+                }
+                Rec::BadChecksum => {
+                    if reading {
+                        stop = Stop::Damaged(i);
+                    }
+                    issue(
+                        "a damaged file record (checksum wrong) - the file it described cannot be identified; Windows \
+                         reports this folder as corrupted",
+                        &mut issues,
+                    );
+                    i += 1;
+                    continue;
+                }
+            };
             let set = &buf[o..o + 32 * (sc + 1)];
             let stream = &set[32..64];
-            // Name records first, then any vendor extension records.
             let name_entries = (stream[3] as usize).div_ceil(15);
-            let structure_ok = stream[0] == 0xC0
-                && stream[3] >= 1
-                && name_entries < sc
-                && (0..name_entries).all(|k| set[64 + k * 32] == 0xC1)
-                && (name_entries..sc - 1).all(|k| set[64 + k * 32] & 0xC0 == 0xC0);
-            if !structure_ok {
-                // Windows skips the record and every slot it claims.
-                issue(
-                    "a damaged file record (its parts are of the wrong kinds) - the file it described cannot be \
-                     identified; Windows skips it",
-                    &mut issues,
-                );
-                i += sc + 1;
-                continue;
-            }
-            if entry_set_checksum(set) != u16le(set, 2) {
-                if reading {
-                    stop = Stop::Damaged(i);
-                }
-                issue(
-                    "a damaged file record (checksum wrong) - the file it described cannot be identified; Windows \
-                     reports this folder as corrupted",
-                    &mut issues,
-                );
-                i += 1;
-                continue;
-            }
             let name_len = stream[3] as usize;
             let mut units: Vec<u16> = Vec::with_capacity(name_len);
             for k in 0..name_entries {
@@ -639,6 +1063,7 @@ pub fn walk_until(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList), sto
             entry.hidden_from_windows = hidden;
             entry.hidden_maybe = maybe;
             entry.why_hidden = why;
+            claimed.mark(&clist);
             visit(&entry, &clist);
             if entry.is_dir {
                 // Name the outermost folder Windows cannot (or may not) list.
@@ -662,7 +1087,6 @@ pub fn walk_until(vol: &Volume, visit: &mut dyn FnMut(&Entry, &ClusterList), sto
             stack.push(s);
         }
     }
-    issues
 }
 
 fn shown(path: &str) -> String {

@@ -37,6 +37,67 @@ BAD = 0xFFFFFFF7
 
 # ---------------------------------------------------------------- the oracle
 
+# Where the program puts folders it finds by their contents (exfat.rs).
+FOUND_FOLDERS = "found folders (name lost)"
+
+
+def set_reads(b, i):
+    """How the in-use file record at slot i of folder records b reads, by
+    the rules Windows follows (exfat.rs, classify): (what, slots to skip)."""
+    slots = len(b) // 32
+    o = 32 * i
+    sc = b[o + 1]
+    if i + sc >= slots:
+        return "cut off", 1
+    if any(b[o + 32 * k] == 0 for k in range(1, sc + 1)):
+        return "blank inside", 1
+    if not 2 <= sc <= 18:
+        return "bad count", sc + 1
+    s = b[o:o + 32 * (sc + 1)]
+    ne = -(-s[35] // 15)
+    if not (s[32] == 0xC0 and s[35] >= 1 and ne < sc and all(s[64 + 32 * k] == 0xC1 for k in range(ne))
+            and all(s[64 + 32 * k] & 0xC0 == 0xC0 for k in range(ne, sc - 1))):
+        return "bad parts", sc + 1
+    if X.entry_set_checksum(s) != struct.unpack_from("<H", s, 2)[0]:
+        return "bad checksum", 1
+    return "sound", sc + 1
+
+
+def starts_valid_set(b):
+    """A sound file record (in use, or deleted) at the start of b?"""
+    if len(b) < 64 or b[0] not in (0x85, 0x05):
+        return False
+    sc = b[1]
+    if not 2 <= sc <= 18 or len(b) < 32 * (sc + 1):
+        return False
+    s = bytearray(b[:32 * (sc + 1)])
+    for k in range(sc + 1):
+        s[32 * k] |= 0x80
+    return set_reads(bytes(s), 0) == ("sound", sc + 1)
+
+
+def sets_in(b):
+    """(slot, is a folder, first cluster, length, allocation possible) of
+    every sound in-use file record in folder records b, found the way the
+    walk finds them."""
+    out = []
+    i = 0
+    slots = len(b) // 32
+    while i < slots:
+        if b[32 * i] != 0x85:
+            i += 1
+            continue
+        what, skip = set_reads(b, i)
+        if what == "sound":
+            o = 32 * i
+            attrs, = struct.unpack_from("<H", b, o + 4)
+            first, = struct.unpack_from("<I", b, o + 52)
+            length, = struct.unpack_from("<Q", b, o + 56)
+            out.append((i, attrs & 0x10 != 0, first, length, b[o + 33] & 1 != 0))
+        i += skip
+    return out
+
+
 class Oracle:
     """What the map check must report, from the builder's truth, the
     damaged image's raw bytes, and the pristine image's raw bytes."""
@@ -164,116 +225,124 @@ class Oracle:
             return "data"
         return "mixed"
 
+    def names_folder(self, s):
+        _, is_dir, first, length, alloc = s
+        return is_dir and alloc and length > 0 and self.valid(first)
+
+    def orphan_folders(self, claimed, allocated):
+        """Folders whose own record is lost, the way exfat.rs finds them
+        (find_orphan_folders): clusters marked in use that nothing found
+        claims and that begin with a sound record, followed through the FAT
+        or cluster after cluster while the records carry on, less the ones
+        another names and the ones whose records point at nothing lost.
+        The builder's record is no help here: this has to read the records
+        to guess the same way."""
+        cs = self.cs
+
+        def lost(c):
+            return self.valid(c) and allocated(c) and c not in claimed
+
+        def head(c):
+            return self.read(self.coff(c), 32 * 19)
+
+        dirlike = [c for c in range(2, self.cc + 2) if lost(c) and starts_valid_set(head(c))]
+        if not dirlike:
+            return []
+        is_dirlike = set(dirlike)
+        named = set()
+        for c in dirlike:
+            for st in sets_in(self.read(self.coff(c), cs + 32 * 18)):
+                if st[0] < cs // 32 and self.names_folder(st):
+                    named.add(st[2])
+        ts = min(cs // 32, 18)
+
+        def continues(k):
+            nxt = head(k)
+            if nxt[0] == 0:
+                return False
+            tail = self.read(self.coff(k - 1) + cs - 32 * ts, 32 * ts)
+            if tail[32 * (ts - 1)] == 0:
+                return False
+            for i in range(ts - 1, -1, -1):
+                t, sc = tail[32 * i], tail[32 * i + 1]
+                if t in (0x85, 0x05) and 2 <= sc <= 18 and i + sc >= ts and starts_valid_set(tail[32 * i:] + nxt):
+                    return True
+            return k in is_dirlike and k not in named
+
+        limit = (256 << 20) // cs + 1
+        consumed = set()
+        groups = []
+        for c in dirlike:
+            if c in consumed:
+                continue
+            f = self.fat(c)
+            chain, chained = [c], False
+            if f != EOC and self.valid(f):
+                cur = c
+                while True:
+                    n = self.fat(cur)
+                    if n == EOC:
+                        chained = len(chain) >= 2
+                        break
+                    if not self.valid(n) or not lost(n) or n in consumed or n in chain or len(chain) >= limit:
+                        break
+                    chain.append(n)
+                    cur = n
+            if chained:
+                lst = chain
+            else:
+                lst = [c]
+                if f != EOC:
+                    k = c + 1
+                    while self.valid(k) and lost(k) and k not in consumed and len(lst) < limit and continues(k):
+                        lst.append(k)
+                        k += 1
+            consumed.update(lst)
+            groups.append((c, lst))
+        kept = []
+        for c, lst in groups:
+            buf = b"".join(self.read(self.coff(x), cs) for x in lst)
+            good = bad = 0
+            names = []
+            for st in sets_in(buf):
+                if self.names_folder(st):
+                    names.append(st[2])
+                if not st[4] or st[3] == 0:
+                    continue
+                if lost(st[2]):
+                    good += 1
+                else:
+                    bad += 1
+            if good >= 1 and good >= bad:
+                kept.append((c, lst, names))
+        named_by = {}
+        for i, (_, _, names) in enumerate(kept):
+            for x in names:
+                named_by.setdefault(x, set()).add(i)
+        out = []
+        for i, (c, lst, _) in enumerate(kept):
+            if any(j != i for j in named_by.get(c, ())):
+                continue
+            cut = [lst[0]]
+            for x in lst[1:]:
+                if x in named_by:
+                    break
+                cut.append(x)
+            out.append((c, cut))
+        return out
+
     def expected(self):
         cs = self.cs
         root_cl, root_broken = self.root_clusters()
-        found = {}  # path -> (node, clusters, broken, hidden)
-        problems = 0
-        folders = files = 0
-        children = {}
-        for n in self.t["nodes"]:
-            children.setdefault(n["parent"], []).append(n)
-        maybe_of = {}  # path -> not listed, but Windows still opens it by its full path
-        stack = [("", root_cl, False, False)]
-        if root_broken:
-            problems += 1
-        while stack:
-            d, cl, d_hidden, d_maybe = stack.pop()
-            slots = len(cl) * cs // 32
-            subdirs = []
-            intact = {}
-            for n in sorted(children.get(d, []), key=lambda n: n["slot"]):
-                if n["deleted"]:
-                    continue
-                offs = [self.slot_off(cl, n["slot"] + k) for k in range(n["slots"])]
-                if not all(o is not None and self.read(o, 32) == self.read(o, 32, True) for o in offs):
-                    continue  # its record is damaged or gone: the file cannot be found
-                intact[n["slot"]] = n
-            # Where Windows stops reading this folder, and which records it
-            # reaches (measured on Windows, tools/windows_check.py), walking
-            # the slots in order the way exfat.rs does: a blank slot ends the
-            # folder quietly - even inside a file's record; a well-formed
-            # record with a wrong checksum makes it give up on the whole
-            # folder (it lists none of it, but still opens what comes before
-            # when given the full path); a record that is not even well formed
-            # is skipped with all the slots it claims (even 200 of them);
-            # anything else is skipped.
-            # Every damaged file record reached is a problem to report.
-            stop_kind, stop_at = None, slots
-            reached = []
-            k = 0
-            while k < slots:
-                b = self.read(self.slot_off(cl, k), 32)
-                t = b[0]
-                if t == 0:
-                    if stop_kind is None:
-                        stop_kind, stop_at = "blank", k
-                    k += 1
-                    continue
-                if t & 0x80 == 0 or t != 0x85:
-                    k += 1
-                    continue
-                if k in intact:
-                    reached.append(intact[k])
-                    k += intact[k]["slots"]
-                    continue
-                problems += 1
-                sc = b[1]
-                if k + sc >= slots:
-                    k += 1
-                    continue
-                types = [self.read(self.slot_off(cl, k + j), 1)[0] for j in range(sc + 1)]
-                if 0 in types[1:]:
-                    if stop_kind is None:
-                        stop_kind, stop_at = "blank", k
-                    k += 1
-                    continue
-                if not 2 <= sc <= 18:
-                    k += sc + 1  # skipped with every slot it claims, however many
-                    continue
-                stream = self.read(self.slot_off(cl, k + 1), 32)
-                ne = -(-stream[3] // 15)
-                well_formed = (stream[0] == 0xC0 and stream[3] >= 1 and ne < sc
-                               and all(types[2 + j] == 0xC1 for j in range(ne))
-                               and all(types[2 + j] & 0xC0 == 0xC0 for j in range(ne, sc - 1)))
-                if not well_formed:
-                    k += sc + 1
-                    continue
-                if stop_kind is None:
-                    stop_kind, stop_at = "damaged", k  # well formed, yet changed: its checksum is wrong
-                k += 1
-            for n in sorted(reached, key=lambda n: n["slot"]):
-                ncl, broken = self.clusters_of(n)
-                if d_hidden and not d_maybe:
-                    hidden, maybe = True, False
-                elif stop_kind is not None and n["slot"] > stop_at:
-                    hidden, maybe = True, False
-                elif stop_kind == "damaged":
-                    hidden, maybe = True, True
-                elif d_hidden:
-                    hidden, maybe = True, True
-                else:
-                    hidden, maybe = False, False
-                found[n["path"]] = (n, ncl, broken, hidden)
-                maybe_of[n["path"]] = maybe
-                if n["is_dir"]:
-                    folders += 1
-                    if broken:
-                        problems += 1
-                    if d_hidden and (not d_maybe or maybe):
-                        sub = (True, d_maybe)
-                    else:
-                        sub = (hidden, maybe)
-                    subdirs.append((n["path"], ncl) + sub)
-                else:
-                    files += 1
-            for s in reversed(subdirs):
-                stack.append(s)
+        bm = self.bitmap()
 
-        self.found_nodes = found
-        self.root_cl = root_cl
-        # Owners of clusters.
-        owner = {}
+        def allocated(c):
+            if bm is None:
+                return False
+            i = c - 2
+            return i // 8 < len(bm) and bool(bm[i // 8] & (1 << (i % 8)))
+
+        # The volume's own structures.
         structures = []
         if self.root_slot_intact(1):
             structures.append(("bitmap", "", self.chain(self.v["bitmap"][0][0], self.v["bitmap_bytes"])[0], None))
@@ -281,6 +350,151 @@ class Oracle:
             up_len = struct.unpack("<Q", self.read(self.slot_off(root_cl, 2) + 24, 8))[0]
             structures.append(("upcase", "", self.chain(self.v["upcase"][0][0], up_len)[0], None))
         structures.append(("root", "", root_cl, len(root_cl) * cs))
+        claimed = set()
+        for _, _, cl, _ in structures:
+            claimed.update(cl)
+
+        found = {}  # path shown -> (node, clusters, broken, hidden)
+        maybe_of = {}  # path shown -> not listed, but Windows still opens it by its full path
+        count = {"problems": 0, "folders": 0, "files": 0}
+        visited = set()
+        # Where each record begins, from the builder's record.
+        first_slot = {n["record_offsets"][0]: n for n in self.t["nodes"] if not n["deleted"] and n["record_offsets"]}
+
+        def walk(starts):
+            stack = list(starts)
+            while stack:
+                d, cl, d_broken, d_hidden, d_maybe = stack.pop()
+                if cl:
+                    if cl[0] in visited:
+                        count["problems"] += 1  # two folders claim the same records
+                        continue
+                    visited.add(cl[0])
+                if d_broken:
+                    count["problems"] += 1
+                slots = len(cl) * cs // 32
+                subdirs = []
+                # The records still as they were, by their slot in these clusters.
+                intact = {}
+                for i in range(slots):
+                    n = first_slot.get(self.slot_off(cl, i))
+                    if n is None:
+                        continue
+                    offs = [self.slot_off(cl, i + k) for k in range(n["slots"])]
+                    if offs == n["record_offsets"] and all(self.read(o, 32) == self.read(o, 32, True) for o in offs):
+                        intact[i] = n
+                # Where Windows stops reading this folder, and which records it
+                # reaches (measured on Windows, tools/windows_check.py), walking
+                # the slots in order the way exfat.rs does: a blank slot ends the
+                # folder quietly - even inside a file's record; a well-formed
+                # record with a wrong checksum makes it give up on the whole
+                # folder (it lists none of it, but still opens what comes before
+                # when given the full path); a record that is not even well formed
+                # is skipped with all the slots it claims (even 200 of them);
+                # anything else is skipped.
+                # Every damaged file record reached is a problem to report.
+                stop_kind, stop_at = None, slots
+                reached = []
+                k = 0
+                while k < slots:
+                    b = self.read(self.slot_off(cl, k), 32)
+                    t = b[0]
+                    if t == 0:
+                        if stop_kind is None:
+                            stop_kind, stop_at = "blank", k
+                        k += 1
+                        continue
+                    if t & 0x80 == 0 or t != 0x85:
+                        k += 1
+                        continue
+                    if k in intact:
+                        reached.append((k, intact[k]))
+                        k += intact[k]["slots"]
+                        continue
+                    count["problems"] += 1
+                    sc = b[1]
+                    if k + sc >= slots:
+                        k += 1
+                        continue
+                    types = [self.read(self.slot_off(cl, k + j), 1)[0] for j in range(sc + 1)]
+                    if 0 in types[1:]:
+                        if stop_kind is None:
+                            stop_kind, stop_at = "blank", k
+                        k += 1
+                        continue
+                    if not 2 <= sc <= 18:
+                        k += sc + 1  # skipped with every slot it claims, however many
+                        continue
+                    stream = self.read(self.slot_off(cl, k + 1), 32)
+                    ne = -(-stream[3] // 15)
+                    well_formed = (stream[0] == 0xC0 and stream[3] >= 1 and ne < sc
+                                   and all(types[2 + j] == 0xC1 for j in range(ne))
+                                   and all(types[2 + j] & 0xC0 == 0xC0 for j in range(ne, sc - 1)))
+                    if not well_formed:
+                        k += sc + 1
+                        continue
+                    if stop_kind is None:
+                        stop_kind, stop_at = "damaged", k  # well formed, yet changed: its checksum is wrong
+                    k += 1
+                for slot, n in reached:
+                    path = (d + "\\" if d else "") + n["path"].split("\\")[-1]
+                    ncl, broken = self.clusters_of(n)
+                    if d_hidden and not d_maybe:
+                        hidden, maybe = True, False
+                    elif stop_kind is not None and slot > stop_at:
+                        hidden, maybe = True, False
+                    elif stop_kind == "damaged":
+                        hidden, maybe = True, True
+                    elif d_hidden:
+                        hidden, maybe = True, True
+                    else:
+                        hidden, maybe = False, False
+                    found[path] = (n, ncl, broken, hidden)
+                    maybe_of[path] = maybe
+                    claimed.update(ncl)
+                    if n["is_dir"]:
+                        count["folders"] += 1
+                        if d_hidden and (not d_maybe or maybe):
+                            sub = (True, d_maybe)
+                        else:
+                            sub = (hidden, maybe)
+                        subdirs.append((path, ncl, broken) + sub)
+                    else:
+                        count["files"] += 1
+                for sd in reversed(subdirs):
+                    stack.append(sd)
+
+        walk([("", root_cl, root_broken, False, False)])
+        # Then the folders whose own record is lost, found by their contents
+        # (exfat.rs, walk_until): each as "found folders (name lost)\folder at
+        # cluster N", walked like any other, Windows reaching none of it.
+        self.orphans = []
+        for _ in range(3):
+            if bm is None:
+                break
+            orphans = self.orphan_folders(claimed, allocated)
+            if not orphans:
+                break
+            starts = []
+            for first, lst in orphans:
+                path = FOUND_FOLDERS + "\\folder at cluster %d" % first
+                n = {"path": path, "is_dir": True, "deleted": False, "data_length": len(lst) * cs,
+                     "vdl": len(lst) * cs, "runs": X.runs_of(lst), "no_fat_chain": False, "parent": None,
+                     "slot": None, "slots": 0, "record_offsets": []}
+                claimed.update(lst)
+                found[path] = (n, lst, False, True)
+                maybe_of[path] = False
+                count["folders"] += 1
+                starts.append((path, lst, False, True, False))
+                self.orphans.append((first, lst))
+            starts.reverse()
+            walk(starts)
+        problems, folders, files = count["problems"], count["folders"], count["files"]
+
+        self.found_nodes = found
+        self.root_cl = root_cl
+        # Owners of clusters.
+        owner = {}
         for kind, path, cl, _ in structures:
             for c in cl:
                 owner[c] = (kind, path)
@@ -340,14 +554,6 @@ class Oracle:
             item_for(path, n["is_dir"], ncl, broken, dl, n["vdl"], hidden, maybe_of[path])
 
         # What each area hits.
-        bm = self.bitmap()
-
-        def allocated(c):
-            if bm is None:
-                return False
-            i = c - 2
-            return i // 8 < len(bm) and bool(bm[i // 8] & (1 << (i % 8)))
-
         bps = SECTOR
         vol_end = max(self.vo + self.v["size"], self.heap + self.cc * cs)
         heap_end = self.heap + self.cc * cs
@@ -448,9 +654,7 @@ class Oracle:
         # Found from records that lie in never-read places.
         unread = []
         for path, (n, ncl, broken, hidden) in found.items():
-            parent_cl = root_cl if n["parent"] == "" else found[n["parent"]][1]
-            offs = [self.slot_off(parent_cl, n["slot"] + k) for k in range(n["slots"])]
-            if any(s <= o < e for o in offs for s, e, _ in self.areas):
+            if any(s <= o < e for o in n["record_offsets"] for s, e, _ in self.areas):
                 unread.append(path)
         return {
             "found": sorted(found),
@@ -642,6 +846,35 @@ def finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective):
     cov["damaged folder records"] += got["totals"]["folder_problems"]
     cov["lost clusters"] += got["totals"]["lost_clusters"]
     cov["records in never-read places"] += len(got["unread_records"])
+    # Folders found by their contents, against the builder's record of them
+    # (how well the guessing goes; the comparison above checks the program
+    # guesses exactly as the oracle does).
+    where = {}  # cluster -> (node, index in its clusters)
+    for n in truth["nodes"]:
+        if not n["deleted"]:
+            for i, c in enumerate(c for f, k in n["runs"] for c in range(f, f + k)):
+                where[c] = (n, i)
+    for first, lst in oracle.orphans:
+        cov["folders rebuilt from their contents"] += 1
+        n, i = where.get(first, (None, None))
+        if n is None or not n["is_dir"]:
+            cov["rebuilt folders that are no folder (should be none)"] += 1
+            continue
+        real = [c for f, k in n["runs"] for c in range(f, f + k)]
+        blank_tail = list(real)
+        while len(blank_tail) > 1 and oracle.read(oracle.coff(blank_tail[-1]), oracle.cs, True) == bytes(oracle.cs):
+            blank_tail.pop()  # spare clusters, all blank
+        if i:
+            what = "rebuilt from a later cluster (the folder's start is damaged)"
+        elif lst in (real, blank_tail):
+            what = "rebuilt with exactly their own clusters"
+        elif any(where.get(c, (None,))[0] is not n for c in lst):
+            what = "rebuilt with the next folder's records too"
+        else:
+            what = "rebuilt short (damage ends what can be followed)"
+        cov["folders " + what] += 1
+    cov["files found inside rebuilt folders"] += sum(
+        1 for p, v in oracle.found_nodes.items() if p.startswith(FOUND_FOLDERS + "\\") and not v[0]["is_dir"])
     for a in got["areas"]:
         cov["areas holding " + a["content"]] += 1
         for h in a["hits"]:
