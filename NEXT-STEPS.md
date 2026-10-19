@@ -302,6 +302,20 @@ Version "2026-10-20 (1)":
   copies delivered on 19 October are upgraded in place, ticks kept
   (simulated on the delivered copy: 31 ticks kept; with 3 more ticked in
   Obsidian first: 34 kept).
+- Feedback given (in the chat): the order is logical (the one risky read
+  first and rehearsed; every phase checked against Your numbers; repairs on
+  copies; two copies plus the image at the end); essential phases 1, 2, 3,
+  6 and 8, with 4, 5 and 7 optional; Windows Update's block only matters in
+  Phase 1; the unknowns only the real hardware can settle (USB case: the
+  rehearsal; the real volume: the bitmap backstop, "data no folder names
+  any more"; SPARE's room; the Mac reading SPARE only).
+- For the next change to the checklist (not worth a build on its own): in
+  Phase 8, say that WORK and COPY 2 are the archive from then on, and that
+  files used or reorganised day to day are copied somewhere else first
+  (anything changed inside shows at the six-monthly check). Also: names in a
+  Mac list (sips-failures.txt) are matched exactly; if a list's non-English
+  names show as "name no file in WORK", look at Unicode normalisation (NFD
+  from the Mac vs the names in WORK).
 
 ## Next
 
