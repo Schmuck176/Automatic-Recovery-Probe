@@ -302,6 +302,15 @@ Version "2026-10-20 (1)":
   copies delivered on 19 October are upgraded in place, ticks kept
   (simulated on the delivered copy: 31 ticks kept; with 3 more ticked in
   Obsidian first: 34 kept).
+- CI for a728da4 was green (run 39340397360): Windows unit tests 56,
+  self-test, map check tests 42/42, Windows checks 18/18, protection 16/16,
+  unplugged 31/31, page 60/60; Linux map check tests 92/92 with fsck.exfat
+  and dissect.fat, kernel 23/23, page 59/59. The Windows build is
+  4,123,136 bytes, sha256 9dbaaa60da6777b3... (on ci-windows, 12998bd).
+  Delivery: refused at 00:41 BST because the program was open on the PC
+  (the exe is locked while it runs); retried automatically (trig_01Wc3LHiDHbTc7qp5doUGq8p
+  at 01:02 BST, then the morning resumes). Only the exe goes in: the
+  program upgrades the Obsidian copy and the manifest itself.
 - Feedback given (in the chat): the order is logical (the one risky read
   first and rehearsed; every phase checked against Your numbers; repairs on
   copies; two copies plus the image at the end); essential phases 1, 2, 3,
