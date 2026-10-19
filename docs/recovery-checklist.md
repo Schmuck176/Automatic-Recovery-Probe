@@ -96,7 +96,7 @@ the check no longer covers it.
 >
 > | File | What it is |
 > |---|---|
-> | `recovery-checklist.md` | This document. Tick the boxes as you go — Obsidian saves them. |
+> | `recovery-checklist.md` | This document (in `Obsidian MD files`). The program shows it too, and keeps the two the same. |
 > | `download-manifest.md` | Where each tool came from, how to install it, what it's for. |
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, makes the image, works out from the mapfile exactly which files the damage touched, copies everything off without letting Windows write to the SSD (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
@@ -111,14 +111,14 @@ the check no longer covers it.
 > (it needs that to read the recovered SSD directly; it never writes to it). A black
 > window opens — **leave it open**, it *is* the program — and your web browser shows
 > the program's page: nine numbered steps, each with one button. Nothing on the page
-> goes to the internet; it works offline.
+> goes to the internet; it works offline. What each step found is kept in
+> `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing.
 >
 > **This checklist is in the program too.** The page opens on it (*The checklist*);
 > the steps are under *The program's steps*. Tick the boxes there: your copy in
 > Obsidian follows by itself, ticks and all (and if you tick one in Obsidian, the
 > program takes it in). A bar at the top always says what's next, when a checkpoint
-> is due, or when to stop. What each step found is kept in
-> `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing.
+> is due, or when to stop.
 >
 > | Step | What it does |
 > |---|---|

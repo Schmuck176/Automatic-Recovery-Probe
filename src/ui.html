@@ -205,6 +205,8 @@ ul.phases .warn { color: var(--unread); }
   font: 0.84rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; white-space: pre; }
 .checklist ol, .checklist ul { padding-left: 24px; }
 .checklist td[data-num] { font-weight: 600; }
+.checklist .tablewrap { overflow-x: auto; max-width: 100%; }
+.checklist section.ph > hr:last-child { display: none; }
 .checklist hr { border: 0; border-top: 1px solid var(--rule); margin: 18px 0; }
 @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; } }
 @media (max-width: 560px) {

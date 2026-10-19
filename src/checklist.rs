@@ -691,7 +691,7 @@ fn blocks(
             };
             let head = cells(raw);
             let numbers = raw.contains(NUMBERS_HEADER);
-            out.push_str("<div class=\"scroll\"><table><tr>");
+            out.push_str("<div class=\"tablewrap\"><table><tr>");
             for c in &head {
                 out.push_str(&format!("<th>{}</th>", inline(c)));
             }
