@@ -216,15 +216,20 @@ folds up every few seconds), and Phase 7's Photos steps were made safe
 library, so only after checking Settings > General; osxphotos export first
 as a safety net; switch back afterwards). Version "2026-10-19 (2)".
 
+CI for b9867a5 was green: Windows unit tests 44, self-test (with the safety
+check line), Python comparison 0 differences, map check tests 42/42 (the
+safety check agreed on 41), Windows checks 18/18, protection 16/16,
+unplugged 31/31, page 46/46; Linux map check tests 92/92 with fsck.exfat and
+dissect.fat (safety agreed on 91), kernel 23/23, page 45/45. Locally 312 of
+312 random and edge disks. Delivered 19 Oct 17:29 BST into C:\RECOVERY-TOOLS:
+recovery-probe.exe (b9867a5, sha256 22db873e..., 3,866,112 bytes), the
+checklist of 3f05f2a with the user's 31 ticks (sha256 ba015b35...) and the
+manifest (7d127308...), each checked byte for byte on the PC.
+
 ## Next
 
-1. One CI run for the safety check; read the reports on ci-windows and
-   ci-linux.
-2. Put the new recovery-probe.exe and the checklist into C:\RECOVERY-TOOLS
-   (keep their ticks: their checklist lives in "Obsidian MD files\"; stage
-   under a fresh name and check the hash on the PC afterwards). The user then
-   runs Phase -1 E again (the self-test).
-3. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+1. The user runs Phase -1 E again (the self-test) with the new program.
+2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    Help read step 5's results; check the files fit on SPARE.
-4. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
