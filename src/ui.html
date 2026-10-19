@@ -275,6 +275,12 @@ ul.phases .warn { color: var(--unread); }
       <p class="small soft" id="image-space"></p>
       <div class="row"><button id="b-image">Make the image</button></div>
       <div id="r-image"></div>
+      <div id="imagecheck" hidden>
+        <h3>Is the image still exactly as it was made?</h3>
+        <p class="small">This reads the image back and compares it with the SHA-256 saved beside it when it was made. The SSD is not needed. Use it before relying on the image (Phase 8), and once or twice a year with the copies. It changes nothing.</p>
+        <div class="row"><button class="second" id="b-imagecheck">Check the image is unchanged</button></div>
+        <div id="r-imagecheck"></div>
+      </div>
     </li>
 
     <li id="s-check">
@@ -720,6 +726,18 @@ function renderImage() {
     if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
   }
   put($("r-image"), h);
+  // Checking the image made earlier.
+  $("imagecheck").hidden = !setting("image");
+  $("b-imagecheck").disabled = busy();
+  const c = lastOf("imagecheck");
+  let k = noteHtml("imagecheck");
+  if (c && c.state !== "running") {
+    const d = c.data || {};
+    if (c.state === "failed" && c.error) k += `<div class="msg err">${esc(c.error)}</div>`;
+    const lines = c.summary || [];
+    if (lines.length) k += `<div class="msg ${d.verified ? "ok" : d.stopped ? "warn" : "err"}">${lines.map(esc).join("<br>")}</div>`;
+  }
+  put($("r-imagecheck"), k);
 }
 
 function renderVerify() {
@@ -1047,6 +1065,7 @@ async function startJob(step, fields) {
 }
 
 $("b-test").onclick = () => startJob("test", { action: "selftest" });
+$("b-imagecheck").onclick = () => startJob("imagecheck", { action: "check-image" });
 $("b-image").onclick = async () => {
   const to = $("image-to").value.trim();
   if (!to) { note("image", "err", "Choose where the image goes first."); return; }

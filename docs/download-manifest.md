@@ -1,6 +1,6 @@
 # Download Manifest — the tools, where they came from, what they're for
 
-*Version 2026-10-19 (2) — written with Claude Opus 5.5. Goes with
+*Version 2026-10-19 (3) — written with Claude Opus 5.5. Goes with
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
@@ -133,6 +133,13 @@ Expect that list to be most of your photos. That's the probe being honest, not f
 Apple's Photos app — the most authoritative one there is for iPhone HEIC and camera
 RAW. Phase 5 has the exact commands. It only reads the drive.
 
+**Adobe DNG Converter (optional, free, Mac and Windows)** —
+**https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html** (Adobe's own
+page; not a download site). A second opinion for a RAW file `sips` can't decode: Apple
+decodes only the cameras on its list (support.apple.com/122870 for macOS 26), Adobe
+knows more. If it converts without an error, the file is most likely fine. Only get it
+if Phase 5 lists RAW files.
+
 *If you flatly refuse to involve the Mac:* ImageMagick for Windows
 (**https://imagemagick.org/script/download.php#windows**, free) is the fallback, but
 it's a weaker check on RAW — it can pass a file whose preview is fine while the real
@@ -151,6 +158,15 @@ Phase 7, on the Mac, optional:
   ```
   Phase 7, step 7 has the command that copies a library out.
 - It needs a *partly* readable database. If the database is completely gone, you keep the pictures (the files in `originals/`) and lose the albums.
+
+### Combining or comparing libraries (optional, paid)
+
+- **PowerPhotos** (Fat Cat Software, **https://www.fatcatsoftware.com/powerphotos/**,
+  about $30; free to download and look) — shows what's in a Photos library without
+  opening it in Photos, finds duplicates across libraries, and merges libraries
+  keeping albums and edits. Photos' own *File → Import* (macOS 12 or later) brings
+  the photos across with their edits and most details, but not keywords. Check on its
+  site that it supports your Mac's macOS before paying.
 
 ---
 
@@ -191,5 +207,6 @@ fixed file, paying won't produce one either.
 | PDF | Recovery Probe (Phase 3) + Krokiet PDF check (Phase 4) |
 | Zip and 7z archives | Recovery Probe (Phase 3) + Krokiet archive check + **7-Zip** test (Phase 4) |
 | Word, Excel, PowerPoint, ePub, RAR | Recovery Probe (Phase 3) + **7-Zip** test (Phase 4) — Krokiet doesn't open these |
-| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3), repairs damaged photos inside them and puts them back in place (Phase 6) + on the Mac, on a copy: osxphotos copies everything out first, then Photos' own Repair only if needed (Phase 7) |
+| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3), repairs damaged photos inside them and puts them back in place (Phase 6) + on the Mac, on a copy: osxphotos copies everything out first, then Photos' own Repair only if needed; PowerPhotos to combine libraries (Phase 7) |
+| iMovie, Final Cut Pro, Logic, GarageBand, Pages/Numbers/Keynote packages | Recovery Probe puts repaired media back inside them (Phase 6) + a copy opened in its own app on the Mac (Phase 7) |
 | Everything else | Copied exactly, with a checksum; the map check names it if the drive lost any of it |

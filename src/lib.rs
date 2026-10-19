@@ -2,8 +2,11 @@
 //!
 //! Finds damage in files recovered with ddrescue - the kind that opens fine
 //! and looks normal - and sorts every file into damaged, not testable or
-//! clean. A Rust port of recovery_probe.py (kept in `reference/`), checked
-//! against it file by file.
+//! clean - and, around that, everything a one-chance recovery needs: an
+//! image of the recovered disk, the map check, the copying with a checksum
+//! per file, the safety checks, the repairs, and the checklist the person
+//! follows. (The file checks began as a Python program; the port was checked
+//! against it file by file until the Python was retired.)
 //!
 //! Only Rust's standard library is used: no third-party code runs over the
 //! recovered files.
@@ -37,4 +40,4 @@ pub mod win;
 
 pub const APP: &str = "Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-19 (2)";
+pub const VERSION: &str = "2026-10-19 (3)";

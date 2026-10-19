@@ -1,6 +1,6 @@
 # Recovery Checklist — Recovered SSD → safe, checked copies
 
-*Version 2026-10-19 (2) — written with Claude Opus 5.5 for the Recovery Probe program
+*Version 2026-10-19 (3) — written with Claude Opus 5.5 for the Recovery Probe program
 (`recovery-probe.exe`), after an independent review of the program and of the
 2026-10-18 plan. Replaces every earlier copy; where a step is the same as in the
 earlier copy, the box you ticked there stays ticked here.*
@@ -75,6 +75,23 @@ copies, and anything that deletes or moves files by the thousand.
    wrong, and the page names every file that is missing, changed or added. Don't put
    it right by hand; tell Claude.
 
+## When the safety checks happen, and why then
+
+| When | What is checked | Why there |
+|---|---|---|
+| Phase 1, step 16 | The image reads back exactly as it was written | Before the SSD goes back in the drawer |
+| Phase 2, step 1 | The files on the old drive: how many, how much in all (**Your numbers**) | The yardstick every later check is held against |
+| Phase 2, step 7 | Every file step 5 found is in the list of copies, same size in all | A copying that stopped early, or files that couldn't be copied |
+| ✅ End of Phase 2 | Three stages: the old drive, the list of copies, every copy read back | The copies are right before anything else touches them |
+| ✅ End of Phases 4, 5, 6 and 7 | The same | Each of these uses something that *could* change `WORK` — Krokiet, the Mac, repairs — so a ✗ says which phase it was. Phase 3 only reads, so Phase 4's checkpoint covers it |
+| Put back (Phase 6) | The program refuses while the last check found something | It is the one step that changes `WORK` |
+| ✅ Phase 8 | Both copies, and the image | Before you rely on them |
+| Every six months | Both copies, and the image | Drives lose data slowly, and quietly |
+
+The checkpoint boxes (✅) tick themselves in the program when the check passes after
+the boxes before them; a box ticked after that makes the checkpoint due again, because
+the check no longer covers it.
+
 > **The files you need**, together in `C:\RECOVERY-TOOLS\`:
 >
 > | File | What it is |
@@ -84,7 +101,7 @@ copies, and anything that deletes or moves files by the thousand.
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, makes the image, works out from the mapfile exactly which files the damage touched, copies everything off without letting Windows write to the SSD (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
 >
-> The program's page says **Version 2026-10-19 (2)** (or later) at the top. The older
+> The program's page says **Version 2026-10-19 (3)** (or later) at the top. The older
 > files `recovery_probe.py`, `probe_selftest.py`, `RUN_PROBE.bat` and
 > `RUN_SELFTEST.bat` aren't needed any more. You can delete them, or leave them;
 > they do no harm.
@@ -94,7 +111,13 @@ copies, and anything that deletes or moves files by the thousand.
 > (it needs that to read the recovered SSD directly; it never writes to it). A black
 > window opens — **leave it open**, it *is* the program — and your web browser shows
 > the program's page: nine numbered steps, each with one button. Nothing on the page
-> goes to the internet; it works offline. What each step found is kept in
+> goes to the internet; it works offline.
+>
+> **This checklist is in the program too.** The page opens on it (*The checklist*);
+> the steps are under *The program's steps*. Tick the boxes there: your copy in
+> Obsidian follows by itself, ticks and all (and if you tick one in Obsidian, the
+> program takes it in). A bar at the top always says what's next, when a checkpoint
+> is due, or when to stop. What each step found is kept in
 > `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing.
 >
 > | Step | What it does |
@@ -102,7 +125,7 @@ copies, and anything that deletes or moves files by the thousand.
 > | 1 | Checks the program works on this PC |
 > | 2 | Your ddrescue mapfile |
 > | 3 | Connects the recovered SSD, protected |
-> | 4 | Makes an image of the SSD: a second copy |
+> | 4 | Makes an image of the SSD: a second copy; checks it again later |
 > | 5 | Finds what the damage touched (the "map check") |
 > | 6 | Copies everything off, with a checksum per file |
 > | 7 | Checks every copied file; checks the copies are unchanged, with the safety check |
@@ -348,10 +371,10 @@ in; the recovered SSD and the 4 TB SSD stay in their drawer. (Step 5 and 6 say
 **"Reads from the image"** under their text; if they don't, step 4's image isn't
 there: tell Claude.)
 
-- [ ] **1. Step 5 → Find what the damage touched.** A few minutes. It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down, and the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
+- [ ] **1. Step 5 → Find what the damage touched.** A few minutes. It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down; the program puts the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
 
-> **Your numbers**, from step 5. They never change: every safety check from now on
-> should show the same number of files.
+> **Your numbers**, from step 5 (the program fills them in). They never change: every
+> safety check from now on should show the same number of files.
 >
 > | Files on the SSD | Size in all |
 > |---|---|
@@ -526,6 +549,13 @@ caffeinate -i find -E . \( -name '$RECYCLE.BIN' -o -name 'System Volume Informat
 
 - [ ] **4.** When it finishes, `sips-failures.txt` on your Desktop is your broken HEIC/RAW list (one file per line). If it's empty, nothing failed.
 
+> **A RAW file `sips` can't decode isn't always broken.** Apple decodes only the
+> cameras on its list (support.apple.com/122870 for macOS 26), and a camera newer than
+> your Mac's macOS isn't on it yet. Before calling one broken, open it in **Adobe DNG
+> Converter** (free, from Adobe's own site, for Mac and Windows): if it converts
+> without an error, the file is most likely fine. iPhone HEIC photos need no second
+> opinion: `sips` uses the same decoder as Photos.
+
 ## Bring the list back
 
 - [ ] Copy `sips-failures.txt` from the Mac's Desktop back to the PC (email it to yourself or use a USB stick — the Mac can't write to `SPARE`). It goes into `SPARE\REPAIR\damaged-lists` in Phase 6.
@@ -655,8 +685,12 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 - [ ] **11.** The library you keep using lives on the Mac (Photos can only use one on a Mac-formatted disk): back it up there, with Time Machine. The one in `WORK` stays as it is, as part of the copies.
 - [ ] **12. Switch Photos back to your own library** when you're done: quit Photos, hold **⌥ Option** while opening it, and choose your usual library. Until you do, Photos keeps opening the last one.
 
-> **Don't merge libraries by hand and don't dedupe across them.** If two overlap,
-> Photos' own Import handles it.
+> **Combining libraries:** don't merge them by hand, and don't dedupe across them.
+> Photos' own **File → Import** can bring the photos of one library into another
+> (macOS 12 or later; Apple says edits and most details come along, but not
+> keywords). **PowerPhotos** (Fat Cat Software, about $30, free to look) merges
+> libraries keeping albums and edits, skips duplicates, and can show what's in a
+> library without opening it in Photos. Decide this after the checks, on copies.
 
 > **A library made on a newer macOS won't open on an older one.** If the Mac is behind,
 > update it before deciding a library is dead.
@@ -665,6 +699,10 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 > different kind. Apple's user forum reports that only a Mac on macOS 12 Monterey or
 > older can open or convert one; newer Photos can only import from it. If one won't
 > open, tell Claude rather than trying anything else on it.
+
+## Other Mac libraries and projects
+
+- [ ] If step 8's **Evaluate** named an **iMovie** or **Final Cut Pro** library, a **Logic** or **GarageBand** project, or a Pages, Numbers or Keynote document with damage inside: copy the whole package from `SPARE` to the Mac (as in step 4) and open the copy in its own app. These apps have no repair tool like Photos has: they open what they can and say what's missing. The damaged media inside were already repaired and put back by step 8 where that was possible. Keep the copy that opens on the Mac (back it up with Time Machine); the one in `WORK` stays as it is.
 
 ## Bring the results back
 
@@ -679,16 +717,17 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 - [ ] **1. A `RECORDS` folder on `SPARE`**, beside `WORK` (not inside it: anything new inside `WORK` shows as *added* in the safety check): copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` and `WORK\repair-returns.csv` stay where they are: step 7 needs them there.) In three years you'll want to know what was checked.
 - [ ] **2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`.
 - [ ] **3. ✅ The final check — both copies.** In step 7, check `SPARE\WORK` with **Check the copies are unchanged**; then click **Choose…** beside the folder box, choose `D:\COPY 2\WORK`, and check it too. For each you want three ✓, *"Nothing is missing, and nothing has changed"*, and the files on every row the same as **Your numbers**: every file the old drive held is in both copies, exactly as copied or as repaired and put back. **Every safety check so far** now shows the whole way here, one line per checkpoint.
-- [ ] **4. One copy away from home.** Once the final check passes, keep `SPARE` somewhere else (a relative's, work) and bring it home twice a year for its check. *(The 4 TB SSD could become that copy instead one day — but only once you decide you no longer want it as a spare of the recovered SSD. That wipes it, so decide it yourself, not because this list says so.)*
-- [ ] **5. Set a phone reminder every six months** to plug `SPARE` in and run **Check the copies are unchanged** on both `WORK` folders (the same way). A file that has quietly changed shows up by name; take a good copy of it from the other one. (Unpowered SSDs slowly lose their data: plugging `SPARE` in twice a year also keeps it healthy.)
-- [ ] **6.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
+- [ ] **4. Step 4 → Check the image is unchanged** (under *Make the image* in the program). It reads the image back against the checksum saved when it was made — an hour or two. You want *"…is exactly as it was made"*. The image is your third copy, as the files were before any repair.
+- [ ] **5. One copy away from home.** Once the final check passes, keep `SPARE` somewhere else (a relative's, work) and bring it home twice a year for its check. *(The 4 TB SSD could become that copy instead one day — but only once you decide you no longer want it as a spare of the recovered SSD. That wipes it, so decide it yourself, not because this list says so.)*
+- [ ] **6. Set a phone reminder every six months** to plug `SPARE` in and run **Check the copies are unchanged** on both `WORK` folders (the same way), and **Check the image is unchanged**. A file that has quietly changed shows up by name; take a good copy of it from the other one. (Unpowered SSDs slowly lose their data: plugging `SPARE` in twice a year also keeps it healthy.)
+- [ ] **7.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
 
 > **MultiPar / PAR2 is optional now.** A PAR2 set covers at most 32,768 files, so "one
 > set per top-level folder" fails for big folders, and a Photos Library you keep using
 > changes all the time. Two copies plus the checksum list protect better and are
 > simpler. PAR2 still suits a small folder you'll never change.
 
-- [ ] **7. Undo Phase −1:**
+- [ ] **8. Undo Phase −1:**
   - `services.msc` → Windows Update → **Automatic (Delayed Start)** → Start
   - Settings → Windows Update → **Resume updates**
   - Advanced options → turn the restart setting back on
@@ -712,6 +751,7 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 | A file deleted, moved or renamed by mistake — by you, a tool or another computer — at any point | **Yes** — the safety check names it, and the checkpoint after each phase shows when it happened (Phases 2–8) |
 | A file added to `WORK` by mistake (a Mac writing `._` files, a file saved there) | **Yes** — named by the safety check |
 | A copying that stopped early, or files that couldn't be copied | **Yes** — the safety check after step 6 (Phase 2) |
+| The image changing on the PC's drive over the years | **Yes** — *Check the image is unchanged* (Phase 8, then twice a year) |
 | A repaired file put back in the wrong place, or over a file that had changed | **Can't happen** — each repaired file goes back by its number to exactly where its original was, only if that original is still exactly as copied; the original is kept, and every put-back can be undone (Phase 6) |
 | A package split up by repairs (a library, an app, a document kept as a folder) | **Can't happen** — nothing is taken out of a package; what is damaged inside one goes back to the same place inside it (Phase 6) |
 | File cut short (video stops halfway, JPEG without its end, PDF/zip missing their ending) | **Yes** — Phase 3 |

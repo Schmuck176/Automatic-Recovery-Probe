@@ -124,6 +124,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     "step 4: the image and its checksum are there");
   check(fs.readFileSync(path.join(imageTo, "recovered-ssd.img")).equals(fs.readFileSync(disk).subarray(0, fs.statSync(path.join(imageTo, "recovered-ssd.img")).size)),
     "step 4: the image holds exactly the disk's bytes");
+  await page.click("#b-imagecheck");
+  check(await waitText("r-imagecheck", "exactly as it was made"), "step 4: the image can be checked again later, without the SSD");
   await page.waitForFunction(() => /Reads from the image/.test(document.getElementById("check-source").textContent), null, { timeout: 10000 })
     .then(() => check(true, "step 5 reads the image from now on"), () => check(false, "step 5 reads the image from now on"));
 
@@ -210,11 +212,11 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.click("#b-verify");
   check(await waitText("r-verify", "Nothing is missing, and nothing has changed"), "step 7: with it back, nothing is missing again");
   const rh = await page.textContent("#r-verify");
-  check(rh.includes("Every safety check so far") && (await page.locator("#r-verify .history td.mark.good").count()) === 3 &&
+  check(rh.includes("Every safety check so far") && (await page.locator("#r-verify .history td.mark.good").count()) === 4 &&
     (await page.locator("#r-verify .history td.mark.bad").count()) === 1,
-    "step 7: every check so far is listed - the copying, a check, the one that found the deleted copy (✗), and the check after");
+    "step 7: every check so far is listed - the image, the copying, a check, the one that found the deleted copy (✗), and the check after");
   const historyCsv = path.join(home, "results", "safety-checks.csv");
-  check(fs.existsSync(historyCsv) && fs.readFileSync(historyCsv, "utf8").split("\n").filter((l) => l.trim()).length === 5,
+  check(fs.existsSync(historyCsv) && fs.readFileSync(historyCsv, "utf8").split("\n").filter((l) => l.trim()).length === 6,
     "step 7: every check is in results\\safety-checks.csv, with all its numbers");
   await page.evaluate(() => loadChecklist());
   check((await cpState()) === "passed", "checklist: with the file back and a check that passes, the checkpoint is ticked again");

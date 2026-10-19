@@ -9,8 +9,10 @@ reached from the development workspace. The Windows build of each commit is
 
 ## Done
 
-- File checks (`scan`), ported from `reference/recovery_probe.py`; identical
-  results to the Python version on every test file.
+- File checks (`scan`), ported from the original Python program; identical
+  results on every test file until the comparison and the Python original
+  were retired on 19 Oct 2026 (in git history: `reference/`,
+  `tools/compare_with_python.py`, `tools/make_fixtures.py`).
 - Map check (`map-check`): which files and folders sit on the places ddrescue
   never read, from the user's mapfile and the recovered SSD read directly.
 - Rescue (`rescue`): copies everything (or what Windows cannot list) straight
@@ -141,7 +143,8 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
 ## Independent review and its fixes (18-19 October 2026)
 
 A fresh session reviewed the program and the plan from REVIEW-BRIEF.md; the
-findings are in REVIEW-FINDINGS.md (also on the `review` branch). The user
+findings are in REVIEW-FINDINGS.md (both now in docs/review/; also on the
+`review` branch). The user
 then asked for the fixes. Done on `dev`:
 
 - CI publishes to ci-windows/ci-linux only from `dev` pushes (a `review`
@@ -225,6 +228,37 @@ dissect.fat (safety agreed on 91), kernel 23/23, page 45/45. Locally 312 of
 recovery-probe.exe (b9867a5, sha256 22db873e..., 3,866,112 bytes), the
 checklist of 3f05f2a with the user's 31 ticks (sha256 ba015b35...) and the
 manifest (7d127308...), each checked byte for byte on the PC.
+
+## The checklist in the program, and a tidy-up (19 October 2026, evening)
+
+The user asked: build the checklist into the program, check the safety checks
+are enough and come at sensible times, drop Python that isn't needed, check
+the Mac tools are the best ones, and resume by itself if usage runs out.
+
+- checklist.rs: docs/recovery-checklist.md built in; the page opens on "The
+  checklist" (the steps are the other tab). Ticks in
+  results\checklist-ticks.txt (T/U lines with local time). Checkpoint boxes
+  are derived, not stored: passed when the newest step-7 check made after
+  the last tick among the boxes they cover (own phase before them, plus
+  "covers Phases N and M") passed; the final one needs two folders. The
+  person's copy (newest recovery-checklist.md under the program's folder,
+  two deep: "Obsidian MD files") is synced: ticks taken in when its mtime
+  changed (newest change wins), written back whole unless it holds the
+  person's own text (normalised hash vs the delivered versions 05717a4,
+  4c10e41, 3f05f2a and the last one written). The manifest beside it too.
+- Step 4 "Check the image is unchanged" (image::check_existing); the result
+  joins safety-checks.csv as "Image checked (step 4)".
+- Put back refuses while the newest step-7 check of that WORK failed.
+- Removed: reference/ (the Python original), tools/compare_with_python.py,
+  tools/make_fixtures.py and their CI steps; REVIEW-* moved to docs/review/;
+  tools/README.md says what each remaining test tool is for.
+- Checklist: "When the safety checks happen, and why then"; image check in
+  Phase 8 and twice a year; RAW second opinion (Adobe DNG Converter);
+  PowerPhotos and Photos' own Import for combining libraries; other Mac
+  libraries (iMovie, Final Cut Pro, Logic, GarageBand) opened as copies.
+- Automatic resumes in case usage runs out (delete when done):
+  trig_01HWD68BF41detUxMpY9u9jJ (20 Oct 02:00Z), trig_012He5TSTT9Rnc94yfo2WQxH
+  (07:00Z), trig_01CVCyJEtDYDvTK6AMz43SoA (12:00Z).
 
 ## Next
 

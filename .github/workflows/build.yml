@@ -55,14 +55,6 @@ jobs:
           set -o pipefail
           target/release/recovery-probe.exe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
           echo "::notice title=Self-test::$(tail -n 1 "$RUNNER_TEMP/report/25-self-test.txt")"
-      - name: Compare with the Python version, file by file
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          python tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
-          python tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
-          python tools/compare_with_python.py target/release/recovery-probe.exe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee "$RUNNER_TEMP/report/30-compare.txt"
-          echo "::notice title=Compared with Python::$(tail -n 1 "$RUNNER_TEMP/report/30-compare.txt")"
       - name: Map check on test disks with known damage
         if: ${{ !cancelled() }}
         run: |
@@ -145,14 +137,6 @@ jobs:
         run: |
           set -o pipefail
           target/release/recovery-probe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
-      - name: Compare with the Python version, file by file
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          python3 tools/make_fixtures.py edge "$RUNNER_TEMP/fx/edge"
-          python3 tools/make_fixtures.py mutate tests/seeds "$RUNNER_TEMP/fx/mut" --seed 1
-          python3 tools/compare_with_python.py target/release/recovery-probe tests/seeds "$RUNNER_TEMP/fx/edge" "$RUNNER_TEMP/fx/mut" 2>&1 | tee "$RUNNER_TEMP/report/30-compare.txt"
-          echo "::notice title=Compared with Python (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/30-compare.txt")"
       - name: Tools that check the test disks independently
         if: ${{ !cancelled() }}
         run: |

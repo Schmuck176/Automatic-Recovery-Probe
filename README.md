@@ -6,8 +6,16 @@ looks normal.
 
 **Double-click `recovery-probe.exe`.** It asks Windows for administrator
 rights (to read the recovered disk directly; it never writes to it), and
-opens a page in the PC's own web browser that goes through the job one step
-at a time:
+opens a page in the PC's own web browser with two tabs:
+
+- **The checklist** — the whole recovery, phase by phase
+  (`docs/recovery-checklist.md`, built into the program), with tick boxes
+  kept in `results\checklist-ticks.txt`. A bar at the top says what's next,
+  when a checkpoint is due, or when to stop. Checkpoint boxes tick themselves
+  when a safety check made after the boxes before them passes. The person's
+  own copy of the checklist (in Obsidian) is kept the same, both ways, and
+  never written over if they have added notes of their own.
+- **The program's steps**, one at a time:
 
 1. **Check the program works on this PC** — a built-in self-test on sample
    files and a small damaged test disk, where every right answer is known.
@@ -21,7 +29,8 @@ at a time:
 4. **Make an image of the SSD** — the whole SSD read once into one file on
    another drive, with its SHA-256, read back to check it; places the SSD
    could not read are recorded the way ddrescue does. From then on the next
-   steps read the image, and the SSD can go back in its drawer.
+   steps read the image, and the SSD can go back in its drawer. The image
+   can be checked again later against its SHA-256, without the SSD.
 5. **See what the damage touched** — the *map check*: from the mapfile and
    the volume's own exFAT structures, exactly which files lost which bytes,
    which folders are damaged, which files Windows cannot even list, and the
@@ -53,6 +62,8 @@ at a time:
    are never split: damaged media inside a library go back inside it, a
    document kept as a folder goes out and back whole, and a library's own
    database or an app is left to its own app (evaluated, not copied out).
+   Put back, the one step that changes the copies, waits while the last
+   safety check of them found something.
 9. **Finish** — take the SSD out, and put Windows' setting back once it is
    unplugged.
 
@@ -106,8 +117,12 @@ Every push is built and tested on GitHub's Windows and Linux machines
 (`.github/workflows/build.yml`); the results land on the `ci-windows` and
 `ci-linux` branches, with the Windows program itself.
 
-- The probe gives the same answer as the original Python version
-  (`reference/recovery_probe.py`) for every file, detail text included.
+- The file checks (the probe) were ported from a Python program and gave
+  the same answer for every one of 1,425 test files, detail text included,
+  on every run until 19 October 2026; that comparison and the Python
+  original were then retired (they are in the repository's history). The
+  built-in self-test checks them on intact and damaged samples of every
+  kind (`tests/seeds`).
 - The map check and the copying are tested on hundreds of damaged test disks
   made by `tools/exfat_image.py`, against an independent oracle
   (`tools/test_mapcheck.py`), against `fsck.exfat` and `dissect.fat`, and
@@ -116,7 +131,13 @@ Every push is built and tested on GitHub's Windows and Linux machines
   Windows lists and opens compared with what the map check predicts, record
   by record (`tools/windows_check.py`); and the disk protection, byte for
   byte (`tools/guard_check.py`).
-- The page in a real browser, step by step (`tools/ui_check.js`).
+- The page in a real browser, step by step, the checklist included
+  (`tools/ui_check.js`).
+
+The test tools are in `tools/` (see `tools/README.md`). They are Python on
+purpose: a second, separate way of working out the right answers, so a
+mistake in the program can't hide behind the same mistake in its test. None
+of them is part of the program, and none is needed to run it.
 
 ## Building
 
