@@ -157,6 +157,15 @@ fn shown_inside(base: &Path, p: &Path) -> String {
     }
 }
 
+/// The name a piece of lost data gets (the map check names it the same way,
+/// so that the check of the copies can find it).
+pub fn lost_piece_name(first: u32, count: u32, head: &[u8]) -> String {
+    format!("cluster {first} ({count} clusters).{}", extension_for(head))
+}
+
+/// The folder lost data goes into, inside the copies' folder.
+pub const LOST_DIR: &str = "lost data (no name)";
+
 /// A file extension for data whose name is lost, from what it starts with.
 pub fn extension_for(head: &[u8]) -> &'static str {
     match crate::formats::sniff(head) {
@@ -1055,7 +1064,7 @@ pub fn rescue(
             let off = vol.cluster_offset(first);
             let len = count as u64 * vol.cluster_size;
             let head = vol.src.read_at(off, 64).unwrap_or_default();
-            let name = format!("cluster {first} ({count} clusters).{}", extension_for(&head));
+            let name = lost_piece_name(first, count, &head);
             let dest = lost_dir.join(&name);
             let shown = format!("lost data (no name)\\{name}");
             let earlier_sha = hashes.get(&log_key("LOST DATA", &shown, "")).map(|d| crate::sha256::hex(d));

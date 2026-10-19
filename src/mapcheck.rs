@@ -284,6 +284,9 @@ pub struct Report {
     pub folder_problems: Vec<FolderIssue>,
     pub lost_clusters: u64,
     pub lost_runs: Vec<(u32, u32)>,
+    /// Pieces of lost data (as the copying saves them, in "lost data (no
+    /// name)") that sit on places ddrescue never read.
+    pub lost_items: Vec<Item>,
     /// The newest date (created or modified) of any file or folder found,
     /// as an exFAT timestamp, with its path.
     pub newest: Option<(u32, String)>,
@@ -869,6 +872,50 @@ pub fn analyse_with(
         }
     }
 
+    // Pieces of lost data on never-read places: named as the copying names
+    // them, so that the check of the copies marks them NEVER_READ too.
+    let mut lost_items: Vec<Item> = Vec::new();
+    for &(first, count) in &lost_runs {
+        let mut ranges: Vec<(u64, u64, u64)> = Vec::new();
+        for (c, pieces) in bad_clusters.range(first..first.saturating_add(count)) {
+            let at = (*c - first) as u64 * vol.cluster_size;
+            for p in pieces {
+                ranges.push((at + p.start, at + p.end, vol.cluster_offset(*c) + p.start));
+            }
+        }
+        if ranges.is_empty() {
+            continue;
+        }
+        ranges.sort();
+        let mut merged: Vec<(u64, u64, u64)> = Vec::new();
+        for r in ranges {
+            match merged.last_mut() {
+                Some(last) if last.1 == r.0 && last.2 + (last.1 - last.0) == r.2 => last.1 = r.1,
+                _ => merged.push(r),
+            }
+        }
+        let mut content = Content::default();
+        for &(fs, fe, disk) in &merged {
+            content.add(content_of(src, disk, disk + (fe - fs)));
+        }
+        let head = src.read_at(vol.cluster_offset(first), 64).unwrap_or_default();
+        let len = count as u64 * vol.cluster_size;
+        lost_items.push(Item {
+            path: format!("{}\\{}", crate::rescue::LOST_DIR, crate::rescue::lost_piece_name(first, count, &head)),
+            is_dir: false,
+            size: len,
+            valid_data_length: len,
+            ranges: merged,
+            chain_problem: None,
+            hidden: false,
+            hidden_maybe: false,
+            why_hidden: String::new(),
+            content,
+            can_see: None,
+            record_unread: false,
+        });
+    }
+
     // Can Windows see these paths? Only when the volume has a drive letter here.
     let drive = crate::sys::drive_for_serial(vol.serial);
     if let Some(d) = &drive {
@@ -917,6 +964,7 @@ pub fn analyse_with(
         folder_problems,
         lost_clusters,
         lost_runs,
+        lost_items,
         newest,
         written: Vec::new(),
     })
@@ -1203,6 +1251,18 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
             item_note(it),
         ]));
     }
+    for it in &r.lost_items {
+        body.push_str(&csv_row(&[
+            "LOST DATA".to_string(),
+            it.path.clone(),
+            it.size.to_string(),
+            it.damaged_bytes().to_string(),
+            ranges_text(&it.ranges),
+            it.content.word().to_string(),
+            "no".to_string(),
+            "data no folder record names, saved by the copying under this name".to_string(),
+        ]));
+    }
     write_bom(&damaged_csv, &body)?;
     written.push(damaged_csv.display().to_string());
 
@@ -1279,6 +1339,19 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
             only_past_end: it.only_past_valid_data(),
             content: it.content.word().to_string(),
             maybe: it.hidden_maybe,
+            ranges: ranges_text(&it.ranges),
+        }));
+    }
+    for it in &r.lost_items {
+        tsv.push_str(&crate::join::tsv_line(&crate::join::MapItem {
+            kind: "DAMAGED".to_string(),
+            path: it.path.clone(),
+            size: it.size,
+            damaged_bytes: it.damaged_bytes(),
+            first_damaged: it.ranges.iter().map(|r| r.0).min().unwrap_or(0),
+            only_past_end: false,
+            content: it.content.word().to_string(),
+            maybe: false,
             ranges: ranges_text(&it.ranges),
         }));
     }
@@ -1502,6 +1575,9 @@ pub fn page_json(r: &Report) -> String {
     let files: Vec<&Item> = r.files().collect();
     let mut losing: Vec<&Item> =
         files.iter().copied().filter(|i| !i.only_past_valid_data() && i.damaged_bytes() > 0).collect();
+    // Pieces of data no folder names any more count too: they are copied,
+    // and lost bytes the same way.
+    losing.extend(r.lost_items.iter());
     losing.sort_by(|a, b| b.damaged_bytes().cmp(&a.damaged_bytes()).then(a.path.cmp(&b.path)));
     let file_list: Vec<String> = losing
         .iter()
