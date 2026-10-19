@@ -2,8 +2,8 @@
 
 *Version 2026-10-19 — written with Claude Opus 5.5 for the Recovery Probe program
 (`recovery-probe.exe`), after an independent review of the program and of the
-2026-10-18 plan. Replaces every earlier copy. Boxes you ticked in the 2026-10-18 copy
-are ticked here too where the step is the same.*
+2026-10-18 plan. Replaces every earlier copy; where a step is the same as in the
+2026-10-18 copy, the box you ticked there stays ticked here.*
 
 **What you have:** a 2 TB SSD holding the ddrescue copy of your dead 1 TB hard drive
 (a GUID partition map with one exFAT volume, as the Mac made it), an empty 2 TB SSD
@@ -104,10 +104,10 @@ write add-on is installed on the Mac (Phase 5 checks).
 ## The tools
 
 **Recovery Probe** (`recovery-probe.exe`) does the essential work: the image, the map
-check, the copying and the checks. Everything else is optional and only *reads*:
-**Krokiet**, **7-Zip** and **MP3val** for extra checks (Phase 4), **ffmpeg** for
-Krokiet's video check, **`sips`** on the Mac (built in), and **untrunc** and the
-paid repair tools for the damaged files (Phase 6).
+check, the copying and the checks. Everything else is optional: **Krokiet**, **7-Zip**
+and **MP3val** for extra checks that only read (Phase 4), **ffmpeg** for Krokiet's
+video check, **`sips`** on the Mac (built in, only reads), and **untrunc** and the
+paid repair tools, used only on the copies in `REPAIR` (Phase 6).
 
 > ⚠️ **Krokiet has Trash, Delete and Move buttons. In this plan they are never used.**
 > Its scans only make lists. (Windows' Recycle Bin has a size limit — about 5% of the
@@ -210,6 +210,8 @@ Stellar and Repairit need internet to activate, even for a trial. Don't get them
 Phase 6 is when you reconnect and decide whether you need them at all.
 
 ## E. Test everything before you disconnect
+
+*(Do this section again whenever `recovery-probe.exe` is replaced by a newer version.)*
 
 Make a test folder (for example `C:\RECOVERY-TOOLS\test-files`) with a few photos, a
 video, a zip, a PDF and an MP3 (copies of ordinary files of yours — not anything from
@@ -381,7 +383,7 @@ obvious name; the lists go into the damaged list in Phase 6.
 *Included paths*):
 
 - [ ] **Included paths:** `SPARE\WORK` only.
-- [ ] **Excluded item:** add `*.photoslibrary*`, `*/found folders (name lost)*` (only if you want to skip those) and `*/._*` (separated by commas). The first keeps Krokiet out of the Photos Libraries. The last skips Mac `._` files, which would otherwise show up as "broken" images or videos.
+- [ ] **Excluded item:** add `*.photoslibrary*` and `*/._*` (separated by a comma). The first keeps Krokiet out of the Photos Libraries (thousands of small previews in there would only bury the results). The second skips Mac `._` files, which would otherwise show up as "broken" images or videos.
 - [ ] **File Size (Kilobytes) → Min:** change **16** to **0**. Out of the box Krokiet **ignores every file smaller than 16 KB** in every scan except Empty Files, and nothing tells you.
 
 > **After every scan, click Save** and save the results. Krokiet forgets results when
@@ -526,8 +528,8 @@ Krokiet, 7-Zip, MP3val and `sips` flagged.
 
 - [ ] **1. A `RECORDS` folder on `SPARE`:** copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` stays where it is: step 7 needs it there.) In three years you'll want to know what was checked.
 - [ ] **2. A second copy, on another drive, kept away from home:** copy `WORK` (with its `rescue-log.csv`), `REPAIR` and `RECORDS` onto it. A 4 TB `IMAGE` drive has room beside the image. On a 2 TB `IMAGE` there's room for one or the other: the image has done its job once `WORK` is checked, and the recovered SSD in the drawer is the master, so replacing the image with the second copy is reasonable — but it's a deletion, so decide it yourself, not because this list says so.
-- [ ] **3. Check the second copy:** step 7 → folder = the copy's `WORK` → **Check the copies are unchanged**. You want every copy exactly as copied.
-- [ ] **4. Set a phone reminder every six months** to plug both drives in and run **Check the copies are unchanged** on each. A file that has quietly changed shows up by name; take a good copy of it from the other drive. (Unpowered SSDs slowly lose their data: plugging them in twice a year also keeps them healthy.)
+- [ ] **3. Check the second copy:** in step 7, click **Choose…** beside the folder box, choose the second copy's `WORK` folder, then click **Check the copies are unchanged**. You want every copy exactly as copied.
+- [ ] **4. Set a phone reminder every six months** to plug both drives in and run **Check the copies are unchanged** on each `WORK` (the same way). A file that has quietly changed shows up by name; take a good copy of it from the other drive. (Unpowered SSDs slowly lose their data: plugging them in twice a year also keeps them healthy.)
 - [ ] **5.** The things you truly can't lose — usually the family photos — somewhere else as well, such as cloud storage.
 
 > **MultiPar / PAR2 is optional now.** A PAR2 set covers at most 32,768 files, so "one
