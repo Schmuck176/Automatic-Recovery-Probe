@@ -356,7 +356,7 @@ class Oracle:
 
         found = {}  # path shown -> (node, clusters, broken, hidden)
         maybe_of = {}  # path shown -> not listed, but Windows still opens it by its full path
-        count = {"problems": 0, "folders": 0, "files": 0}
+        count = {"problems": 0, "folders": 0, "files": 0, "bytes": 0}
         visited = set()
         # Where each record begins, from the builder's record.
         first_slot = {n["record_offsets"][0]: n for n in self.t["nodes"] if not n["deleted"] and n["record_offsets"]}
@@ -461,6 +461,7 @@ class Oracle:
                         subdirs.append((path, ncl, broken) + sub)
                     else:
                         count["files"] += 1
+                        count["bytes"] += n["data_length"]
                 for sd in reversed(subdirs):
                     stack.append(sd)
 
@@ -667,6 +668,7 @@ class Oracle:
             "folder_problems": problems,
             "folders": folders,
             "files": files,
+            "bytes": count["bytes"],
         }
 
 
@@ -730,6 +732,9 @@ def compare(exp, got):
     if got["volume"]["files"] != exp["files"] or got["volume"]["folders"] != exp["folders"]:
         diffs.append("found %d files, %d folders; expected %d, %d" % (
             got["volume"]["files"], got["volume"]["folders"], exp["files"], exp["folders"]))
+    # Their total size: what the safety check compares the copies with.
+    if got["volume"].get("bytes") != exp["bytes"]:
+        diffs.append("the files found take %r bytes; expected %d" % (got["volume"].get("bytes"), exp["bytes"]))
     return diffs
 
 

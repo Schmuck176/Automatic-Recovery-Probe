@@ -303,6 +303,25 @@ fn disk_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(Vec<String>, Ve
         if problems.len() == before { "all as expected" } else { "NOT as expected" }
     ));
 
+    say("The safety check: the files on the disk, in the list of copies, and read back...");
+    match crate::verify::run_checked(&rescued, Some(&out), None, &mut |_s: &str| {}, &mut |_d, _t| {}, &|| false) {
+        Ok(r) => {
+            let s = crate::verify::safety(&r);
+            let n = |st: &crate::verify::Stage| st.files.map(commas).unwrap_or_else(|| "?".to_string());
+            if !s.fine {
+                problems.push(format!("safety check: {}", s.verdict.join(" ")));
+            }
+            summary.push(format!(
+                "Safety check: {} files on the disk, {} in the list of copies, {} read back exactly - {}.",
+                n(&s.stages[0]),
+                n(&s.stages[1]),
+                n(&s.stages[2]),
+                if s.fine { "all the same, as expected" } else { "NOT as expected" }
+            ));
+        }
+        Err(e) => problems.push(format!("safety check: {e}")),
+    }
+
     say("Checking the copies together with the map check...");
     let tsv = std::fs::read_to_string(out.join(crate::join::TSV_NAME))
         .map_err(|e| format!("could not read the map check's list of files: {e}"))?;

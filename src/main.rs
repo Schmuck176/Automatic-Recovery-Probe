@@ -25,9 +25,11 @@ Double-click the program to use it step by step in your web browser. Or:
   recovery-probe image --disk <disk> --map <mapfile> --out <folder>
         Read the whole disk once into one image file (recovered-ssd.img) in <folder>,
         with its SHA-256, and check it by reading it back. Stopped, it carries on.
-  recovery-probe verify <folder>
+  recovery-probe verify <folder> [--map-check <map check results folder>]
         Check every copy in <folder> against the SHA-256 the copying wrote into
-        rescue-log.csv: changed, missing and added files.
+        rescue-log.csv: changed, missing and added files. Then the safety check:
+        the files the map check found on the SSD, the files the list names, and
+        the files here now, stage by stage.
   recovery-probe isolate <copies folder> --scan <results .csv> [--scan <results .csv>]...
         Step 1 of repairing: copy every damaged file out into REPAIR (beside the
         copies folder), sorted by what repairs it, each name tagged [R0001]...;
@@ -296,8 +298,11 @@ fn main() {
                 }
             }
         }
-        Some("verify") => match args.get(1) {
-            Some(f) => recovery_probe::cli::run_verify(f),
+        Some("verify") => match args.get(1).filter(|a| !a.starts_with("--")) {
+            Some(f) => {
+                let mc = args.iter().position(|a| a == "--map-check").and_then(|i| args.get(i + 1));
+                recovery_probe::cli::run_verify(f, mc.map(|s| s.as_str()))
+            }
             None => {
                 eprintln!("Which folder?\n\n{USAGE}");
                 2

@@ -275,6 +275,8 @@ pub struct Report {
     pub drive: Option<String>,
     pub folders_seen: u64,
     pub files_seen: u64,
+    /// The total size of every file found (what copying them all takes).
+    pub bytes_seen: u64,
     pub areas: Vec<Area>,
     pub items: Vec<Item>,
     pub hidden: Vec<(Entry, Option<bool>)>,
@@ -776,6 +778,7 @@ pub fn analyse_with(
         i < area_spans.len() && area_spans[i].0 < e
     };
     let mut seen = (0u64, 0u64);
+    let mut bytes_seen = 0u64;
     let mut newest: Option<(u32, String)> = None;
     let mut last_report = std::time::Instant::now();
     let folder_problems = {
@@ -786,6 +789,7 @@ pub fn analyse_with(
                 seen.0 += 1;
             } else {
                 seen.1 += 1;
+                bytes_seen += e.data_length;
             }
             if last_report.elapsed().as_millis() > 500 {
                 (*say.borrow_mut())(&format!(
@@ -979,6 +983,7 @@ pub fn analyse_with(
         drive,
         folders_seen: seen.0,
         files_seen: seen.1,
+        bytes_seen,
         areas,
         items,
         hidden,
@@ -1083,7 +1088,12 @@ pub fn summary(r: &Report) -> Vec<String> {
             ""
         }
     ));
-    t.push(format!("          {} folders and {} files found", commas(r.folders_seen), commas(r.files_seen)));
+    t.push(format!(
+        "          {} folders and {} files found ({} in all)",
+        commas(r.folders_seen),
+        commas(r.files_seen),
+        size(r.bytes_seen)
+    ));
     t.push(String::new());
     let bad = r.bad_bytes();
     t.push(format!("Never read: {} bytes ({}) in {} places.", commas(bad), size(bad), commas(r.areas.len() as u64)));
@@ -1476,7 +1486,7 @@ pub fn to_json(r: &Report) -> String {
     s.push_str("],\n");
     let _ = write!(
         s,
-        "\"volume\":{{\"offset\":{},\"label\":{},\"serial\":{},\"cluster_size\":{},\"cluster_count\":{},\"boot_checksum_ok\":{},\"used_backup_boot\":{},\"drive\":{},\"folders\":{},\"files\":{}}},\n",
+        "\"volume\":{{\"offset\":{},\"label\":{},\"serial\":{},\"cluster_size\":{},\"cluster_count\":{},\"boot_checksum_ok\":{},\"used_backup_boot\":{},\"drive\":{},\"folders\":{},\"files\":{},\"bytes\":{}}},\n",
         r.vol_offset,
         json_str(&r.vol_label),
         r.vol_serial,
@@ -1486,7 +1496,8 @@ pub fn to_json(r: &Report) -> String {
         r.used_backup_boot,
         r.drive.as_deref().map(json_str).unwrap_or("null".into()),
         r.folders_seen,
-        r.files_seen
+        r.files_seen,
+        r.bytes_seen
     );
     let _ = write!(
         s,
@@ -1708,7 +1719,7 @@ pub fn page_json(r: &Report) -> String {
     format!(
         "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"folders_affected\":{},\
          \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\
-         \"files_seen\":{},\"folders_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
+         \"files_seen\":{},\"folders_seen\":{},\"bytes_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
          \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
          \"newest\":{},\"rebuilt_folders\":{},\"rebuilt_files\":{},\"files\":[{}],\"hidden\":[{}],\
          \"hidden_groups\":[{}],\"areas\":[{}]}}",
@@ -1724,6 +1735,7 @@ pub fn page_json(r: &Report) -> String {
         r.folder_problems.len(),
         r.files_seen,
         r.folders_seen,
+        r.bytes_seen,
         r.disk_size,
         opt(r.table_disk_size),
         r.matches_mapfile.map(|b| b.to_string()).unwrap_or_else(|| "null".to_string()),

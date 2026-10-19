@@ -45,6 +45,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
       return st && /Done|Needs attention|Stopped/.test(st.textContent);
     }, step, { timeout: 120000 });
   };
+  const waitText = (id, re, ms) => page.waitForFunction(([i, r]) => new RegExp(r).test(document.getElementById(i).textContent),
+    [id, re], { timeout: ms || 60000 }).then(() => true, () => false);
 
   // Someone without the key, or from another site, gets nothing.
   const bad = await fetch(`http://127.0.0.1:${port}/wrongkey/api/state`).then((r) => r.status);
@@ -114,6 +116,12 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(r4.includes("files lost data") && r4.includes("IMG_0003.JPG"), "step 5: the damaged photo is named");
   check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 5: files Windows cannot list are shown");
   check((await page.locator("#map-legend").textContent()).includes("folder records"), "the map now says what each place held");
+  check(/files on the SSD, [\d.,]+ (KB|MB|GB) in all/.test(r4), "step 5: how much the files take in all is shown");
+  // A part the person folds out stays open while the page refreshes itself.
+  await page.locator("#r-check details > summary").first().click();
+  await page.waitForTimeout(4500);
+  check(await page.locator("#r-check details").first().evaluate((d) => d.open), "step 5: the full report stays open while the page refreshes");
+  await page.locator("#r-check details > summary").first().click();
   await shot("2-map-check");
 
   // Step 6.
@@ -126,6 +134,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(r5.includes(`Copied ${want} files`), `step 6: all ${want} files are copied (` + r5.slice(0, 60) + ")");
   check(fs.existsSync(path.join(copyTo, "Photos", "Summer 2019_")), "step 6: a name Windows cannot use is made safe");
   check(fs.existsSync(path.join(copyTo, "Documents", "letter 15.docx")), "step 6: a file Windows cannot list is copied");
+  check(r5.includes("Safety check") && r5.includes("Every file step 5 found on the SSD is in the list of copies"),
+    "step 6: the safety check finds every file step 5 found in the list of copies (" +
+    (r5.slice(r5.indexOf("Safety check"), r5.indexOf("Safety check") + 140)) + ")");
 
   // Step 7.
   check((await page.inputValue("#scan-folder")) === copyTo, "step 7: the folder to check is the one step 6 copied into");
@@ -140,10 +151,32 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const verified = await page.waitForFunction(() => /exactly what was copied/.test(document.getElementById("r-verify").textContent),
     null, { timeout: 60000 }).then(() => true, () => false);
   check(verified, "step 7: every copy is exactly what was copied (" + (await page.textContent("#r-verify")).slice(0, 80) + ")");
+  const rv = await page.textContent("#r-verify");
+  check(rv.includes("Nothing is missing, and nothing has changed") && (await page.locator("#r-verify .safety:not(.history) td.mark.good").count()) === 3,
+    "step 7: the safety check has the same files at all three stages (" + rv.slice(rv.indexOf("Safety check"), rv.indexOf("Safety check") + 160) + ")");
+  await shot("3a-safety-check");
+  // A copy deleted by mistake: the safety check says at which stage, and names it.
+  const victim = path.join(copyTo, "Big folder", "file number 03 with a longer name.bin");
+  const kept = fs.readFileSync(victim);
+  fs.unlinkSync(victim);
+  await page.click("#b-verify");
+  const caught = await waitText("r-verify", "1 missing");
+  const rd = await page.textContent("#r-verify");
+  check(caught && rd.includes("file number 03 with a longer name.bin") && rd.includes("after step 6") &&
+    (await page.locator("#r-verify .safety:not(.history) td.mark.bad").count()) === 1,
+    "step 7: a copy deleted by mistake is caught at the last stage, and named (" + rd.slice(0, 90) + ")");
+  fs.writeFileSync(victim, kept);
+  await page.click("#b-verify");
+  check(await waitText("r-verify", "Nothing is missing, and nothing has changed"), "step 7: with it back, nothing is missing again");
+  const rh = await page.textContent("#r-verify");
+  check(rh.includes("Every safety check so far") && (await page.locator("#r-verify .history td.mark.good").count()) === 3 &&
+    (await page.locator("#r-verify .history td.mark.bad").count()) === 1,
+    "step 7: every check so far is listed - the copying, a check, the one that found the deleted copy (✗), and the check after");
+  const historyCsv = path.join(home, "results", "safety-checks.csv");
+  check(fs.existsSync(historyCsv) && fs.readFileSync(historyCsv, "utf8").split("\n").filter((l) => l.trim()).length === 5,
+    "step 7: every check is in results\\safety-checks.csv, with all its numbers");
 
   // Step 8: isolate, repair, put back, evaluate, undo.
-  const waitText = (id, re, ms) => page.waitForFunction(([i, r]) => new RegExp(r).test(document.getElementById(i).textContent),
-    [id, re], { timeout: ms || 60000 }).then(() => true, () => false);
   const repairDir = path.join(path.dirname(copyTo), "REPAIR");
   await page.click("#b-isolate");
   const isolated = await waitText("r-isolate", "Copied \\d+ damaged files out");
@@ -168,6 +201,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     await page.click("#b-verify");
     const okAfter = await waitText("r-verify", "exactly the repaired version put back");
     check(okAfter, "step 7 again: the copies check knows about the repaired version (" + (await page.textContent("#r-verify")).slice(0, 100) + ")");
+    check((await page.textContent("#r-verify")).includes("exactly as copied or as repaired and put back"),
+      "step 7 again: the safety check counts the repaired photo as here");
     await page.click("#b-evaluate");
     const evaluated = await waitText("r-evaluate", "damaged files:");
     check(evaluated, "step 8: the evaluation says what is put back and what is still damaged (" + (await page.textContent("#r-evaluate")).slice(0, 100) + ")");

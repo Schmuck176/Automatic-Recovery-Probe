@@ -1240,6 +1240,8 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
     let opts_out = out.to_string();
     let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
     let removable = is_removable(disk);
+    let map_check = lock(app).setting("last_map_check");
+    let results = lock(app).results.clone();
     start_job(app, "rescue", "Copying everything off the recovered SSD", move |ctx| {
         hold_new_disks_off(ctx, guard);
         if removable {
@@ -1309,6 +1311,16 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             summary.push("Stopped before the end. Start it again to copy the rest: what is already copied is kept.".to_string());
         }
         summary.push(format!("The full list is in {}", o.log));
+        // The safety check: the whole list of copies (this run's and any
+        // earlier run's) against what step 5 found on the SSD.
+        let safety = crate::verify::ListTotals::read(Path::new(&opts_out))
+            .ok()
+            .map(|l| crate::verify::copy_safety(&l, ssd_totals(&map_check).as_ref()));
+        if let Some(s) = &safety {
+            if let Err(e) = s.record(&results, &local_now(), "Copied (step 6)", &opts_out, None) {
+                summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
+            }
+        }
         let data = Obj::new()
             .n("files", o.files)
             .n("folders", o.folders)
@@ -1334,15 +1346,30 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             )
             .b("stopped", o.stopped)
             .s("out", &opts_out)
+            .raw("safety", &safety.as_ref().map(|s| s.json()).unwrap_or_else(|| "null".to_string()))
+            .raw("history", &crate::verify::history_json(&results, HISTORY_SHOWN))
             .end();
-        Ok(Outcome {
-            summary,
-            outputs: vec![opts_out.clone(), o.log.clone()],
-            data,
-            stopped: o.stopped,
-            problem: (!o.failed.is_empty()).then(|| format!("{} files could not be copied", o.failed.len())),
-        })
+        let problem = if !o.failed.is_empty() {
+            Some(format!("{} files could not be copied", o.failed.len()))
+        } else if !o.stopped && safety.as_ref().is_some_and(|s| !s.fine) {
+            Some("The safety check below found something: read it before going on.".to_string())
+        } else {
+            None
+        };
+        Ok(Outcome { summary, outputs: vec![opts_out.clone(), o.log.clone()], data, stopped: o.stopped, problem })
     })
+}
+
+/// How many of the latest safety checks the page lists under steps 6 and 7.
+const HISTORY_SHOWN: usize = 12;
+
+/// What the latest map check (step 5) found on the SSD, for the safety checks.
+fn ssd_totals(map_check: &str) -> Option<crate::verify::OnSsd> {
+    if map_check.is_empty() {
+        None
+    } else {
+        crate::verify::map_check_totals(Path::new(map_check))
+    }
 }
 
 /// The drive (letter) a folder is on.
@@ -1575,8 +1602,26 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
     }
     let out = fresh(&lock(app).results, &format!("verify-{}", stamp()), ".csv");
     let dir = dir.to_path_buf();
+    let map_check = lock(app).setting("last_map_check");
+    let results = lock(app).results.clone();
     start_job(app, "verify", "Checking the copies are unchanged", move |ctx| {
-        let r = crate::verify::run(&dir, Some(&out), &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &|| ctx.stopping())?;
+        let mc = (!map_check.is_empty()).then(|| PathBuf::from(&map_check));
+        let r = crate::verify::run_checked(
+            &dir,
+            mc.as_deref(),
+            Some(&out),
+            &mut |s| ctx.line(s),
+            &mut |d, t| ctx.amount(d, t),
+            &|| ctx.stopping(),
+        )?;
+        // The safety check: the SSD, the list of copies, the copies here now.
+        let safety = (!r.stopped).then(|| crate::verify::safety(&r));
+        let mut summary = crate::verify::summary(&r);
+        if let Some(s) = &safety {
+            if let Err(e) = s.record(&results, &local_now(), "Checked (step 7)", &dir.display().to_string(), Some(&r)) {
+                summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
+            }
+        }
         let data = Obj::new()
             .n("listed", r.listed)
             .n("ok", r.ok)
@@ -1584,14 +1629,23 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
             .n("missing", r.missing.len() as u64)
             .n("extra", r.extra.len() as u64)
             .b("stopped", r.stopped)
+            .raw("safety", &safety.as_ref().map(|s| s.json()).unwrap_or_else(|| "null".to_string()))
+            .raw("history", &crate::verify::history_json(&results, HISTORY_SHOWN))
             .end();
         let bad = !r.changed.is_empty() || !r.missing.is_empty();
+        let problem = if bad {
+            Some("some copies are not what was copied".to_string())
+        } else if safety.as_ref().is_some_and(|s| !s.fine) {
+            Some("The safety check found something: read it before going on.".to_string())
+        } else {
+            None
+        };
         Ok(Outcome {
-            summary: crate::verify::summary(&r),
+            summary,
             outputs: r.written.clone().into_iter().collect(),
             data,
             stopped: r.stopped,
-            problem: bad.then(|| "some copies are not what was copied".to_string()),
+            problem,
         })
     })
 }

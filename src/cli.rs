@@ -479,13 +479,21 @@ pub fn run_image(disk: &str, map_path: &str, out: &str) -> i32 {
     }
 }
 
-/// Check the copies in a folder against rescue-log.csv.
-pub fn run_verify(folder: &str) -> i32 {
+/// Check the copies in a folder against rescue-log.csv, and (with the map
+/// check's results folder) the safety check.
+pub fn run_verify(folder: &str, map_check: Option<&str>) -> i32 {
     install_ctrl_c();
     // (Not into the folder being checked: that would add a file to it.)
     let out = std::env::current_dir().unwrap_or_default().join(format!("verify-{}.csv", crate::fmt::now_stamp()));
-    match crate::verify::run(
+    if let Some(mc) = map_check {
+        if crate::verify::map_check_totals(std::path::Path::new(mc)).is_none() {
+            println!("{mc} has no map-check.json with the numbers of files: is it a map check's results folder?");
+            return 2;
+        }
+    }
+    match crate::verify::run_checked(
         std::path::Path::new(folder),
+        map_check.map(std::path::Path::new),
         Some(&out),
         &mut |s| println!("  {s}"),
         &mut |_, _| {},
@@ -495,7 +503,17 @@ pub fn run_verify(folder: &str) -> i32 {
             for l in crate::verify::summary(&r) {
                 println!("{l}");
             }
-            if r.changed.is_empty() && r.missing.is_empty() && !r.stopped {
+            let fine = if r.stopped {
+                false
+            } else {
+                let s = crate::verify::safety(&r);
+                println!();
+                for l in s.lines() {
+                    println!("{l}");
+                }
+                s.fine
+            };
+            if r.changed.is_empty() && r.missing.is_empty() && fine {
                 0
             } else {
                 1

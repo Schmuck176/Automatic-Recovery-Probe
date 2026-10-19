@@ -443,6 +443,9 @@ pub const LOG_NAME: &str = "rescue-log.csv";
 /// (and by the next run, if this one never got to the end).
 pub const UNFINISHED_LOG_NAME: &str = "rescue-log-unfinished.csv";
 pub const LOG_HEADER: [&str; 7] = ["kind", "path", "size_bytes", "result", "copied_as", "note", "sha256"];
+/// The end of the note a run that stopped before the end leaves in the list
+/// (dropped again by a later run that gets to the end).
+pub const RUN_AGAIN: &str = "run it again to copy the rest";
 
 /// The lists earlier runs into the same folder wrote, read back: one line
 /// per file, folder and piece of lost data (the latest wins, except that a
@@ -501,7 +504,7 @@ impl Earlier {
             out.push_str(l);
         }
         for n in &self.notes {
-            if !(drop_stopped_notes && n.contains("run it again")) {
+            if !(drop_stopped_notes && n.contains(RUN_AGAIN)) {
                 out.push_str(n);
             }
         }
@@ -1142,13 +1145,13 @@ pub fn rescue(
         }
     }
     if let Some(err) = &o.disk_lost {
-        runlog.note("", &format!("the recovered disk stopped answering ({err}); run it again to copy the rest"));
+        runlog.note("", &format!("the recovered disk stopped answering ({err}); {RUN_AGAIN}"));
     } else if let Some(err) = &o.dest_lost {
-        runlog.note("", &format!("the folder the copies go to went away ({err}); run it again to copy the rest"));
+        runlog.note("", &format!("the folder the copies go to went away ({err}); {RUN_AGAIN}"));
     } else if let Some(err) = &o.keeps_failing {
-        runlog.note("", &format!("stopped because copying kept failing ({err}); run it again to copy the rest"));
+        runlog.note("", &format!("stopped because copying kept failing ({err}); {RUN_AGAIN}"));
     } else if o.stopped {
-        runlog.note("", "stopped on request before the end; run it again to copy the rest");
+        runlog.note("", &format!("stopped on request before the end; {RUN_AGAIN}"));
     }
     // The whole list: the earlier lists with this run's folded in. Notes
     // about folders: this run's when it read every folder, the earlier

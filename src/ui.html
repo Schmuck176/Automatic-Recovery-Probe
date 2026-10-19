@@ -130,6 +130,11 @@ th, td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(
 th { font-weight: 600; color: var(--ink-soft); }
 td.num, th.num { text-align: right; white-space: nowrap; }
 td.verdict { white-space: nowrap; overflow-wrap: normal; }
+/* The safety check: one row per stage, from the SSD to the copies. */
+.safety h3 { margin-top: 0; }
+td.mark { width: 1.6em; text-align: center; font-weight: 700; padding-right: 0; }
+td.mark.good { color: var(--read); }
+td.mark.bad { color: var(--unread); }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--act); font-weight: 600; }
 pre.report { white-space: pre-wrap; font: 0.82rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; background: var(--paper); padding: 10px 12px; border-radius: 6px; max-height: 420px; overflow: auto; }
@@ -306,6 +311,9 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 "use strict";
 const KEY = "__KEY__";
 const $ = (id) => document.getElementById(id);
+// Puts new contents in a section only when they differ from what it shows:
+// redrawing the same contents would fold up any part the person opened.
+function put(el, h) { if (el.dataset.html !== h) { el.innerHTML = h; el.dataset.html = h; } }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const commas = (n) => Number(n || 0).toLocaleString("en-GB");
 // Sizes the way File Explorer shows them (1 KB = 1,024 bytes).
@@ -488,7 +496,7 @@ function renderTest() {
     h += `<div class="msg ${ok ? "ok" : "err"}">${esc((j.summary || [])[0] || j.error)}</div>`;
     if ((j.summary || []).length > 1) h += `<details><summary>What was checked</summary><pre class="report">${lines(j.summary.slice(1))}</pre></details>`;
   }
-  $("r-test").innerHTML = h;
+  put($("r-test"), h);
 }
 
 function renderMapStep() {
@@ -531,7 +539,7 @@ function renderMapStep() {
     r += `<div class="msg err">${esc(mapInfo.error)}</div>`;
     setStep("map", "problem", "Needs attention");
   } else setStep("map", "", "");
-  $("r-map").innerHTML = r;
+  put($("r-map"), r);
 }
 
 // The copy ddrescue made (its partition table was made for the mapfile's disk).
@@ -654,7 +662,7 @@ function renderImage() {
     const lines = j.summary || [];
     if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
   }
-  $("r-image").innerHTML = h;
+  put($("r-image"), h);
 }
 
 function renderVerify() {
@@ -666,13 +674,54 @@ function renderVerify() {
     const good = j.state === "done" && !d.stopped;
     if (j.error && j.state === "failed" && !(j.summary || []).length) h += `<div class="msg err">${esc(j.error)}</div>`;
     const lines = j.summary || [];
-    if (lines.length) h += `<div class="msg ${good ? "ok" : (d.stopped ? "warn" : "err")}">${lines.map(esc).join("<br>")}</div>`;
+    const bad = (d.changed || 0) + (d.missing || 0) > 0;
+    if (lines.length) h += `<div class="msg ${good ? "ok" : (d.stopped ? "warn" : bad ? "err" : "warn")}">${lines.map(esc).join("<br>")}</div>`;
+    h += safetyHtml(d.safety);
     if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the list of problems</button></div>`;
   }
-  $("r-verify").innerHTML = h;
+  if (!busy()) h += historyHtml(newestHistory());
+  put($("r-verify"), h);
+}
+
+// The list of every safety check made (steps 6 and 7), from whichever of the
+// two steps ran last: the list only grows, so the longer one is the newer.
+function newestHistory() {
+  const hs = ["verify", "rescue"].map((k) => { const j = lastOf(k); return j && j.data && j.data.history; }).filter((x) => x && x.items);
+  return hs.sort((a, b) => b.count - a.count)[0] || null;
+}
+
+// Every safety check so far, oldest first. Run after every phase, the same
+// numbers each time say nothing went missing; a ✗ after a ✓ says it went
+// wrong in between.
+function historyHtml(hist) {
+  if (!hist || !hist.items || !hist.items.length) return "";
+  const rows = hist.items.map((c) => `<tr><td>${esc(c.step)}<br><span class="small soft">${esc(c.when)} · <span class="path">${esc(c.folder)}</span></span></td>` +
+    `<td class="num">${c.files == null ? "?" : commas(c.files)}</td><td class="num">${c.bytes == null ? "?" : esc(size(c.bytes))}</td>` +
+    `<td class="mark ${c.ok ? "good" : "bad"}" title="${esc(c.result)}" aria-label="${c.ok ? "as it should be" : "not as it should be"}">${c.ok ? "✓" : "✗"}</td></tr>`).join("");
+  const shown = hist.count > hist.items.length ? `The latest ${hist.items.length} of ${commas(hist.count)}. ` : "";
+  return `<div class="panel safety history"><h3>Every safety check so far</h3>
+    <table><tr><th>Check</th><th class="num">Files</th><th class="num">Size</th><th></th></tr>${rows}</table>
+    <p class="small soft">${shown}Run this check after every phase: the same files each time means nothing went missing, and a ✗ after a ✓ means something happened in between. Every check is listed, with all its numbers, in <span class="path">${esc(hist.file)}</span>.</p>
+    <div class="row"><button class="second" data-open="${esc(hist.file)}">Show the list of every check</button></div></div>`;
 }
 
 function figure(n, label, bad) { return `<div class="figure ${bad && n > 0 ? "bad" : ""}"><b>${commas(n)}</b><span>${esc(label)}</span></div>`; }
+
+// The safety check (steps 6 and 7): the files on the SSD, in the list of
+// copies and here now, stage by stage. The same numbers all the way down
+// means nothing went missing on the way.
+function safetyHtml(s) {
+  if (!s || !s.stages) return "";
+  const mark = (ok) => ok === true ? ["good", "✓", "as it should be"] : ok === false ? ["bad", "✗", "not as it should be"] : ["", "?", "not known"];
+  const rows = s.stages.map((g, i) => {
+    const [cls, sym, said] = mark(g.ok);
+    return `<tr><td>${i + 1}. ${esc(g.name)}${g.words ? `<br><span class="small soft">${esc(g.words)}</span>` : ""}</td>` +
+      `<td class="num">${g.files == null ? "?" : commas(g.files)}</td><td class="num">${g.bytes == null ? "?" : esc(size(g.bytes))}</td>` +
+      `<td class="mark ${cls}" title="${said}" aria-label="${said}">${sym}</td></tr>`;
+  }).join("");
+  const verdict = (s.verdict || []).map((v, i) => i === 0 ? `<div class="msg ${s.fine ? "ok" : "err"}">${esc(v)}</div>` : `<p class="small soft">${esc(v)}</p>`).join("");
+  return `<div class="panel safety"><h3>Safety check</h3><table><tr><th>Stage</th><th class="num">Files</th><th class="num">Size</th><th></th></tr>${rows}</table>${verdict}</div>`;
+}
 
 function renderCheck() {
   const j = lastOf("mapcheck");
@@ -690,7 +739,7 @@ function renderCheck() {
         ${figure(d.hidden_files, "files Windows cannot list", true)}
         ${figure(d.folders_affected, "folders damaged", true)}
         <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
-        <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD</span></div></div>`;
+        <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD${d.bytes_seen != null ? `, ${esc(size(d.bytes_seen))} in all` : ""}</span></div></div>`;
       if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
       if (d.rebuilt_folders > 0) h += `<div class="msg ok">${commas(d.rebuilt_folders)} folder${d.rebuilt_folders === 1 ? "" : "s"} whose own record was lost ${d.rebuilt_folders === 1 ? "was" : "were"} found by ${d.rebuilt_folders === 1 ? "its" : "their"} contents: the ${commas(d.rebuilt_files)} file${d.rebuilt_files === 1 ? "" : "s"} inside keep their names, dates and folders. Step 6 copies them into “found folders (name lost)”, one folder each, named after where it starts on the disk.</div>`;
       if (d.newest && d.newest.after_copy) {
@@ -714,7 +763,7 @@ function renderCheck() {
     if (j.summary && j.summary.length) h += `<details><summary>The full report</summary><pre class="report">${lines(j.summary)}</pre></details>`;
     if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the results folder</button></div>`;
   }
-  $("r-check").innerHTML = h;
+  put($("r-check"), h);
 }
 
 function renderCopy() {
@@ -739,8 +788,9 @@ function renderCopy() {
     }
     if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
       ${j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the folder</button>${j.outputs[1] ? `<button class="second" data-open="${esc(j.outputs[1])}">Show the list of every file</button>` : ""}</div>` : ""}</div>`;
+    h += safetyHtml(j.data && j.data.safety);
   }
-  $("r-copy").innerHTML = h;
+  put($("r-copy"), h);
 }
 
 const MEANING = {
@@ -789,7 +839,7 @@ function renderScan() {
     if (j.summary && j.summary.length) h += `<details><summary>The full summary</summary><pre class="report">${lines(j.summary)}</pre></details>`;
     if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the results file</button></div>`;
   }
-  $("r-scan").innerHTML = h;
+  put($("r-scan"), h);
 }
 
 function repairFolder() {
