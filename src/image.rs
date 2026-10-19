@@ -129,6 +129,57 @@ enum Piece {
     Lost(String),
 }
 
+/// Check an image made earlier against the SHA-256 saved beside it
+/// (`recovered-ssd.img.sha256`). Only reads; the SSD is not needed.
+pub fn check_existing(
+    image: &Path,
+    progress: &mut dyn FnMut(&str),
+    amount: &mut dyn FnMut(u64, u64),
+    stop: &dyn Fn() -> bool,
+) -> Result<Outcome, String> {
+    let shown = image.display().to_string();
+    let image = crate::rescue::verbatim(image);
+    let mut sha_name = image.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    sha_name.push(".sha256");
+    let want = recorded_sha(&image.with_file_name(&sha_name))
+        .ok_or_else(|| format!("{shown} has no checksum file beside it ({}), so it cannot be checked", sha_name.to_string_lossy()))?;
+    let mut f = std::fs::File::open(&image).map_err(|e| format!("could not open {shown}: {e}"))?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut o = Outcome { path: shown.clone(), size: len, reused: true, ..Default::default() };
+    let mut sha = Sha256::new();
+    let mut buf = vec![0u8; CHUNK];
+    let (mut done, mut last) = (0u64, std::time::Instant::now());
+    amount(0, len);
+    loop {
+        if stop() {
+            o.stopped = true;
+            return Ok(o);
+        }
+        let n = f.read(&mut buf).map_err(|e| format!("could not read {shown}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        sha.update(&buf[..n]);
+        done += n as u64;
+        if last.elapsed().as_millis() > 300 {
+            amount(done, len);
+            progress(&format!("Checked {} of {}", size(done), size(len)));
+            last = std::time::Instant::now();
+        }
+    }
+    amount(done, len);
+    o.sha256 = sha.finish_hex();
+    o.verified = o.sha256 == want;
+    if let Some(m) = read_errors_map(&image.display().to_string()) {
+        if let Ok(t) = std::fs::read_to_string(m) {
+            if let Ok(mf) = crate::mapfile::parse(&t) {
+                o.unreadable = mf.bad_areas().iter().map(|a| (a.start, a.len())).collect();
+            }
+        }
+    }
+    Ok(o)
+}
+
 /// Make (or carry on making, or just check) the image.
 pub fn make(
     src: &dyn Source,
@@ -150,26 +201,10 @@ pub fn make(
 
     // Made before: check it against its SHA-256 (the SSD is not read).
     if final_path.exists() {
-        let want = recorded_sha(&sha_path)
-            .ok_or_else(|| format!("{shown} is already there, but its checksum file is missing: move it away first"))?;
-        let len = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
         progress(&format!("{shown} is already there: checking it against its checksum (the SSD is not needed for this)..."));
-        let got = crate::sha256::file_hex(&final_path, &stop).map_err(|e| format!("could not read {shown}: {e}"))?;
-        let Some(got) = got else {
-            o.stopped = true;
-            return Ok(o);
-        };
-        o.reused = true;
-        o.size = len;
-        o.verified = got == want && len == opts.size;
-        o.sha256 = got;
-        if let Some(m) = read_errors_map(&final_path.display().to_string()) {
-            if let Ok(t) = std::fs::read_to_string(m) {
-                if let Ok(mf) = crate::mapfile::parse(&t) {
-                    o.unreadable = mf.bad_areas().iter().map(|a| (a.start, a.len())).collect();
-                }
-            }
-        }
+        let mut o = check_existing(&final_path, progress, amount, &stop)?;
+        o.path = shown;
+        o.verified &= o.size == opts.size;
         return Ok(o);
     }
 

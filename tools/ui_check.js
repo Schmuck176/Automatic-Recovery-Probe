@@ -15,6 +15,10 @@ const home = path.join(work, "home");
 fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(home, { recursive: true });
 fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
+// The person's own copy of the checklist (in Obsidian), with its first box ticked there.
+const obsidian = path.join(home, "Obsidian MD files", "recovery-checklist.md");
+fs.mkdirSync(path.dirname(obsidian), { recursive: true });
+fs.writeFileSync(obsidian, fs.readFileSync(path.join(__dirname, "..", "docs", "recovery-checklist.md"), "utf8").replace("- [ ] ", "- [x] "));
 const copyTo = path.join(work, "copies");
 const imageTo = path.join(work, "image");
 const port = 47000 + Math.floor(Math.random() * 900);
@@ -64,6 +68,20 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     if (api === "api/disks") check(ms < 5000, "the program lists the disks quickly (" + ms + " ms)");
   }
   await page.goto(url);
+  // The checklist is built in, and is what the page shows first.
+  await page.waitForSelector("#view-checklist:not([hidden]) input.tick", { timeout: 10000 });
+  await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
+  const tab0 = await page.textContent("#tab-count");
+  check(await page.isChecked('input.tick[data-i="0"]') && /^\(1 of \d+\)$/.test(tab0),
+    "the checklist is built in, with the box ticked in the copy in Obsidian taken in " + tab0);
+  check((await page.textContent("#where")).includes("Next on the checklist"), "the page says what is next on the checklist");
+  await page.click('input.tick[data-i="1"]');
+  await page.waitForFunction(() => /^\(2 of /.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
+  check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 && fs.existsSync(path.join(home, "results", "checklist-ticks.txt")),
+    "a box ticked on the page is kept, and the copy in Obsidian follows");
+  check(fs.existsSync(path.join(home, "Obsidian MD files", "download-manifest.md")), "the download manifest is put beside it");
+  await shot("0-checklist");
+  await page.click("#tab-steps");
   await page.waitForSelector("#map-picture svg", { timeout: 10000 });
   check((await page.textContent("#map-lead")).includes("never read"), "the map shows the unread places");
   check(await page.isChecked("input[name=mapfile]"), "the mapfile in the program's folder is chosen by itself");
@@ -117,6 +135,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 5: files Windows cannot list are shown");
   check((await page.locator("#map-legend").textContent()).includes("folder records"), "the map now says what each place held");
   check(/files on the SSD, [\d.,]+ (KB|MB|GB) in all/.test(r4), "step 5: how much the files take in all is shown");
+  await page.evaluate(() => loadChecklist());
+  const nums = [await page.textContent('#cl-body td[data-num="files"]'), await page.textContent('#cl-body td[data-num="bytes"]')];
+  check(nums[0] === "96" && /^[\d.,]+ KB$/.test(nums[1]), "the checklist's Your numbers are filled in from step 5 (" + nums.join(", ") + ")");
   // A part the person folds out stays open while the page refreshes itself.
   await page.locator("#r-check details > summary").first().click();
   await page.waitForTimeout(4500);
@@ -146,6 +167,18 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(r6.includes("NEVER_READ"), "step 7: the damaged photo is marked NEVER_READ");
   await page.click("#r-scan details summary");
   await shot("3-checked");
+  // The checklist's first checkpoint: once the boxes before it are ticked, it is due.
+  const cp = await page.evaluate(async () => {
+    const c = CL.items.findIndex((it) => it.checkpoint);
+    for (let i = 0; i < c; i++) if (CL.items[i].phase === CL.items[c].phase) await act({ action: "tick", i: String(i), on: "1" });
+    await loadChecklist();
+    return c;
+  });
+  const cpState = () => page.evaluate((c) => CLS.status.find((s) => s.i === c).state, cp);
+  check((await cpState()) === "due" && (await page.textContent("#where")).includes("Checkpoint due"),
+    "checklist: the checkpoint is due once the boxes before it are ticked");
+  const byHand = await page.evaluate(async (c) => { try { await act({ action: "tick", i: String(c), on: "1" }); return "ticked"; } catch (e) { return e.message; } }, cp);
+  check(byHand.includes("ticks itself"), "checklist: a checkpoint can't be ticked by hand while it is due (" + byHand.slice(0, 60) + ")");
   // The copies against the checksums the copying wrote.
   await page.click("#b-verify");
   const verified = await page.waitForFunction(() => /exactly what was copied/.test(document.getElementById("r-verify").textContent),
@@ -155,6 +188,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(rv.includes("Nothing is missing, and nothing has changed") && (await page.locator("#r-verify .safety:not(.history) td.mark.good").count()) === 3,
     "step 7: the safety check has the same files at all three stages (" + rv.slice(rv.indexOf("Safety check"), rv.indexOf("Safety check") + 160) + ")");
   await shot("3a-safety-check");
+  await page.evaluate(() => loadChecklist());
+  check((await cpState()) === "passed" && (await page.evaluate((c) => CLS.ticked[c], cp)) === 1,
+    "checklist: the checkpoint ticks itself when the check passes");
   // A copy deleted by mistake: the safety check says at which stage, and names it.
   const victim = path.join(copyTo, "Big folder", "file number 03 with a longer name.bin");
   const kept = fs.readFileSync(victim);
@@ -165,6 +201,11 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(caught && rd.includes("file number 03 with a longer name.bin") && rd.includes("after step 6") &&
     (await page.locator("#r-verify .safety:not(.history) td.mark.bad").count()) === 1,
     "step 7: a copy deleted by mistake is caught at the last stage, and named (" + rd.slice(0, 90) + ")");
+  await page.evaluate(() => loadChecklist());
+  check((await cpState()) === "failed" && (await page.textContent("#where")).includes("Stop."),
+    "checklist: after a check that found something, the checkpoint says stop");
+  const gate = await page.evaluate(async (f) => { try { await act({ action: "put-back", folder: f }); return "started"; } catch (e) { return e.message; } }, copyTo);
+  check(gate.includes("Put back waits for a check that passes"), "step 8: put back is refused while the last check found something (" + gate.slice(0, 70) + ")");
   fs.writeFileSync(victim, kept);
   await page.click("#b-verify");
   check(await waitText("r-verify", "Nothing is missing, and nothing has changed"), "step 7: with it back, nothing is missing again");
@@ -175,6 +216,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const historyCsv = path.join(home, "results", "safety-checks.csv");
   check(fs.existsSync(historyCsv) && fs.readFileSync(historyCsv, "utf8").split("\n").filter((l) => l.trim()).length === 5,
     "step 7: every check is in results\\safety-checks.csv, with all its numbers");
+  await page.evaluate(() => loadChecklist());
+  check((await cpState()) === "passed", "checklist: with the file back and a check that passes, the checkpoint is ticked again");
 
   // Step 8: isolate, repair, put back, evaluate, undo.
   const repairDir = path.join(path.dirname(copyTo), "REPAIR");
@@ -242,6 +285,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.goto(url);
   await page.waitForFunction(() => /Done/.test(document.getElementById("st-check").textContent), null, { timeout: 10000 });
   check(true, "after closing and opening the program, step 5's results are still there");
+  await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
+  const ticksAfter = await page.evaluate(() => CLS.done);
+  check(ticksAfter >= 9, "the checklist's ticks are still there too (" + ticksAfter + ")");
 
   // Phone-sized screen: nothing wider than the screen.
   await page.setViewportSize({ width: 390, height: 844 });
@@ -250,6 +296,12 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(wide <= 1, "on a phone-sized window nothing sticks out sideways (" + wide + " px)");
   await shot("4-narrow");
+  await page.click("#tab-checklist");
+  await page.waitForSelector("#view-checklist:not([hidden]) input.tick");
+  const wideList = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  check(wideList <= 1, "the checklist on a phone-sized window: nothing sticks out sideways (" + wideList + " px)");
+  await shot("4b-narrow-checklist");
+  await page.click("#tab-steps");
   await page.emulateMedia({ colorScheme: "dark" });
   await page.setViewportSize({ width: 1180, height: 900 });
   await shot("5-dark");

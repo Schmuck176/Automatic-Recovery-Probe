@@ -8,6 +8,7 @@
 //! Only Rust's standard library is used: no third-party code runs over the
 //! recovered files.
 
+pub mod checklist;
 pub mod checks;
 pub mod cli;
 pub mod disk;

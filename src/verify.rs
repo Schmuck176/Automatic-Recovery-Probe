@@ -697,44 +697,59 @@ impl Safety {
     /// numbers at every stage. Run after every phase, a ✗ after a ✓ says
     /// that what was done in between is where something went wrong.
     pub fn record(&self, results: &Path, when: &str, step: &str, folder: &str, r: Option<&Report>) -> Result<(), String> {
-        use std::io::Write;
-        let path = results.join(HISTORY_NAME);
-        let n = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_default();
         let at = |name: &str| self.stages.iter().find(|s| s.name == name).map(|s| (s.files, s.bytes)).unwrap_or((None, None));
         let (ssd, listed, here) = (at(SSD), at(COPIED), at(HERE));
-        let count = |f: fn(&Report) -> usize| r.map(|r| f(r).to_string()).unwrap_or_default();
+        let count = |f: fn(&Report) -> usize| r.map(|r| f(r) as u64);
         let result = if self.fine {
             "OK".to_string()
         } else {
             format!("NOT OK: {}", self.verdict.first().map(String::as_str).unwrap_or(""))
         };
-        let mut body = String::new();
-        if !path.exists() {
-            body.push('\u{FEFF}');
-            body.push_str(&csv_row(&HISTORY_HEADER));
-        }
-        body.push_str(&csv_row(&[
+        add_to_history(
+            results,
             when,
             step,
             folder,
-            &n(ssd.0),
-            &n(ssd.1),
-            &n(listed.0),
-            &n(listed.1),
-            &n(here.0),
-            &n(here.1),
-            &count(|r| r.changed.len()),
-            &count(|r| r.missing.len()),
-            &count(|r| r.extra.len()),
+            [ssd.0, ssd.1, listed.0, listed.1, here.0, here.1],
+            [count(|r| r.changed.len()), count(|r| r.missing.len()), count(|r| r.extra.len())],
             &result,
-        ]));
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .and_then(|mut f| f.write_all(body.as_bytes()))
-            .map_err(|e| format!("could not write {}: {e}", path.display()))
+        )
     }
+}
+
+/// Adds one line to the list of every check made (`HISTORY_NAME` in the
+/// program's results folder). `numbers`: files and size on the SSD, in the
+/// list of copies and here now; `counts`: changed, missing and added files.
+/// `result` is "OK", or "NOT OK: " and why.
+pub fn add_to_history(
+    results: &Path,
+    when: &str,
+    step: &str,
+    folder: &str,
+    numbers: [Option<u64>; 6],
+    counts: [Option<u64>; 3],
+    result: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+    let path = results.join(HISTORY_NAME);
+    let n = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_default();
+    let mut body = String::new();
+    if !path.exists() {
+        body.push('\u{FEFF}');
+        body.push_str(&csv_row(&HISTORY_HEADER));
+    }
+    let mut row: Vec<String> = vec![when.to_string(), step.to_string(), folder.to_string()];
+    row.extend(numbers.iter().map(|v| n(*v)));
+    row.extend(counts.iter().map(|v| n(*v)));
+    row.push(result.to_string());
+    body.push_str(&csv_row(&row));
+    let _ = std::fs::create_dir_all(results);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| f.write_all(body.as_bytes()))
+        .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 /// The list of every safety check made, in the program's results folder.
@@ -755,32 +770,68 @@ const HISTORY_HEADER: [&str; 13] = [
     "result",
 ];
 
+/// How the steps name themselves in that list.
+pub const STEP6: &str = "Copied (step 6)";
+pub const STEP7: &str = "Checked (step 7)";
+pub const STEP4: &str = "Image checked (step 4)";
+
+/// One check from the list of every check.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checked {
+    /// Local date and time, "2026-10-21 14:02:09" (sorts as text).
+    pub when: String,
+    pub step: String,
+    pub folder: String,
+    /// Files and size at its last stage (here now, or for the copying the
+    /// list of copies, or for the image its size).
+    pub files: Option<u64>,
+    pub bytes: Option<u64>,
+    pub ok: bool,
+    pub result: String,
+}
+
+/// Every check made, oldest first.
+pub fn history(results: &Path) -> Vec<Checked> {
+    let mut rows: Vec<Checked> = Vec::new();
+    if let Ok(f) = std::fs::File::open(results.join(HISTORY_NAME)) {
+        let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |r| {
+            if r.len() < HISTORY_HEADER.len() || r[0] == HISTORY_HEADER[0] {
+                return;
+            }
+            let num = |s: &str| s.parse::<u64>().ok();
+            let (files, bytes) = if r[7].is_empty() && r[8].is_empty() { (num(&r[5]), num(&r[6])) } else { (num(&r[7]), num(&r[8])) };
+            rows.push(Checked {
+                when: r[0].clone(),
+                step: r[1].clone(),
+                folder: r[2].clone(),
+                files,
+                bytes,
+                ok: r[12] == "OK",
+                result: r[12].clone(),
+            });
+        });
+    }
+    rows
+}
+
 /// The last `last` checks of that list (oldest first), for the page: each
 /// with the files and size at its last stage (here now, or for the copying,
 /// the list of copies).
 pub fn history_json(results: &Path, last: usize) -> String {
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    if let Ok(f) = std::fs::File::open(results.join(HISTORY_NAME)) {
-        let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |row| {
-            if row.len() >= HISTORY_HEADER.len() && row[0] != HISTORY_HEADER[0] {
-                rows.push(row);
-            }
-        });
-    }
-    let num = |s: &str| if s.is_empty() { "null".to_string() } else { s.parse::<u64>().map(|v| v.to_string()).unwrap_or_else(|_| "null".to_string()) };
+    let rows = history(results);
+    let num = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
     let items: Vec<String> = rows[rows.len().saturating_sub(last)..]
         .iter()
         .map(|r| {
-            let (files, bytes) = if r[7].is_empty() { (&r[5], &r[6]) } else { (&r[7], &r[8]) };
             format!(
                 "{{\"when\":{},\"step\":{},\"folder\":{},\"files\":{},\"bytes\":{},\"ok\":{},\"result\":{}}}",
-                json_str(&r[0]),
-                json_str(&r[1]),
-                json_str(&r[2]),
-                num(files),
-                num(bytes),
-                r[12] == "OK",
-                json_str(&r[12])
+                json_str(&r.when),
+                json_str(&r.step),
+                json_str(&r.folder),
+                num(r.files),
+                num(r.bytes),
+                r.ok,
+                json_str(&r.result)
             )
         })
         .collect();

@@ -162,6 +162,50 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 .entry { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font: 0.95rem var(--body); cursor: pointer; }
 .entry:hover { background: var(--paper); }
 .entry .soft { white-space: nowrap; }
+/* Two views: the checklist, and the program's steps. */
+nav.views { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+nav.views button { background: transparent; color: var(--act); }
+nav.views button[aria-selected="true"] { background: var(--act); color: var(--act-ink); }
+.where { margin: 12px 0 0; }
+.where .msg { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
+.where .msg button { padding: 5px 12px; font-size: 0.9rem; }
+.where .nexttext { flex: 1 1 320px; }
+.progress { height: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; background: var(--read); }
+ul.phases { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
+ul.phases a { text-decoration: none; }
+ul.phases .tick { color: var(--read); font-weight: 700; display: inline-block; width: 1.3em; }
+ul.phases .warn { color: var(--unread); }
+.checklist { margin-top: 18px; }
+.checklist h2 { font-size: 1.5rem; margin-top: 8px; }
+.checklist h2.phase-title { font-size: 1.32rem; margin-top: 30px; padding-top: 16px; border-top: 2px solid var(--rule); }
+.checklist h3 { font-size: 1.08rem; margin-top: 20px; }
+.checklist h4, .checklist h5 { font: 600 1rem var(--head); margin: 16px 0 6px; }
+.phcount { font: 0.86rem var(--body); color: var(--ink-soft); white-space: nowrap; }
+.phcount.all { color: var(--read); }
+.checklist ul.boxes { list-style: none; padding-left: 0; margin: 8px 0; }
+.checklist li.box { position: relative; padding: 4px 6px 4px 36px; border-radius: 6px; margin: 2px 0; }
+.checklist li.box > input.tick { position: absolute; left: 6px; top: 7px; width: 20px; height: 20px; margin: 0; accent-color: var(--read); cursor: pointer; }
+.checklist li.box > input.tick:disabled { cursor: default; }
+.checklist li.box.done > .box-text { color: var(--ink-soft); }
+.checklist li.box.next { background: color-mix(in srgb, var(--focus) 14%, transparent); }
+.checklist li.box.checkpoint { background: var(--sheet); border: 1px solid var(--rule); padding: 9px 10px 9px 40px; margin: 10px 0; }
+.checklist li.box.checkpoint > input.tick { left: 10px; top: 12px; }
+.checklist li.box.flash { outline: 3px solid var(--focus); outline-offset: 2px; }
+.cp { font-size: 0.92rem; margin-top: 6px; }
+.cp:empty { display: none; }
+.cp.passed, .cp.skipped { color: var(--read); }
+.cp.failed { color: var(--unread); font-weight: 600; }
+.cp.due, .cp.partly { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--caution-bg); color: var(--caution-ink); }
+.cp.after { color: var(--ink-soft); }
+.boxnote { font-size: 0.9rem; margin-top: 4px; color: var(--unread); }
+.checklist blockquote { margin: 12px 0; padding: 8px 14px; border-left: 4px solid var(--rule); background: var(--sheet); border-radius: 0 6px 6px 0; }
+.checklist blockquote p { max-width: none; }
+.checklist pre.code { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; overflow-x: auto; max-width: 100%;
+  font: 0.84rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; white-space: pre; }
+.checklist ol, .checklist ul { padding-left: 24px; }
+.checklist td[data-num] { font-weight: 600; }
+.checklist hr { border: 0; border-top: 1px solid var(--rule); margin: 18px 0; }
 @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; } }
 @media (max-width: 560px) {
   main { padding: 18px 16px 170px; }
@@ -181,6 +225,18 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
   <p class="soft small" id="version"></p>
   <div id="restore-banner" role="status"></div>
 
+  <nav class="views" role="tablist" aria-label="What to show">
+    <button role="tab" id="tab-checklist" aria-controls="view-checklist" aria-selected="false">The checklist <span id="tab-count"></span></button>
+    <button role="tab" id="tab-steps" aria-controls="view-steps" aria-selected="true">The program's steps</button>
+  </nav>
+  <div id="where" class="where" role="status"></div>
+
+  <div id="view-checklist" role="tabpanel" aria-labelledby="tab-checklist" hidden>
+    <div class="panel" id="cl-top"></div>
+    <div class="checklist" id="cl-body"><p class="soft">Loading the checklist…</p></div>
+  </div>
+
+  <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps">
   <section class="map" aria-labelledby="map-lead">
     <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
     <div id="map-picture"></div>
@@ -284,6 +340,7 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
       <div id="finish"></div>
     </li>
   </ol>
+  </div>
 </main>
 
 <div id="job" hidden>
@@ -1129,11 +1186,167 @@ async function refresh() {
     return;
   }
   lost = false;
-  if (S.job && S.job.id !== lastJobId && S.job.state !== "running") { lastJobId = S.job.id; loadDisks(); }
+  if (S.job && S.job.id !== lastJobId && S.job.state !== "running") { lastJobId = S.job.id; loadDisks(); loadChecklist(); }
   if (S.job && S.job.state === "running") lastJobId = S.job.id;
   render();
 }
+// ------------------------------------------------------------ the checklist
+
+let CL = null;   // the checklist: its HTML and boxes (the same while the program runs)
+let CLS = null;  // where it stands: ticks, checkpoints, the next box
+let view = "checklist";
+try { view = localStorage.getItem("rp-view") || "checklist"; } catch { /* a private window: just this time */ }
+
+function showView(v, scroll) {
+  view = v;
+  try { localStorage.setItem("rp-view", v); } catch { /* fine */ }
+  $("view-checklist").hidden = v !== "checklist";
+  $("view-steps").hidden = v !== "steps";
+  $("tab-checklist").setAttribute("aria-selected", String(v === "checklist"));
+  $("tab-steps").setAttribute("aria-selected", String(v === "steps"));
+  if (v === "checklist") loadChecklist();
+  if (scroll !== false) window.scrollTo(0, 0);
+}
+$("tab-checklist").onclick = () => showView("checklist");
+$("tab-steps").onclick = () => showView("steps");
+
+// "Step 7 →" in the checklist: to that step of the program.
+function goStep(n) {
+  showView("steps", false);
+  const li = document.querySelectorAll("ol.steps > li")[n - 1];
+  if (li) li.scrollIntoView({ block: "start" });
+}
+function showBox(i) {
+  showView("checklist", false);
+  const li = $("it-" + i);
+  if (!li) return;
+  li.scrollIntoView({ block: "center" });
+  li.classList.add("flash");
+  setTimeout(() => li.classList.remove("flash"), 1600);
+}
+
+async function loadChecklist() {
+  try {
+    if (!CL) {
+      CL = await get("api/checklist");
+      put($("cl-body"), CL.html);
+    }
+    CLS = await get("api/checklist-state");
+  } catch { return; }
+  renderChecklist();
+}
+
+$("cl-body").addEventListener("change", async (e) => {
+  const box = e.target;
+  if (!box.classList || !box.classList.contains("tick")) return;
+  const i = Number(box.dataset.i), on = box.checked;
+  const li = $("it-" + i);
+  const old = li.querySelector(".boxnote");
+  if (old) old.remove();
+  box.disabled = true;
+  try {
+    const r = await act({ action: "tick", i: String(i), on: on ? "1" : "0" });
+    CLS = r.state;
+  } catch (err) {
+    box.checked = !on;
+    const n = document.createElement("div");
+    n.className = "boxnote";
+    n.textContent = err.message;
+    li.appendChild(n);
+  }
+  box.disabled = false;
+  renderChecklist();
+});
+$("cl-body").addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest(".steplink");
+  if (!a) return;
+  e.preventDefault();
+  goStep(Number(a.dataset.step));
+});
+
+function phaseName(p) { return CL && CL.phases[p] ? CL.phases[p].title : ""; }
+function boxText(i) {
+  const el = $("bt-" + i);
+  const t = el ? el.textContent.replace(/\s+/g, " ").trim() : "";
+  return t.length > 150 ? t.slice(0, 148) + "…" : t;
+}
+
+function renderChecklist() {
+  if (!CL || !CLS) return;
+  const st = {};
+  for (const s of CLS.status) st[s.i] = s;
+  document.querySelectorAll("#cl-body input.tick").forEach((box) => {
+    const i = Number(box.dataset.i);
+    const on = CLS.ticked[i] === 1;
+    box.checked = on;
+    const li = $("it-" + i);
+    li.classList.toggle("done", on);
+    li.classList.toggle("next", CLS.next === i);
+    const s = st[i];
+    if (s) {
+      // A checkpoint ticks itself when its safety check passes; by hand only
+      // as skipped, before anything in its phase is done.
+      box.disabled = !(s.state === "waiting" || s.state === "skipped");
+      const cp = li.querySelector(".cp");
+      cp.className = "cp " + s.state;
+      cp.textContent = s.text;
+    }
+  });
+  document.querySelectorAll("#cl-body .phcount").forEach((el) => {
+    const p = CLS.phases[Number(el.dataset.ph)];
+    if (!p || !p.total) { el.textContent = ""; return; }
+    el.textContent = p.done === p.total ? "✓ all " + p.total + " done" : p.done + " of " + p.total + " done";
+    el.classList.toggle("all", p.done === p.total);
+  });
+  document.querySelectorAll("#cl-body td[data-num]").forEach((td) => {
+    td.textContent = CLS.numbers_text ? CLS.numbers_text[td.dataset.num] : "";
+  });
+  $("tab-count").textContent = "(" + CLS.done + " of " + CLS.total + ")";
+  const pct = CLS.total ? Math.round(CLS.done * 100 / CLS.total) : 0;
+  const failed = CLS.status.filter((s) => s.state === "failed");
+  const phases = CL.phases.map((ph, p) => {
+    const c = CLS.phases[p];
+    if (!c || !c.total) return "";
+    const bad = CLS.status.some((s) => s.state === "failed" && CL.items[s.i].phase === p);
+    const mark = bad ? '<span class="tick warn">✗</span>' : c.done === c.total ? '<span class="tick">✓</span>' : '<span class="tick"></span>';
+    return `<li>${mark}<a href="#ph-${p}" data-ph="${p}">${esc(ph.title)}</a> <span class="small soft">${c.done} of ${c.total}</span></li>`;
+  }).join("");
+  put($("cl-top"), `<b>${CLS.done} of ${CLS.total} boxes ticked</b>
+    <div class="progress" aria-hidden="true"><div style="width:${pct}%"></div></div>
+    <ul class="phases">${phases}</ul>
+    <p class="small soft">Tick each box here when it's done. The boxes with ✅ tick themselves when the safety check
+    (step 7 → <i>Check the copies are unchanged</i>) passes after the boxes before them. Your copy of this checklist,
+    <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
+    ${CLS.copy_note ? `<div class="msg warn">${esc(CLS.copy_note)}</div>` : ""}`);
+  document.querySelectorAll("#cl-top a[data-ph]").forEach((a) => a.onclick = (e) => {
+    e.preventDefault();
+    const sec = $("ph-" + a.dataset.ph);
+    if (sec) sec.scrollIntoView({ block: "start" });
+  });
+  // Where you are: shown above both views.
+  let w = "";
+  for (const s of failed) {
+    w += `<div class="msg err"><span class="nexttext"><b>Stop.</b> ${esc(phaseName(CL.items[s.i].phase))}: ${esc(s.text)}</span>
+      <button class="second" data-show="${s.i}">Show it</button></div>`;
+  }
+  const due = CLS.status.find((s) => s.state === "due" || s.state === "partly");
+  if (!failed.length && due) {
+    w += `<div class="msg warn"><span class="nexttext"><b>Checkpoint due</b> — ${esc(phaseName(CL.items[due.i].phase))}: ${esc(due.text)}</span>
+      <button class="second" data-step="7">Go to step 7</button></div>`;
+  }
+  if (!failed.length && !due && CLS.next !== null) {
+    w += `<div class="msg"><span class="nexttext"><b>Next on the checklist</b> — ${esc(phaseName(CL.items[CLS.next].phase))}: ${esc(boxText(CLS.next))}</span>
+      <button class="second" data-show="${CLS.next}">Show it</button></div>`;
+  }
+  if (!failed.length && CLS.next === null && CLS.total) w += `<div class="msg ok"><b>Every box is ticked.</b> Keep up the checks twice a year (Phase 8).</div>`;
+  put($("where"), w);
+  document.querySelectorAll("#where [data-show]").forEach((b) => b.onclick = () => showBox(Number(b.dataset.show)));
+  document.querySelectorAll("#where [data-step]").forEach((b) => b.onclick = () => goStep(Number(b.dataset.step)));
+}
+
 async function start() {
+  showView(view === "steps" ? "steps" : "checklist", false);
+  loadChecklist();
   await refresh();
   try { mapfiles = await get("api/find-mapfiles"); } catch { mapfiles = []; }
   if (!setting("mapfile") && mapfiles.length) {
@@ -1150,6 +1363,7 @@ async function start() {
     tick++;
     const running = busy();
     if (running || tick % 3 === 0) await refresh();
+    if (tick % 5 === 0 && !running) loadChecklist();
     if (Date.now() < watchUntil && tick % 2 === 0) loadDisks();
   }, 1000);
 }

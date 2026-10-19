@@ -679,6 +679,8 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
         ("GET", "api/list") => (200, "application/json", list_json(&q("path"), &q("show"))),
         ("GET", "api/mapinfo") => (200, "application/json", mapinfo_json(&q("path"))),
         ("GET", "api/find-mapfiles") => (200, "application/json", find_mapfiles_json(app)),
+        ("GET", "api/checklist") => (200, "application/json", checklist_page().to_string()),
+        ("GET", "api/checklist-state") => (200, "application/json", checklist_sync(app)),
         ("POST", "api/do") => {
             let form = parse_form(&String::from_utf8_lossy(&req.body));
             (200, "application/json", act(app, &form))
@@ -1084,6 +1086,8 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         "rescue" => start_rescue(app, &g("disk"), &g("out"), on("everything"), on("lost")).map(|id| format!("\"job\":{id}")),
         "image" => start_image(app, &g("disk"), &g("out")).map(|id| format!("\"job\":{id}")),
         "verify" => start_verify(app, &g("folder")).map(|id| format!("\"job\":{id}")),
+        "check-image" => start_check_image(app).map(|id| format!("\"job\":{id}")),
+        "tick" => tick(app, &g("i"), on("on")).map(|st| format!("\"state\":{st}")),
         "isolate" => start_repair_step(app, "isolate", &g("folder"), "").map(|id| format!("\"job\":{id}")),
         "put-back" => start_repair_step(app, "put-back", &g("folder"), "").map(|id| format!("\"job\":{id}")),
         "undo-put-back" => start_repair_step(app, "undo", &g("folder"), &g("id")).map(|id| format!("\"job\":{id}")),
@@ -1317,7 +1321,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             .ok()
             .map(|l| crate::verify::copy_safety(&l, ssd_totals(&map_check).as_ref()));
         if let Some(s) = &safety {
-            if let Err(e) = s.record(&results, &local_now(), "Copied (step 6)", &opts_out, None) {
+            if let Err(e) = s.record(&results, &local_now(), crate::verify::STEP6, &opts_out, None) {
                 summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
             }
         }
@@ -1360,6 +1364,120 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
     })
 }
 
+// ---------------------------------------------------------------- the checklist
+
+/// The checklist's HTML and boxes: the same for as long as the program runs.
+fn checklist_page() -> &'static str {
+    static PAGE_JSON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE_JSON.get_or_init(|| crate::checklist::page_json(crate::checklist::TEXT))
+}
+
+fn local_of(t: std::time::SystemTime) -> String {
+    let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as f64).unwrap_or(0.0);
+    crate::fmt::local_datetime(secs)
+}
+
+fn mtime_ms(p: &Path) -> Option<u64> {
+    let m = std::fs::metadata(p).ok()?.modified().ok()?;
+    Some(m.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64)
+}
+
+/// Where the checklist stands. On the way it takes in the ticks of the
+/// person's own copy (if it changed since the program last wrote it), and
+/// writes that copy back with every box as it stands now - never over
+/// anything the person wrote into it themselves.
+fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
+    use crate::checklist as cl;
+    let (home, results, map_check, copy_mtime, copy_hash) = {
+        let a = lock(app);
+        (
+            a.home.clone(),
+            a.results.clone(),
+            a.setting("last_map_check"),
+            a.setting("checklist_copy_mtime"),
+            a.setting("checklist_copy_hash"),
+        )
+    };
+    let (phases, items) = cl::parse(cl::TEXT);
+    let ticks_path = results.join(cl::TICKS_NAME);
+    let mut ticks = cl::Ticks::load(&ticks_path);
+    let mut notes: Vec<String> = Vec::new();
+    let found = cl::find_copy(&home);
+    let target = found.clone().unwrap_or_else(|| home.join(cl::COPY_NAME));
+    if let Some(p) = &found {
+        let changed = mtime_ms(p).map(|m| m.to_string()) != Some(copy_mtime.clone());
+        if changed {
+            if let (Ok(text), Ok(when)) = (std::fs::read_to_string(p), std::fs::metadata(p).and_then(|m| m.modified())) {
+                let when = local_of(when);
+                for (key, on) in cl::ticks_in(&text) {
+                    let known = items.iter().any(|i| i.key == key && !i.checkpoint);
+                    if known && ticks.on(&key) != on && when.as_str() > ticks.when(&key) {
+                        if let Err(e) = ticks.set(&ticks_path, &key, on, &when) {
+                            notes.push(e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let history = crate::verify::history(&results);
+    let st = cl::statuses(&items, &ticks, &history);
+    let done = cl::ticked(&items, &ticks, &st);
+    let numbers = ssd_totals(&map_check).and_then(|s| s.bytes.map(|b| (s.files, b)));
+    let md = cl::markdown(cl::TEXT, &items, &done, numbers);
+    match std::fs::read_to_string(&target) {
+        Ok(cur) if cur == md => {}
+        Ok(cur) if !cl::is_unedited(&cur, copy_hash.parse().ok()) => notes.push(format!(
+            "Your copy {} has something of your own written in it, so the program takes the ticks from it but leaves \
+             it as it is.",
+            target.display()
+        )),
+        _ => match cl::write_whole(&target, &md) {
+            Ok(()) => {
+                let mut a = lock(app);
+                a.settings.insert("checklist_copy_mtime".to_string(), mtime_ms(&target).unwrap_or(0).to_string());
+                a.settings.insert("checklist_copy_hash".to_string(), cl::written_hash(&md).to_string());
+                a.save();
+            }
+            Err(e) => notes.push(e),
+        },
+    }
+    // The download manifest beside it, when it is one the program knows.
+    if let Some(dir) = target.parent() {
+        let m = dir.join(cl::MANIFEST_NAME);
+        match std::fs::read_to_string(&m) {
+            Ok(cur) if cur == cl::MANIFEST || !cl::manifest_unedited(&cur) => {}
+            _ => {
+                if let Err(e) = cl::write_whole(&m, cl::MANIFEST) {
+                    notes.push(e);
+                }
+            }
+        }
+    }
+    cl::state_json(&phases, &items, &done, &st, numbers, &target.display().to_string(), &notes.join(" "))
+}
+
+/// A box ticked or unticked on the page.
+fn tick(app: &Arc<Mutex<App>>, i: &str, on: bool) -> Result<String, String> {
+    use crate::checklist as cl;
+    let (_, items) = cl::parse(cl::TEXT);
+    let i: usize = i.parse().map_err(|_| "which box?".to_string())?;
+    let results = lock(app).results.clone();
+    let path = results.join(cl::TICKS_NAME);
+    let mut ticks = cl::Ticks::load(&path);
+    cl::may_set(&items, &ticks, i, on)?;
+    ticks.set(&path, &items[i].key, on, &local_now())?;
+    Ok(checklist_sync(app))
+}
+
+/// The newest safety check (step 7) of the copies in `folder`.
+fn last_check_of(results: &Path, folder: &Path) -> Option<crate::verify::Checked> {
+    let norm = |p: &str| p.trim().trim_end_matches(['\\', '/']).to_lowercase();
+    let want = norm(&folder.display().to_string());
+    crate::verify::history(results).into_iter().rev().find(|c| c.step == crate::verify::STEP7 && norm(&c.folder) == want)
+}
+
 /// How many of the latest safety checks the page lists under steps 6 and 7.
 const HISTORY_SHOWN: usize = 12;
 
@@ -1380,6 +1498,63 @@ fn drive_of(path: &str) -> Option<crate::win::Drive> {
         return None;
     }
     crate::win::drives().into_iter().find(|d| d.letter.eq_ignore_ascii_case(&letter))
+}
+
+/// Reads the image back against the checksum saved beside it (no SSD
+/// needed), and adds the result to the list of every check.
+fn start_check_image(app: &Arc<Mutex<App>>) -> Result<u64, String> {
+    let image = lock(app).setting("image");
+    if image.is_empty() {
+        return Err("There is no image to check yet: step 4 makes it.".to_string());
+    }
+    if !Path::new(&image).is_file() {
+        return Err(format!("{image} is not there: is the drive it is on plugged in?"));
+    }
+    let results = lock(app).results.clone();
+    start_job(app, "imagecheck", "Checking the image is unchanged", move |ctx| {
+        let o = crate::image::check_existing(Path::new(&image), &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &|| ctx.stopping())?;
+        let mut summary = Vec::new();
+        if o.stopped {
+            summary.push("Stopped before the end: nothing was changed. Check it again when you have the time.".to_string());
+        } else if o.verified {
+            summary.push(format!(
+                "The image {image} ({}) is exactly as it was made: its SHA-256 matches the one saved when it was made.",
+                size(o.size)
+            ));
+        } else {
+            summary.push(format!(
+                "The image {image} is NOT as it was made: its SHA-256 does not match the one saved beside it. Don't use it \
+                 or delete it: ask for help. Your copies and the SSDs in the drawer are not affected."
+            ));
+        }
+        if !o.stopped {
+            let result = if o.verified { "OK".to_string() } else { "NOT OK: the image does not match its checksum".to_string() };
+            if let Err(e) = crate::verify::add_to_history(
+                &results,
+                &local_now(),
+                crate::verify::STEP4,
+                &image,
+                [None, None, None, None, None, Some(o.size)],
+                [None, None, None],
+                &result,
+            ) {
+                summary.push(format!("(The check could not be added to the list of every check: {e})"));
+            }
+        }
+        let data = Obj::new()
+            .b("verified", o.verified)
+            .b("stopped", o.stopped)
+            .n("size", o.size)
+            .raw("history", &crate::verify::history_json(&results, HISTORY_SHOWN))
+            .end();
+        Ok(Outcome {
+            summary,
+            outputs: Vec::new(),
+            data,
+            stopped: o.stopped,
+            problem: (!o.stopped && !o.verified).then(|| "the image does not match its checksum".to_string()),
+        })
+    })
 }
 
 fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, String> {
@@ -1476,6 +1651,19 @@ fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) 
              copies are damaged."
                 .to_string(),
         );
+    }
+    if step == "put-back" {
+        // Put back is the one step that changes WORK: not while the last safety
+        // check of it found something nobody has sorted out.
+        let results = lock(app).results.clone();
+        if let Some(c) = last_check_of(&results, &work).filter(|c| !c.ok) {
+            return Err(format!(
+                "The last safety check of this folder ({}) found something: {} Sort that out first (ask Claude), then \
+                 check again (step 7 \u{2192} Check the copies are unchanged). Put back waits for a check that passes.",
+                c.when,
+                c.result.trim_start_matches("NOT OK: ")
+            ));
+        }
     }
     let id = id.trim().to_string();
     if step == "undo" && id.is_empty() {
@@ -1618,7 +1806,7 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
         let safety = (!r.stopped).then(|| crate::verify::safety(&r));
         let mut summary = crate::verify::summary(&r);
         if let Some(s) = &safety {
-            if let Err(e) = s.record(&results, &local_now(), "Checked (step 7)", &dir.display().to_string(), Some(&r)) {
+            if let Err(e) = s.record(&results, &local_now(), crate::verify::STEP7, &dir.display().to_string(), Some(&r)) {
                 summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
             }
         }
