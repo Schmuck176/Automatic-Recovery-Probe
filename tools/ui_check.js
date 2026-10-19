@@ -43,6 +43,9 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   page.on("pageerror", (e) => { errors.push(String(e)); pageErrors.push(String(e)); });
   page.on("console", (m) => { if (m.type() === "error") { errors.push(m.text()); pageErrors.push(m.text()); } });
   const shot = (name) => page.screenshot({ path: path.join(work, name + ".png"), fullPage: true });
+  // (The checklist is a long page: a picture of the window, not of the whole page,
+  // which Windows' browser can take too long to make.)
+  const shotView = (name) => page.screenshot({ path: path.join(work, name + ".png") });
   const waitJob = async (step) => {
     await page.waitForFunction((s) => {
       const st = document.getElementById("st-" + s);
@@ -80,7 +83,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 && fs.existsSync(path.join(home, "results", "checklist-ticks.txt")),
     "a box ticked on the page is kept, and the copy in Obsidian follows");
   check(fs.existsSync(path.join(home, "Obsidian MD files", "download-manifest.md")), "the download manifest is put beside it");
-  await shot("0-checklist");
+  await shotView("0-checklist");
   await page.click("#tab-steps");
   await page.waitForSelector("#map-picture svg", { timeout: 10000 });
   check((await page.textContent("#map-lead")).includes("never read"), "the map shows the unread places");
@@ -302,7 +305,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.waitForSelector("#view-checklist:not([hidden]) input.tick");
   const wideList = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(wideList <= 1, "the checklist on a phone-sized window: nothing sticks out sideways (" + wideList + " px)");
-  await shot("4b-narrow-checklist");
+  await shotView("4b-narrow-checklist");
   await page.click("#tab-steps");
   await page.emulateMedia({ colorScheme: "dark" });
   await page.setViewportSize({ width: 1180, height: 900 });
