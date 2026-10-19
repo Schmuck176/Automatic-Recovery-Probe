@@ -256,9 +256,20 @@ the Mac tools are the best ones, and resume by itself if usage runs out.
   Phase 8 and twice a year; RAW second opinion (Adobe DNG Converter);
   PowerPhotos and Photos' own Import for combining libraries; other Mac
   libraries (iMovie, Final Cut Pro, Logic, GarageBand) opened as copies.
-- Automatic resumes in case usage runs out (delete when done):
-  trig_01HWD68BF41detUxMpY9u9jJ (20 Oct 02:00Z), trig_012He5TSTT9Rnc94yfo2WQxH
-  (07:00Z), trig_01CVCyJEtDYDvTK6AMz43SoA (12:00Z).
+- The three automatic resumes (in case usage ran out) were deleted when the
+  work was done.
+
+CI for f1d1f3e was green: Windows unit tests 55, self-test, map check tests
+42/42 (the safety check agreed on 41), Windows checks 18/18, protection
+16/16, unplugged 31/31, page 60/60; Linux map check tests 92/92 with
+fsck.exfat and dissect.fat (safety agreed on 91), kernel 23/23, page 59/59.
+(7d47903's Windows page test had timed out taking a whole-page picture of
+the long checklist; it now takes a window-sized one.) Delivered 19 Oct
+23:32 BST into C:\RECOVERY-TOOLS: recovery-probe.exe (f1d1f3e, sha256
+5bcf5012..., 4,118,016 bytes), the checklist of 7d47903 with the user's 31
+ticks (written the way the program writes it; sha256 80b872cf...) and the
+manifest (910d31f2...), each checked byte for byte on the PC. From now on
+the program itself keeps the Obsidian copy and the manifest current.
 
 ## Next
 
