@@ -77,9 +77,7 @@ reached from the development workspace. The Windows build of each commit is
   stay in it (OneDrive cannot reach C:\RECOVERY-TOOLS or SPARE; the ffmpeg
   Path, Obsidian and the Claude app are per account) and adds: AutoPlay off,
   "Automatically restart" off (a crash then stops at the blue screen instead
-  of rebooting with the SSD attached), both undone in Phase 9.
-- Not delivered yet (harmless, cosmetic): the mapfile chip on the page reads
-  "bad sector: 167 places, 610,816 bytes" instead of "167 bad sector (...)".
+  of rebooting with the SSD attached), both undone in Phase 8 (step 8).
 
 ## Pre-flight audit (done 2026-10-18 16:50 BST; delivered)
 
@@ -88,12 +86,15 @@ and will it cause no problems, since the whole process should be done once.
 They are waiting for Claude's answer before plugging in. "Take all the time
 you need; pause and resume automatically if usage runs out."
 
-Checks (tick here as they are done, push after each). Fallback scheduled
-continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmoDbfoNzm
-(00:32 UTC): delete both when done.
-- [ ] 1. Nothing can write to the SSD (disk handles, IOCTLs, every page step).
-- [ ] 2. Copying right for a Mac-made exFAT (runs, NoFatChain, valid data
-      length, >4 GB, timestamps, NFD names, forbidden characters, long paths).
+Checks (the fallback scheduled continuations were deleted when done):
+- [x] 1. Nothing can write to the SSD (disk handles, IOCTLs, every page step):
+      confirmed by the independent review (docs/review/REVIEW-FINDINGS.md,
+      "What was checked").
+- [x] 2. Copying right for a Mac-made exFAT (runs, NoFatChain, valid data
+      length, >4 GB, timestamps, NFD names, forbidden characters, long paths):
+      covered by the test disks (no-FAT-chain files, valid data length,
+      non-English and long names) and unit tests (names Windows can't use);
+      never tried on the real Mac-made volume, which only Phase 2 will show.
 - [x] 3. Long copy: stops cleanly when the SSD stops answering (disk.rs
       Watched: a failed read re-reads the boot sector; gone -> stop, nothing
       listed as failed; also between folders), when the copies' folder goes
@@ -143,9 +144,11 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
 ## Independent review and its fixes (18-19 October 2026)
 
 A fresh session reviewed the program and the plan from REVIEW-BRIEF.md; the
-findings are in REVIEW-FINDINGS.md (both now in docs/review/; also on the
-`review` branch). The user
-then asked for the fixes. Done on `dev`:
+findings are in REVIEW-FINDINGS.md (both now in docs/review/). The `review`
+branch is out of date and can be deleted (its last commit is a2dc9ed1e4029bd04582f53e8b743abdb34be161,
+if it is ever wanted back); this session's GitHub access could not delete
+branches, so the user does it on GitHub. The user then asked for the fixes.
+Done on `dev`:
 
 - CI publishes to ci-windows/ci-linux only from `dev` pushes (a `review`
   push had overwritten them; restored from ci-backup/ on `review`).
@@ -271,10 +274,41 @@ ticks (written the way the program writes it; sha256 80b872cf...) and the
 manifest (910d31f2...), each checked byte for byte on the PC. From now on
 the program itself keeps the Obsidian copy and the manifest current.
 
+## Final polish (20 October 2026)
+
+The user ran the self-test with f1d1f3e (it passed), and asked for a final
+polish, feedback on the project, and whether the whole operation is logical.
+Version "2026-10-20 (1)":
+
+- Put back ignores what a Mac writes beside every file on a USB stick
+  ("._IMG_0003 [R0012].HEIC" carries the same number, so every repair done
+  on the Mac would have been refused as "more than one repaired version"),
+  .DS_Store and the like, and folders from the top of a stick (.fseventsd,
+  .Spotlight-V100...). The lists in damaged-lists skip "._" files too
+  (a "._sips-failures.txt" would have shown as lines naming nothing).
+  Unit test what_a_mac_adds_on_a_usb_stick_is_left_alone (fails without the
+  fix).
+- REPAIR\salvaged: what can't take the original's place (a TIFF made from a
+  damaged RAW photo, since nothing can save a camera RAW again; what 7-Zip
+  takes out of a damaged archive). The checklist's Phase 6 said to export a
+  RAW "in the same format", which can't be done, and to put what 7-Zip took
+  out "beside the archive", which the safety check would call added files.
+  Put back's message for a file of another kind says where it can go.
+- Code on the page wraps as whole words where it can (it broke mid-word).
+- Checklist: the program's page no longer said to have "one button" per
+  step; Phase 6 folders 2 and 7 and Phase 8 step 2 (RENAMED keeps ticks on
+  those three lines). Manifest: the retired Python comparison is no longer
+  claimed; MultiPar points at Phase 8. KNOWN_* hold 7d47903's hashes, so the
+  copies delivered on 19 October are upgraded in place, ticks kept
+  (simulated on the delivered copy: 31 ticks kept; with 3 more ticked in
+  Obsidian first: 34 kept).
+
 ## Next
 
-1. The user runs Phase -1 E again (the self-test) with the new program.
+1. The user runs Phase -1 E again (the self-test) with the new program; the
+   program then upgrades the Obsidian copy and the manifest itself.
 2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    Help read step 5's results; check the files fit on SPARE.
 3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
+4. The user deletes the `review` branch on GitHub (Branches page).

@@ -9,6 +9,9 @@
 //!    REPAIR\repair-list.csv records where R0012 is in WORK and its SHA-256.
 //! 2. Repair: done by the person, with the right tool, on those copies. A
 //!    repaired version goes anywhere under REPAIR\repaired\, keeping its tag.
+//!    What can't take the original's place (a TIFF made from a damaged RAW
+//!    photo, what 7-Zip took out of a damaged archive) is kept in
+//!    REPAIR\salvaged\, and the original stays in WORK as it is.
 //! 3. Put back: a repaired file goes back to exactly where its original is in
 //!    WORK, if the file there is still that original (by its SHA-256). The
 //!    original moves to REPAIR\originals\ (same folders, never deleted), the
@@ -44,6 +47,7 @@ pub const REPAIRED: &str = "repaired";
 pub const ORIGINALS: &str = "originals";
 pub const REPLACED: &str = "replaced";
 pub const LISTS: &str = "damaged-lists";
+pub const SALVAGED: &str = "salvaged";
 const README_NAME: &str = "READ ME.txt";
 const TMP_NAME: &str = "~recovery-probe-returning.tmp";
 /// A document kept as a folder bigger than this is not copied out whole.
@@ -233,12 +237,13 @@ pub const OTHER_GROUP: &str = "9 Everything else (by hand)";
 /// What each group's tools are, in plain words (for the READ ME and the page).
 const GROUP_HELP: &[&str] = &[
     "a photo repair tool (Stellar, Repairit), or an intact near-twin found with Krokiet's Similar Images",
-    "Preview or Photos on the Mac (copy the folder to the Mac on a USB stick: the Mac cannot write to SPARE)",
+    "Preview on the Mac: File > Export, in the same format (a HEIC stays a HEIC); a camera RAW can't be saved as RAW \
+again, so a TIFF of it goes in \"salvaged\" (take the folder to the Mac on a USB stick: the Mac cannot write to SPARE)",
     "untrunc, with a good video from the same camera or phone, or a video repair tool",
     "MP3val's repair button for MP3s (on these copies only); other sound files: a sound editor",
     "Word, Excel or PowerPoint: File > Open, choose the file, then the arrow beside Open > Open and Repair",
     "a PDF repair tool, or open it in a PDF reader and save it again",
-    "7-Zip: open it and take out what can still be read",
+    "7-Zip: open it and take out what can still be read, into \"salvaged\"",
     "Pages, Numbers, Keynote or TextEdit on the Mac (on a USB stick: the Mac cannot write to SPARE)",
 ];
 
@@ -266,6 +271,15 @@ fn is_windows_program(name: &str) -> bool {
 
 fn is_housekeeping(name: &str) -> bool {
     name.starts_with("._") || crate::formats::is_system_file(&name.to_lowercase())
+}
+
+/// Folders a Mac or Windows keeps at the top of a drive (a USB stick the
+/// repaired files came back on, say): none of them is a repaired file.
+fn is_drive_housekeeping(name: &str) -> bool {
+    matches!(
+        name.to_lowercase().as_str(),
+        ".spotlight-v100" | ".fseventsd" | ".trashes" | ".temporaryitems" | "$recycle.bin" | "system volume information"
+    )
 }
 
 pub const LEAVE_HOUSEKEEPING: &str =
@@ -799,7 +813,13 @@ pub fn collect_damaged(work: &Path, scans: &[PathBuf], repair: &Path) -> (Vec<Da
     }
     let mut unmatched = Vec::new();
     if let Ok(rd) = std::fs::read_dir(repair.join(LISTS)) {
-        let mut lists: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+        // (Not a Mac's "._sips-failures.txt" beside the list, or .DS_Store.)
+        let mut lists: Vec<PathBuf> = rd
+            .flatten()
+            .filter(|e| !is_housekeeping(&e.file_name().to_string_lossy()))
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
         lists.sort();
         for l in lists {
             let name = l.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -847,7 +867,12 @@ const README: &str = "This folder is for repairing the damaged files, without ev
 2. REPAIR: repair the copies in to-repair (never the files in WORK), each with the tool its
    folder names. Save every repaired file anywhere in the folder \"repaired\", and keep its
    number in its name: \"IMG_0003 [R0012].JPG\", or \"IMG_0003 [R0012]_repaired.JPG\" - both
-   are fine. If a tool drops the number, add it back by hand.
+   are fine. If a tool drops the number, add it back by hand. A repaired file must be the
+   same kind as the original (a HEIC stays a HEIC). What can't take the original's place - a
+   TIFF made from a damaged RAW photo, what 7-Zip could take out of a damaged archive - goes
+   in the folder \"salvaged\" instead: it is kept with the rest, and the original stays in
+   WORK as it is. (The small \"._\" files a Mac adds beside each file on a USB stick may come
+   along into \"repaired\": they are ignored.)
 
 3. PUT BACK (Recovery Probe, step 8): each repaired file goes back to exactly where its
    original is in WORK, with the original's dates - but only if the file there is still
@@ -897,7 +922,7 @@ pub fn isolate(
         ));
     }
     let repair = repair_dir(work)?;
-    for d in [TO_REPAIR, REPAIRED, ORIGINALS, LISTS] {
+    for d in [TO_REPAIR, REPAIRED, ORIGINALS, LISTS, SALVAGED] {
         std::fs::create_dir_all(repair.join(d)).map_err(|e| format!("could not create {}: {e}", repair.join(d).display()))?;
     }
     write_readme(&repair);
@@ -1109,6 +1134,11 @@ fn candidates(repair: &Path) -> (Vec<(String, PathBuf, String)>, Vec<String>) {
             let name = e.file_name().to_string_lossy().into_owned();
             let here = if rel.is_empty() { name.clone() } else { format!("{rel}\\{name}") };
             let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+            // What a Mac writes beside every file on a USB stick ("._IMG_0003
+            // [R0012].HEIC", .DS_Store), and the like: never a repaired file.
+            if if is_dir { is_drive_housekeeping(&name) } else { is_housekeeping(&name) } {
+                continue;
+            }
             match tag_in(&name) {
                 Some(id) => found.push((id, e.path(), format!("{REPAIRED}\\{here}"))),
                 None if is_dir => stack.push((e.path(), here)),
@@ -1170,7 +1200,13 @@ pub fn put_back(work: &Path, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> 
         if !same_kind(&name, &cand_name) {
             o.skipped.push((
                 shown.clone(),
-                format!("it is a .{} file, and {} is a .{} file: not put back", ext_of(&cand_name), name, ext_of(&name)),
+                format!(
+                    "it is a .{} file, and {} is a .{} file: not put back (save it as a .{} to put it back, or keep it in \"{SALVAGED}\")",
+                    ext_of(&cand_name),
+                    name,
+                    ext_of(&name),
+                    ext_of(&name)
+                ),
             ));
             continue;
         }
@@ -1966,6 +2002,40 @@ mod tests {
         assert_eq!(ev.files.len(), 2, "{:?}", ev.files);
         assert!(ev.files.iter().any(|f| f.0 == "Photos\\IMG_0003.JPG" && f.1 == STATE_WAITING), "{:?}", ev.files);
         assert!(repair.join(EVALUATION_NAME).is_file());
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn what_a_mac_adds_on_a_usb_stick_is_left_alone() {
+        let top = std::env::temp_dir().join(format!("rp-repair-mac-{}", std::process::id()));
+        let (work, scan) = setup(&top);
+        let no = || false;
+        isolate(&work, std::slice::from_ref(&scan), &mut |_| {}, &no).unwrap();
+        let repair = top.join(REPAIR_DIR);
+        assert!(repair.join(SALVAGED).is_dir());
+        // Back from the Mac on a USB stick: the repaired photo, the "._" file
+        // the Mac wrote beside it (same number in its name), Finder's
+        // .DS_Store, and a folder from the top of the stick.
+        let fixed = repair.join(REPAIRED);
+        std::fs::write(fixed.join("IMG_0003 [R0003].JPG"), b"repaired photo").unwrap();
+        std::fs::write(fixed.join("._IMG_0003 [R0003].JPG"), b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X        ").unwrap();
+        std::fs::write(fixed.join(".DS_Store"), b"\x00\x00\x00\x01Bud1").unwrap();
+        std::fs::create_dir_all(fixed.join(".fseventsd")).unwrap();
+        std::fs::write(fixed.join(".fseventsd").join("fseventsd-uuid"), b"x").unwrap();
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert!(pb.skipped.is_empty(), "{pb:?}");
+        assert_eq!(std::fs::read(under(&work, "Photos\\IMG_0003.JPG")).unwrap(), b"repaired photo");
+        // A list from the Mac, with its "._" file and a .DS_Store beside it:
+        // only the list itself is read.
+        let lists = repair.join(LISTS);
+        std::fs::write(lists.join("sips-failures.txt"), "./WORK/Photos/IMG_0004.JPG\n").unwrap();
+        std::fs::write(lists.join("._sips-failures.txt"), b"\x00\x05\x16\x07Mac OS X\ncom.apple.provenance\n").unwrap();
+        std::fs::write(lists.join(".DS_Store"), b"\x00\x00\x00\x01Bud1\nnot a list\n").unwrap();
+        let again = isolate(&work, &[scan], &mut |_| {}, &no).unwrap();
+        assert!(again.unmatched.is_empty(), "{:?}", again.unmatched);
+        assert_eq!(again.copied.len(), 1, "{again:?}");
+        assert_eq!(again.copied[0].path, "Photos\\IMG_0004.JPG");
         let _ = std::fs::remove_dir_all(&top);
     }
 

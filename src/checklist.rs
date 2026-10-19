@@ -30,18 +30,35 @@ pub const TICKS_NAME: &str = "checklist-ticks.txt";
 
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
-const RENAMED: &[(&str, &str)] = &[(
-    "**1.** Make sure the recovered SSD is **not** plugged in. Plug in **only the empty SSD**.",
-    "**1.** Make sure the recovered SSD and the 4 TB SSD are **not** plugged in. Plug in **only `SPARE`**.",
-)];
+const RENAMED: &[(&str, &str)] = &[
+    (
+        "**1.** Make sure the recovered SSD is **not** plugged in. Plug in **only the empty SSD**.",
+        "**1.** Make sure the recovered SSD and the 4 TB SSD are **not** plugged in. Plug in **only `SPARE`**.",
+    ),
+    // 2026-10-20: the Mac's repairs, archives and the second copy (REPAIR\salvaged).
+    (
+        r#"**2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it), open each in Preview or Photos on the Mac, export what opens in the same format (a HEIC stays a HEIC) with the same name and number, and bring the results back on the stick into `repaired`."#,
+        r#"**2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it). On the Mac, open each in **Preview**; for each that opens, **File → Export** in the same format (a HEIC stays a HEIC) with the same name and number. A camera RAW can't be saved as RAW again: export it as a **TIFF** instead, for `salvaged`. Bring the results back on the stick into `repaired` and `salvaged`. (The small `._` files the Mac adds beside them on the stick can come along: the program ignores them.)"#,
+    ),
+    (
+        r#"**7 Archives and disk images:** 7-Zip: open it and take out what can still be read. (A damaged archive rarely becomes whole again: what you take out goes beside the archive later, by hand.)"#,
+        r#"**7 Archives and disk images:** 7-Zip: open it and take out what can still be read, into `salvaged`. (A damaged archive rarely becomes whole again; the archive itself stays in `WORK` as it is.)"#,
+    ),
+    (
+        r#"**2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`."#,
+        r#"**2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`, and `REPAIR\salvaged`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`."#,
+    ),
+];
 
 /// Checklists and manifests delivered before this program took them over
 /// (their text with ticks and Your numbers left out, hashed): a copy that is
 /// one of these, or the program's own, holds nothing the person wrote.
-/// (05717a4, 4c10e41 and 3f05f2a on GitHub: the copies delivered on 18 and 19
-/// October 2026.)
-const KNOWN_CHECKLISTS: &[u64] = &[0x24da_6933_47ce_9b4f, 0x5ddc_ea71_7c5f_2c5e, 0xdffc_617f_3ec9_451d];
-const KNOWN_MANIFESTS: &[u64] = &[0x30b6_259f_c56e_9c88, 0x960c_4dee_e8fe_0806, 0x62d1_c34d_9ee8_a40a];
+/// (05717a4, 4c10e41, 3f05f2a and 7d47903 on GitHub: the copies delivered on
+/// 18 and 19 October 2026.)
+const KNOWN_CHECKLISTS: &[u64] =
+    &[0x24da_6933_47ce_9b4f, 0x5ddc_ea71_7c5f_2c5e, 0xdffc_617f_3ec9_451d, 0x38e5_54dd_8e58_09a2];
+const KNOWN_MANIFESTS: &[u64] =
+    &[0x30b6_259f_c56e_9c88, 0x960c_4dee_e8fe_0806, 0x62d1_c34d_9ee8_a40a, 0x75e3_7858_aab8_1df9];
 
 /// One tick box.
 #[derive(Debug, Clone, PartialEq)]
@@ -910,6 +927,10 @@ mod tests {
         assert_eq!(h.matches("<li").count(), h.matches("</li>").count());
         assert_eq!(h.matches("<ul").count() + h.matches("<ol").count(), h.matches("</ul>").count() + h.matches("</ol>").count());
         assert!(!h.contains("**"), "every bold pair is turned into a tag");
+        // A tick on a reworded line follows it: the new wording is a box here.
+        for (_, new) in RENAMED {
+            assert!(items.iter().any(|i| i.key == *new), "not a box in the checklist: {new}");
+        }
     }
 
     #[test]

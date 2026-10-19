@@ -1,6 +1,6 @@
 # Recovery Checklist — Recovered SSD → safe, checked copies
 
-*Version 2026-10-19 (3) — written with Claude Opus 5.5 for the Recovery Probe program
+*Version 2026-10-20 (1) — written with Claude Opus 5.5 for the Recovery Probe program
 (`recovery-probe.exe`), after an independent review of the program and of the
 2026-10-18 plan. Replaces every earlier copy; where a step is the same as in the
 earlier copy, the box you ticked there stays ticked here.*
@@ -101,7 +101,7 @@ the check no longer covers it.
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, makes the image, works out from the mapfile exactly which files the damage touched, copies everything off without letting Windows write to the SSD (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
 >
-> The program's page says **Version 2026-10-19 (3)** (or later) at the top. The older
+> The program's page says **Version 2026-10-20 (1)** (or later) at the top. The older
 > files `recovery_probe.py`, `probe_selftest.py`, `RUN_PROBE.bat` and
 > `RUN_SELFTEST.bat` aren't needed any more. You can delete them, or leave them;
 > they do no harm.
@@ -110,8 +110,8 @@ the check no longer covers it.
 > *"Do you want to allow this app to make changes to your device?"* — click **Yes**
 > (it needs that to read the recovered SSD directly; it never writes to it). A black
 > window opens — **leave it open**, it *is* the program — and your web browser shows
-> the program's page: nine numbered steps, each with one button. Nothing on the page
-> goes to the internet; it works offline. What each step found is kept in
+> the program's page, with its nine numbered steps. Nothing on the page goes to the
+> internet; it works offline. What each step found is kept in
 > `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing.
 >
 > **This checklist is in the program too.** The page opens on it (*The checklist*);
@@ -595,19 +595,22 @@ back if the files ever go back to a Mac.
 > Set expectations: **a repair tool produces a file that opens, not the file you had.**
 > The damaged part is papered over with plausible filler.
 
-Save every repaired file **anywhere in `SPARE\REPAIR\repaired`**, keeping its number
-in its name — `IMG_0003 [R0012].JPG` or `IMG_0003 [R0012]_repaired.JPG` are both
-fine. If a tool drops the number, add it back by hand. That number is how the program
-knows where the file belongs. Folder by folder:
+Save every repaired file **anywhere in `SPARE\REPAIR\repaired`**, in the same format as
+the original, keeping its number in its name — `IMG_0003 [R0012].JPG` or
+`IMG_0003 [R0012]_repaired.JPG` are both fine. If a tool drops the number, add it back
+by hand. That number is how the program knows where the file belongs. What can't take
+the original's place (a TIFF made from a RAW photo, what 7-Zip takes out of a damaged
+archive) goes in **`SPARE\REPAIR\salvaged`** instead: it's kept with everything else,
+and the original stays in `WORK` as it is. Folder by folder:
 
 - [ ] **First, open a sample by hand.** The checks sometimes flag files that are fine. If they open normally, you may need to buy nothing.
 - [ ] **1 Photos:** near-twins first — they rescue more photos than repair tools do. Krokiet → **Similar Images**, Included paths `SPARE\REPAIR\to-repair` *and* `SPARE\WORK`, **Geometric invariance** → **Mirror + Flip + Rotate 90**, then **Compare**. Where a damaged photo has an intact twin (an edited copy, an export, an email attachment), you can copy the twin into `repaired` and give it the damaged file's name and number. **Never delete or move anything from Krokiet's results.** Otherwise, a photo repair tool (Stellar, Repairit: the free previews show the result before you pay).
-- [ ] **2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it), open each in Preview or Photos on the Mac, export what opens in the same format (a HEIC stays a HEIC) with the same name and number, and bring the results back on the stick into `repaired`.
+- [ ] **2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it). On the Mac, open each in **Preview**; for each that opens, **File → Export** in the same format (a HEIC stays a HEIC) with the same name and number. A camera RAW can't be saved as RAW again: export it as a **TIFF** instead, for `salvaged`. Bring the results back on the stick into `repaired` and `salvaged`. (The small `._` files the Mac adds beside them on the stick can come along: the program ignores them.)
 - [ ] **3 Videos:** **untrunc** (in `C:\RECOVERY-TOOLS\`) fixes MP4/MOV videos that stop partway, with a **good video from the same camera or phone** as a pattern; or a video repair tool. untrunc's output (`…[R0012].MOV_fixed.mov`) keeps the number.
 - [ ] **4 Music and sound:** MP3val's fix button, **on these copies only** (then copy the fixed files into `repaired`).
 - [ ] **5 Office documents:** in Word, Excel or PowerPoint: **File → Open**, choose the file, click the arrow beside **Open** → **Open and Repair**, then save under the same name and number into `repaired`.
 - [ ] **6 PDF documents:** a PDF repair tool, or open it in a PDF reader and save a copy into `repaired`.
-- [ ] **7 Archives and disk images:** 7-Zip: open it and take out what can still be read. (A damaged archive rarely becomes whole again: what you take out goes beside the archive later, by hand.)
+- [ ] **7 Archives and disk images:** 7-Zip: open it and take out what can still be read, into `salvaged`. (A damaged archive rarely becomes whole again; the archive itself stays in `WORK` as it is.)
 - [ ] **8 Mac documents:** on the Mac, through a USB stick as for folder 2: open each in Pages, Numbers, Keynote or TextEdit and save it with the same name and number.
 - [ ] **9 Everything else:** open each in its own program; ask Claude if unsure.
 
@@ -715,7 +718,7 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 # PHASE 8 — Keep it safe 🪟 (about 1 hr, plus copying time)
 
 - [ ] **1. A `RECORDS` folder on `SPARE`**, beside `WORK` (not inside it: anything new inside `WORK` shows as *added* in the safety check): copy into it the whole `C:\RECOVERY-TOOLS\results` folder, the mapfile, this checklist and your notes. (`WORK\rescue-log.csv` and `WORK\repair-returns.csv` stay where they are: step 7 needs them there.) In three years you'll want to know what was checked.
-- [ ] **2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`.
+- [ ] **2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`, and `REPAIR\salvaged`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`.
 - [ ] **3. ✅ The final check — both copies.** In step 7, check `SPARE\WORK` with **Check the copies are unchanged**; then click **Choose…** beside the folder box, choose `D:\COPY 2\WORK`, and check it too. For each you want three ✓, *"Nothing is missing, and nothing has changed"*, and the files on every row the same as **Your numbers**: every file the old drive held is in both copies, exactly as copied or as repaired and put back. **Every safety check so far** now shows the whole way here, one line per checkpoint.
 - [ ] **4. Step 4 → Check the image is unchanged** (under *Make the image* in the program). It reads the image back against the checksum saved when it was made — an hour or two. You want *"…is exactly as it was made"*. The image is your third copy, as the files were before any repair.
 - [ ] **5. One copy away from home.** Once the final check passes, keep `SPARE` somewhere else (a relative's, work) and bring it home twice a year for its check. *(The 4 TB SSD could become that copy instead one day — but only once you decide you no longer want it as a spare of the recovered SSD. That wipes it, so decide it yourself, not because this list says so.)*

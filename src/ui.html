@@ -57,7 +57,7 @@ p, li, td, .msg { overflow-wrap: anywhere; }
 a { color: var(--act); }
 .soft { color: var(--ink-soft); }
 .small { font-size: 0.9rem; }
-code, .path { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 0.86em; word-break: break-all; }
+code, .path { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 0.86em; overflow-wrap: anywhere; }
 
 header.top { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; justify-content: space-between; }
 .rights { font-size: 0.92rem; padding: 3px 10px; border-radius: 4px; background: var(--good-bg); }
@@ -332,7 +332,7 @@ ul.phases .warn { color: var(--unread); }
       <div class="row"><button id="b-isolate">Copy the damaged files out</button></div>
       <div id="r-isolate"></div>
       <h3>2. Repair</h3>
-      <p class="small">Each folder in <code>REPAIR\to-repair</code> is named after what repairs its files. Repair those copies only, and save each repaired file anywhere in <code>REPAIR\repaired</code>, keeping its number in its name (<code>IMG_0003 [R0012]_repaired.JPG</code> is fine). <code>REPAIR\READ ME.txt</code> says more.</p>
+      <p class="small">Each folder in <code>REPAIR\to-repair</code> is named after what repairs its files. Repair those copies only, and save each repaired file anywhere in <code>REPAIR\repaired</code>, keeping its number in its name (<code>IMG_0003 [R0012]_repaired.JPG</code> is fine), in the same format as the original. What can't take the original's place — a TIFF of a damaged RAW photo, what 7-Zip takes out of a damaged archive — goes in <code>REPAIR\salvaged</code> instead. <code>REPAIR\READ ME.txt</code> says more.</p>
       <div class="row" id="repair-open"></div>
       <h3>3. Put back</h3>
       <div class="row"><button id="b-putback">Put the repaired files back</button></div>

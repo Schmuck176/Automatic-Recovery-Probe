@@ -1,6 +1,6 @@
 # Download Manifest — the tools, where they came from, what they're for
 
-*Version 2026-10-19 (3) — written with Claude Opus 5.5. Goes with
+*Version 2026-10-20 (1) — written with Claude Opus 5.5. Goes with
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
@@ -39,7 +39,7 @@ account — it runs ~70 virus scanners on it).
 
 ### `recovery-probe.exe`
 - Made for this recovery, by Claude, and put into `C:\RECOVERY-TOOLS\` by Claude. Nothing to install: double-click it.
-- Its source is in your GitHub repository **Schmuck176/Recovery-Probe** (private). GitHub's own Windows machines build it from that source and test it on every change: against the old Python probe file by file, on hundreds of damaged test disks, against what Windows itself makes of them, and in a real web browser.
+- Its source is in your GitHub repository **Schmuck176/Recovery-Probe** (private). GitHub's own Windows and Linux machines build it from that source and test it on every change: on sample files of every kind, intact and damaged, on hundreds of damaged test disks, against what Windows and Linux themselves make of them, and in a real web browser.
 - It uses only Rust's own standard parts and Windows' own parts — no code from anyone else runs over your files. It reads the Photos Library databases with SQLite, which is part of Windows (`winsqlite3.dll`).
 - It never writes to the recovered SSD. It writes only into the folder you choose for the copies and into `C:\RECOVERY-TOOLS\results\`.
 - What it does: checks itself (step 1); reads the mapfile (step 2); keeps Windows from writing to the recovered SSD (step 3); makes an image of the SSD, a complete second copy checked by reading it back (step 4); works out which files and folders sit on the places the old drive never gave up, which files Windows can't even list, and rebuilds folders whose own record was lost (step 5, "the map check"); copies everything off, including those, with a SHA-256 checksum per file (step 6); checks every copied file's structure, together with what step 5 found, and checks the copies against their checksums (step 7 — the first part is the old "probe", plus NEVER_READ); copies the damaged files out to repair, sorted by what repairs them, puts the repaired ones back exactly where they belong (keeping the originals) and says what is still damaged inside every library, app and document (step 8); takes the SSD out safely (step 9).
@@ -101,7 +101,7 @@ account — it runs ~70 virus scanners on it).
 
 ### MultiPar — optional now
 - **https://github.com/Yutaka-Sawada/MultiPar/releases** — you have `MultiPar1336_setup.exe` ✔
-- Makes "PAR2" files that can detect *and repair* files that quietly change over the years. A PAR2 set covers at most 32,768 files, so it doesn't suit big folders, and a Photos Library you keep using changes all the time. The plan now uses two copies on two drives plus the program's checksum list instead (Phase 7). MultiPar still suits a small folder you'll never change.
+- Makes "PAR2" files that can detect *and repair* files that quietly change over the years. A PAR2 set covers at most 32,768 files, so it doesn't suit big folders, and a Photos Library you keep using changes all the time. The plan now uses two copies on two drives plus the program's checksum list instead (Phase 8). MultiPar still suits a small folder you'll never change.
 
 ### Obsidian — for reading this checklist
 - **https://obsidian.md** — you have `Obsidian-1.13.7.exe` ✔

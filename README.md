@@ -58,7 +58,9 @@ opens a page in the PC's own web browser with two tabs:
    versions saved in `REPAIR\repaired` go back to exactly that place, only if
    the file there is still the damaged original, which moves to
    `REPAIR\originals`; `repair-returns.csv` logs both checksums (the copies
-   check and the scan know about it), and a put-back can be undone. Packages
+   check and the scan know about it), and a put-back can be undone. What
+   can't take the original's place (a TIFF made from a damaged RAW photo) is
+   kept in `REPAIR\salvaged`, and the original stays as it is. Packages
    are never split: damaged media inside a library go back inside it, a
    document kept as a folder goes out and back whole, and a library's own
    database or an app is left to its own app (evaluated, not copied out).
