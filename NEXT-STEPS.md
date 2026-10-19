@@ -131,12 +131,52 @@ continuations: trig_01H6LBYNesZY4pPuLF4zde73 (19:32 UTC), trig_01KDwd27r7k2sPmmo
 - [x] 8. Checklist Phase 1 steps 7-12 updated in the user's copy (35 ticks
       kept, verified). Fallback scheduled tasks deleted.
 
+## Independent review and its fixes (18-19 October 2026)
+
+A fresh session reviewed the program and the plan from REVIEW-BRIEF.md; the
+findings are in REVIEW-FINDINGS.md (also on the `review` branch). The user
+then asked for the fixes. Done on `dev`:
+
+- CI publishes to ci-windows/ci-linux only from `dev` pushes (a `review`
+  push had overwritten them; restored from ci-backup/ on `review`).
+- Windows' disk setting stays OfflineAll from "Get Windows ready" until no
+  disk that could be the recovered SSD is attached (no restore after
+  Protect, after a step, or on closing the window while it is attached).
+- Disks Windows calls removable media are shown, and the page says to image
+  a removable recovered SSD at once and ask before plugging it in again.
+- Created and accessed dates are copied (files and folders); the map check
+  shows the newest date on the volume and warns if it is after the mapfile.
+- `image` (step 4): the whole disk into recovered-ssd.img with its SHA-256,
+  read back to check; unreadable 4 KB units become zeros and are recorded
+  as a ddrescue-style mapfile next to it, which the map check folds in.
+  Steps 5 and 6 read the image once it is checked.
+- SHA-256 per copied file in rescue-log.csv (software, or SHA-NI); a resumed
+  copy keeps an earlier copy only if the whole file matches; `verify`
+  (step 7, "Check the copies are unchanged").
+- Lost-data pieces on never-read places are named in the map check the way
+  the copying names them, so the check of the copies marks them NEVER_READ.
+- Folders whose own record was lost are rebuilt from their contents
+  (exfat.rs find_orphan_folders), walked as "found folders (name lost)\
+  folder at cluster N"; the oracle in test_mapcheck.py mirrors it (500
+  random disks agree); the builder writes deleted records as real drives
+  leave them.
+- Notes in rescue-log.csv carry the disk offset and appear once each.
+- docs/recovery-checklist.md rewritten along the review's simpler plan
+  (image first; nothing moved or deleted in WORK; damaged files copied to
+  REPAIR; two copies checked against the checksums); download-manifest.md
+  to match.
+
 ## Next
 
-1. The user runs Phase -1 E (double-click, Yes, step 1 self-test), then
-   Phase 1 when ready to plug in the SSD. Help if anything on their PC
-   differs from GitHub's Windows machine.
-2. When the user plugs the SSD in: help read step 4's results (map check).
-3. Phase 6 sorting helper (the checklist promises one): reads the scan CSVs,
-   rescue-log.csv and sips-failures.txt, moves files from WORK into GOOD /
-   BROKEN / UNSURE with a preview, never touching PHOTOSLIB.
+1. One CI run for all of the above; read the reports on ci-windows and
+   ci-linux.
+2. Only with the user's yes: put the new recovery-probe.exe, checklist and
+   manifest into C:\RECOVERY-TOOLS (keep their ticks: their checklist lives
+   in "Obsidian MD files\"; stage under a fresh name and check the hash on
+   the PC afterwards).
+3. The user buys the IMAGE drive, then Phase 1 (rehearsal with SPARE, then
+   the image). Help read step 5's results.
+4. Phase 6 copying helper (the checklist promises one): reads the scan CSVs,
+   rescue-log.csv, the map check and sips-failures.txt, and *copies* the
+   damaged files from WORK into REPAIR with a manifest; never changes WORK,
+   never takes files out of a library or package.

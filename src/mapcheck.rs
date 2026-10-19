@@ -313,6 +313,22 @@ impl Report {
     pub fn hidden_maybe(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| e.hidden_maybe).count()
     }
+    /// (Folders found by their contents, the files inside them.)
+    pub fn rebuilt(&self) -> (u64, u64) {
+        let top = format!("{}\\", crate::exfat::FOUND_FOLDERS);
+        let mut folders = 0;
+        let mut files = 0;
+        for (e, _) in &self.hidden {
+            if let Some(rest) = e.path.strip_prefix(&top) {
+                if !e.is_dir {
+                    files += 1;
+                } else if !rest.contains('\\') {
+                    folders += 1;
+                }
+            }
+        }
+        (folders, files)
+    }
     /// Is the newest date on the volume more than a day after ddrescue
     /// finished? Then something changed the SSD after the copy (or that
     /// file's date is wrong).
@@ -1161,6 +1177,24 @@ pub fn summary(r: &Report) -> Vec<String> {
         t.push("records are valid, so an earlier attempt may have read them - or they are left over from".to_string());
         t.push("what the SSD held before the copy (map-check-unsure-records.csv).".to_string());
     }
+    let (rebuilt_folders, rebuilt_files) = r.rebuilt();
+    if rebuilt_folders > 0 {
+        t.push(String::new());
+        let one = rebuilt_folders == 1;
+        t.push(format!(
+            "{} {} whose own record was lost {} found by {} contents: the {} {} inside keep their",
+            commas(rebuilt_folders),
+            if one { "folder" } else { "folders" },
+            if one { "was" } else { "were" },
+            if one { "its" } else { "their" },
+            commas(rebuilt_files),
+            if rebuilt_files == 1 { "file" } else { "files" }
+        ));
+        t.push(format!(
+            "names, dates and folders, under \"{}\" (the copying puts them there too).",
+            crate::exfat::FOUND_FOLDERS
+        ));
+    }
     if r.lost_clusters > 0 {
         t.push(String::new());
         t.push(format!(
@@ -1676,7 +1710,8 @@ pub fn page_json(r: &Report) -> String {
          \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\
          \"files_seen\":{},\"folders_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
          \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
-         \"newest\":{},\"files\":[{}],\"hidden\":[{}],\"hidden_groups\":[{}],\"areas\":[{}]}}",
+         \"newest\":{},\"rebuilt_folders\":{},\"rebuilt_files\":{},\"files\":[{}],\"hidden\":[{}],\
+         \"hidden_groups\":[{}],\"areas\":[{}]}}",
         r.bad_bytes(),
         r.areas.len(),
         files.len(),
@@ -1698,6 +1733,8 @@ pub fn page_json(r: &Report) -> String {
         r.cluster_count,
         r.drive.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
         newest,
+        r.rebuilt().0,
+        r.rebuilt().1,
         file_list.join(","),
         hidden.join(","),
         hidden_groups.join(","),

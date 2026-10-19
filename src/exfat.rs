@@ -547,7 +547,12 @@ pub fn walk_until(
             };
             claimed.mark(&list);
             visit(&entry, &list);
-            starts.push((path, list, true, false, WHY_ORPHAN.to_string()));
+            // (Everything inside gets one reason, naming this folder.)
+            let why = format!(
+                "inside the folder {path}, which the program found by its contents: the folder's own record \
+                 (with its name) was in a place ddrescue never read or is damaged, so Windows cannot reach it"
+            );
+            starts.push((path, list, true, false, why));
         }
         // Walked in cluster order.
         starts.reverse();

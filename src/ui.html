@@ -200,7 +200,7 @@ dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); disp
 
     <li id="s-connect">
       <div class="step-head"><h2>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
-      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off, the program marks it read-only, and Windows' setting goes back to normal.</p>
+      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until the SSD is unplugged again; step 8 then puts the setting back.</p>
       <div id="connect"></div>
     </li>
 
@@ -673,6 +673,7 @@ function renderCheck() {
         <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
         <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD</span></div></div>`;
       if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
+      if (d.rebuilt_folders > 0) h += `<div class="msg ok">${commas(d.rebuilt_folders)} folder${d.rebuilt_folders === 1 ? "" : "s"} whose own record was lost ${d.rebuilt_folders === 1 ? "was" : "were"} found by ${d.rebuilt_folders === 1 ? "its" : "their"} contents: the ${commas(d.rebuilt_files)} file${d.rebuilt_files === 1 ? "" : "s"} inside keep their names, dates and folders. Step 6 copies them into “found folders (name lost)”, one folder each, named after where it starts on the disk.</div>`;
       if (d.newest && d.newest.after_copy) {
         h += `<div class="msg warn">The newest date on the SSD is ${esc(d.newest.date)} (${esc(d.newest.path)}): after ddrescue finished (${esc(d.newest.copy_finished)}). Something may have changed the SSD after the copy (a computer it was plugged into, say), or that file's date is simply wrong. Ask before going on.</div>`;
       } else if (d.newest) {
@@ -757,7 +758,7 @@ function renderScan() {
       if (kinds.length) h += `<table><tr><th>Verdict</th><th class="num">Files</th><th>Meaning</th></tr>${kinds.map((k) => `<tr><td class="verdict"><b>${k}</b></td><td class="num">${commas(c[k])}</td><td class="small">${esc(MEANING[k])}</td></tr>`).join("")}</table>`;
       if (c.SKIPPED) h += `<p class="small soft">“Not testable” is mostly HEIC photos and camera RAW files: nothing on Windows can check them fully, so the program refuses to call them fine. The Mac checks those later.</p>`;
       if (d.libraries && d.libraries.length) {
-        h += `<h3>Photos Libraries found</h3><p class="small">Never point a duplicate finder at one of these. The checklist moves them out of the way next.</p><table><tr><th>Library</th><th class="num">Photos</th><th class="num">Damaged inside</th></tr>` +
+        h += `<h3>Photos Libraries found</h3><p class="small">Never point a duplicate finder at one of these, and never take files out of one: a library is kept whole.</p><table><tr><th>Library</th><th class="num">Photos</th><th class="num">Damaged inside</th></tr>` +
           d.libraries.map((l) => `<tr><td class="path">${esc(l.path)}${l.placeholders ? ' <span class="tag warn">probably iCloud stand-ins</span>' : ""}</td><td class="num">${commas(l.originals)}</td><td class="num">${commas(l.damaged)}</td></tr>`).join("") + `</table>`;
       }
       if (d.flagged && d.flagged.length) {

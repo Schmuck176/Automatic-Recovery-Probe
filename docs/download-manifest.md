@@ -1,6 +1,6 @@
 # Download Manifest — the tools, where they came from, what they're for
 
-*Version 2026-10-18 — written with Claude Opus 5.5. Goes with
+*Version 2026-10-19 — written with Claude Opus 5.5. Goes with
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
@@ -8,8 +8,12 @@ You've already downloaded everything below. This page is here so you know what e
 one is for, and where to get it again if you ever need to. **Installing is covered in
 the checklist, Phase −1 section D.**
 
-**Total cost: $0.** Only the optional repair software in Section 4 costs money, and
-you decide about that in Phase 7.
+**Software cost: $0.** Only the optional repair software in Section 5 costs money, and
+you decide about that in Phase 6.
+
+**One thing to buy: a drive for the image** — at least 1 TB free; an ordinary external
+hard disk is fine (a 4 TB one also holds the second copy of your files at the end).
+The checklist calls it `IMAGE`. Buy it from a shop you trust; any make will do.
 
 ---
 
@@ -37,7 +41,7 @@ account — it runs ~70 virus scanners on it).
 - Its source is in your GitHub repository **Schmuck176/Recovery-Probe** (private). GitHub's own Windows machines build it from that source and test it on every change: against the old Python probe file by file, on hundreds of damaged test disks, against what Windows itself makes of them, and in a real web browser.
 - It uses only Rust's own standard parts and Windows' own parts — no code from anyone else runs over your files. It reads the Photos Library databases with SQLite, which is part of Windows (`winsqlite3.dll`).
 - It never writes to the recovered SSD. It writes only into the folder you choose for the copies and into `C:\RECOVERY-TOOLS\results\`.
-- What it does: checks itself (step 1); reads the mapfile (step 2); keeps Windows from writing to the recovered SSD (step 3); works out which files and folders sit on the places the old drive never gave up, and which files Windows can't even list (step 4, "the map check"); copies everything off, including those (step 5); checks every copied file's structure, together with what step 4 found (step 6 — this is the old "probe", plus NEVER_READ).
+- What it does: checks itself (step 1); reads the mapfile (step 2); keeps Windows from writing to the recovered SSD (step 3); makes an image of the SSD, a complete second copy checked by reading it back (step 4); works out which files and folders sit on the places the old drive never gave up, which files Windows can't even list, and rebuilds folders whose own record was lost (step 5, "the map check"); copies everything off, including those, with a SHA-256 checksum per file (step 6); checks every copied file's structure, together with what step 5 found, and checks the copies against their checksums (step 7 — the first part is the old "probe", plus NEVER_READ); takes the SSD out safely (step 8).
 - **Python** is no longer needed (the old probe was a Python program). Already installed? It does no harm.
 
 ## 2. Programs that other programs need
@@ -58,10 +62,10 @@ account — it runs ~70 virus scanners on it).
 - **https://github.com/qarmin/czkawka/releases** — you have the folder `windows_krokiet_on_windows_all_backends` (version 12.0.1, released 29 July 2026) ✔
 - That's an **official** build: `windows_krokiet_on_windows_all_backends.zip` is one of the files on the 12.0.1 release page. ("all_backends" means it bundles several ways of drawing its window — if the `.exe` doesn't open, try the `.bat` files next to it.)
 - Nothing to install: it runs from its folder.
-- Used for: junk and empty files, exact duplicates, broken-file checks (images, PDFs, archives, audio, video), bad extensions, similar images. Its **Save**, **Trash** and **Move** buttons are what make Phases 2 and 6 manageable.
+- Used for (all optional, Phases 4 and 6): broken-file checks (images, PDFs, archives, audio, video), bad extensions, similar images (near-twins of damaged photos). Only its **Save** button is used: **never Trash, Delete or Move** — nothing in `WORK` is ever changed.
 
 > ⚠️ **Krokiet ignores files smaller than 16 KB** in every scan except Empty Files,
-> until you change *File Size (Kilobytes) → Min* to **0**. Phase 2 does this first.
+> until you change *File Size (Kilobytes) → Min* to **0**. Phase 4 does this first.
 >
 > ⚠️ **Broken Files:** audio, image, PDF, archive, font and markup checks are **on**
 > by default; the two **video** checks are **off** until you tick them (Phase 4).
@@ -71,7 +75,7 @@ account — it runs ~70 virus scanners on it).
 > (below) is what tests those.
 >
 > ⚠️ **On Windows it cannot decode HEIC photos or camera RAW.** (The official Mac and
-> Linux builds have HEIC versions; the Windows ones don't.) Section 3 covers how those
+> Linux builds have HEIC versions; the Windows ones don't.) Section 4 covers how those
 > get checked.
 >
 > ⚠️ Unofficial "extra codecs" rebuilds of Krokiet exist. They aren't from the Krokiet
@@ -88,21 +92,21 @@ account — it runs ~70 virus scanners on it).
 - **https://mp3val.sourceforge.net** — you have `mp3val-0.1.8_with_frontend-0.1.1-bin-win32` (the version with the graphical frontend) ✔
 - Nothing to install: run the frontend `.exe` from its folder.
 - An MP3 that's been cut short still claims its full length, so players and Krokiet can't tell. MP3val counts the actual audio. Twenty minutes in Phase 4.
-- It also has a repair button. Don't use it in Phase 4 — scanning only. Repairs belong in Phase 7, on copies.
+- It also has a repair button. Never use it on `WORK` — scanning only. Repairs belong in Phase 6, on the copies in `REPAIR`.
 
 ### TeraCopy — copying that checks itself (optional now)
 - **https://codesector.com/teracopy** — you have `teracopy.exe` ✔
 - Recovery Probe now does the copying off the recovered SSD: TeraCopy, like File Explorer, can only copy what Windows can list, and some of your files sit in folders whose records the old drive never gave up. Keep TeraCopy for ordinary copying if you like it.
 
-### MultiPar — protection against slow rot, for the end
+### MultiPar — optional now
 - **https://github.com/Yutaka-Sawada/MultiPar/releases** — you have `MultiPar1336_setup.exe` ✔
-- Makes "PAR2" files that can detect *and repair* files that quietly change over the years. Used in Phase 9.
+- Makes "PAR2" files that can detect *and repair* files that quietly change over the years. A PAR2 set covers at most 32,768 files, so it doesn't suit big folders, and a Photos Library you keep using changes all the time. The plan now uses two copies on two drives plus the program's checksum list instead (Phase 7). MultiPar still suits a small folder you'll never change.
 
 ### Obsidian — for reading this checklist
 - **https://obsidian.md** — you have `Obsidian-1.13.7.exe` ✔
 - Free. Shows these documents properly and lets you tick the checkboxes as you go (it saves them into the file). Ignore its Sync and Publish offers — you don't need them.
 
-### untrunc — repairs cut-off videos (Phase 7)
+### untrunc — repairs cut-off videos (Phase 6)
 - **https://github.com/anthwlock/untrunc/releases** — you have the folder `untrunc_x64` ✔
 - Free, nothing to install, no licence needed. Fixes MP4/MOV files that stop partway.
 - **It needs a working video from the same camera or phone** to use as a pattern; without one, the developer says the chances are slim.
@@ -114,16 +118,15 @@ account — it runs ~70 virus scanners on it).
 Krokiet can't decode either on Windows, so your iPhone photos and RAW files would go
 untested there. Three things close that gap, and they catch different problems:
 
-**The map check (Recovery Probe, Phases 1 and 3).** It knows from the mapfile exactly
+**The map check (Recovery Probe, Phases 2 and 3).** It knows from the mapfile exactly
 which bytes the old drive never gave up, so any HEIC or RAW file that lost data is
 marked **NEVER_READ** — whatever its format, and however small the loss.
 
 **The probe (Recovery Probe, Phase 3).** It checks the *structure* of every HEIC and RAW
 file — whether the file is cut short, or has a bad-sector hole punched through it.
 But it will **never report a HEIC or RAW as fine**, because it can't actually decode
-them. They come back as *not testable*, are listed in the probe's `-not-testable.csv`,
-and go to the `UNSURE` pile unless the Mac passes them. Expect that pile to be most of
-your photos. That's the probe being honest, not failing.
+them. They come back as *not testable* and are listed in the `-not-testable.csv`.
+Expect that list to be most of your photos. That's the probe being honest, not failing.
 
 **`sips` (Phase 5, on the Mac).** Already part of macOS. It uses the same decoder as
 Apple's Photos app — the most authoritative one there is for iPhone HEIC and camera
@@ -152,8 +155,9 @@ Only relevant if Phase 5 finds that Photos won't open a library and Repair can't
 
 ## 5. Repair software — the only things that cost money
 
-Decide **after** Phase 6, when you know what's actually broken. Both need internet to
-activate, even for a trial — that's why Phase 7 is when you reconnect.
+Decide in Phase 6, when you know what's actually broken. Both need internet to
+activate, even for a trial — that's why Phase 6 is when you reconnect. Use them only on
+the copies in `REPAIR`.
 
 ### Stellar Repair for Photo / Video
 - **https://www.stellarinfo.com**
@@ -174,15 +178,16 @@ fixed file, paying won't produce one either.
 
 | | Checked by |
 |---|---|
-| **Any file the old drive lost data from**, whatever its type | **Recovery Probe's map check** (Phase 1), marked NEVER_READ (Phase 3) |
-| Files Windows can't even list | Found by the map check and copied by Recovery Probe (Phase 1) |
+| **Any file the old drive lost data from**, whatever its type | **Recovery Probe's map check** (Phase 2), marked NEVER_READ (Phase 3) |
+| Files Windows can't even list, and folders whose own record was lost | Found by the map check and copied by Recovery Probe (Phase 2) |
+| A copy that changes later | Recovery Probe's checksum list: *Check the copies are unchanged* (Phases 2 and 7) |
 | Ordinary photos (JPEG, PNG, GIF, WebP, TIFF) | Recovery Probe (Phase 3) + Krokiet image check (Phase 4) |
 | iPhone photos (HEIC) and camera RAW | Recovery Probe structure (Phase 3) + `sips` full decode (Phase 5) |
-| Video (MP4, MOV, MKV, WebM, AVI…) | Recovery Probe (Phase 3) + Krokiet video decode (Phase 4) + untrunc for repair (Phase 7) |
+| Video (MP4, MOV, MKV, WebM, AVI…) | Recovery Probe (Phase 3) + Krokiet video decode (Phase 4) + untrunc for repair (Phase 6) |
 | MP3 | Recovery Probe (Phase 3) + Krokiet audio (Phase 4) + **MP3val** for cut-short files (Phase 4) |
 | Other audio (FLAC, OGG, WAV, M4A) | Recovery Probe (Phase 3) + Krokiet audio (Phase 4) |
 | PDF | Recovery Probe (Phase 3) + Krokiet PDF check (Phase 4) |
 | Zip and 7z archives | Recovery Probe (Phase 3) + Krokiet archive check + **7-Zip** test (Phase 4) |
 | Word, Excel, PowerPoint, ePub, RAR | Recovery Probe (Phase 3) + **7-Zip** test (Phase 4) — Krokiet doesn't open these |
-| Apple Photos Libraries | Recovery Probe finds and checks them (Phases 1 and 3) + Photos' own Repair on the Mac (Phase 5) |
-| Everything else | `UNSURE` pile, spot-checked by hand (Phase 6) |
+| Apple Photos Libraries | Recovery Probe finds and checks them (Phase 3) + Photos' own Repair on the Mac, on a copy (Phase 5) |
+| Everything else | Copied exactly, with a checksum; the map check names it if the drive lost any of it |

@@ -14,17 +14,30 @@ at a time:
 2. **The ddrescue mapfile** — found in the program's folder, and drawn as a
    map of the old drive with every place that was never read.
 3. **Connect the recovered SSD, protected** — Windows is told to leave new
-   disks switched off, the SSD is marked read-only, and the setting is put
-   back. Nothing, not even Windows itself, can write to it.
-4. **See what the damage touched** — the *map check*: from the mapfile and
-   the SSD's own exFAT structures, exactly which files lost which bytes,
-   which folders are damaged, and which files Windows cannot even list.
-5. **Copy everything off the SSD** — straight from the disk, past Windows:
-   also the files Windows cannot list, and the data no folder names any more.
-6. **Check every copied file** — every file's structure (the *probe*),
-   together with what step 4 found: a file the drive lost data from is
-   marked **NEVER_READ** even when it looks perfect.
-7. **Finish.**
+   disks switched off (until the SSD is unplugged again), and the SSD is
+   marked read-only. Nothing, not even Windows itself, can write to it.
+   Disks Windows calls "removable media" are shown as such: Windows' setting
+   does not cover them.
+4. **Make an image of the SSD** — the whole SSD read once into one file on
+   another drive, with its SHA-256, read back to check it; places the SSD
+   could not read are recorded the way ddrescue does. From then on the next
+   steps read the image, and the SSD can go back in its drawer.
+5. **See what the damage touched** — the *map check*: from the mapfile and
+   the volume's own exFAT structures, exactly which files lost which bytes,
+   which folders are damaged, which files Windows cannot even list, and the
+   newest date on the volume (a date after the copy means something changed
+   it). Folders whose own record was lost are found by their contents.
+6. **Copy everything off** — straight from the image (or the disk), past
+   Windows: also the files Windows cannot list, the folders found by their
+   contents (in `found folders (name lost)`), and the data no folder names
+   any more. Every copy's SHA-256 goes into `rescue-log.csv`; created,
+   modified and accessed dates are kept.
+7. **Check every copied file** — every file's structure (the *probe*),
+   together with what step 5 found: a file the drive lost data from is
+   marked **NEVER_READ** even when it looks perfect. And: are the copies
+   still exactly what was copied (against `rescue-log.csv`)?
+8. **Finish** — take the SSD out, and put Windows' setting back once it is
+   unplugged.
 
 Results are kept in a `results` folder next to the program. `docs/` has the
 checklist the whole recovery follows, and the tools it uses.
@@ -48,9 +61,12 @@ The checks only ever read. They never change, move or delete a file.
 
 ```
 recovery-probe self-test
-recovery-probe map-check --map <mapfile> --disk \\.\PhysicalDriveN --out <folder>
-recovery-probe rescue --disk \\.\PhysicalDriveN --out <folder> --everything --lost
+recovery-probe image --disk \\.\PhysicalDriveN --map <mapfile> --out <folder>
+recovery-probe map-check --map <mapfile> --disk <image or \\.\PhysicalDriveN> --out <folder>
+recovery-probe rescue --disk <image or \\.\PhysicalDriveN> --out <folder> --everything --lost
+recovery-probe verify <folder the copies went into>
 recovery-probe scan <folder>
+recovery-probe sha256 <file>
 recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
 recovery-probe map-info <mapfile>
 recovery-probe list-disks
