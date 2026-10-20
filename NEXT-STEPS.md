@@ -307,10 +307,14 @@ Version "2026-10-20 (1)":
   unplugged 31/31, page 60/60; Linux map check tests 92/92 with fsck.exfat
   and dissect.fat, kernel 23/23, page 59/59. The Windows build is
   4,123,136 bytes, sha256 9dbaaa60da6777b3... (on ci-windows, 12998bd).
-  Delivery: refused at 00:41 BST because the program was open on the PC
-  (the exe is locked while it runs); retried automatically (trig_01Wc3LHiDHbTc7qp5doUGq8p
-  at 01:02 BST, then the morning resumes). Only the exe goes in: the
-  program upgrades the Obsidian copy and the manifest itself.
+  Delivery: refused at 00:41, 01:02 and 05:01 BST because the program was
+  open on the PC (the exe is locked while it runs); delivered by the 10:00
+  BST automatic resume into C:\RECOVERY-TOOLS\recovery-probe.exe, staged
+  back and checked: 4,123,136 bytes, sha256 9dbaaa60..., version
+  "2026-10-20 (1)". Only the exe went in: the program upgrades the Obsidian
+  copy and the manifest itself the first time it opens (both were still
+  the 19 October ones at 10:00). The automatic resumes are gone (two fired,
+  the last one deleted; none left scheduled).
 - Feedback given (in the chat): the order is logical (the one risky read
   first and rehearsed; every phase checked against Your numbers; repairs on
   copies; two copies plus the image at the end); essential phases 1, 2, 3,
