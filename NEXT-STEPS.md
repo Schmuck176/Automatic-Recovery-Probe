@@ -12,12 +12,13 @@ it forward only after all four: CI green on dev; installed in
 C:\RECOVERY-TOOLS and its sha256 checked on the PC; the self-test passed on
 the PC (the user says so, or results\recovery-probe-state.txt shows
 "Every check passed" after the install); the delivery recorded here in a
-`[skip ci]` commit. Then fast-forward main to that commit
-(`git push origin dev:main`) and tag the commit the exe was built from (its
-BUILD-INFO.txt on ci-windows) as `version-YYYY-MM-DD-N`, annotated with the
-CI run and the exe's sha256 (`git push origin <tag>`). Tags, not branches,
-so the branch list stays short. Pushes to main never start a build (the
-workflow builds dev only).
+`[skip ci]` commit. Then, first, keep the version main is leaving in a
+branch named after it (the user's choice): `git push origin
+origin/main:refs/heads/version-YYYY-MM-DD-N` (2026-10-20 (1) becomes
+`version-2026-10-20-1`); then fast-forward main to that commit
+(`git push origin dev:main`). (A tag was tried on 21 Oct: this session's
+GitHub access cut the push of a tag off, so no tags.) Pushes to main never
+start a build (the workflow builds dev only).
 
 ## Done
 
@@ -353,10 +354,11 @@ reference/), hence "Python 54.7%". The user asked: bring main up to date;
 from now on main = what is in C:\RECOVERY-TOOLS, moved only once tested and
 proven to work; old versions kept under their version numbers; the old main
 needs no branch of its own. Done: main fast-forwarded to dev (2fe0e9b stays
-in the history, as an ancestor), the workflow builds dev only, the README
-says what each branch is, and the installed version is tagged
-`version-2026-10-20-1` (a728da4). On dev the languages are about Rust 72%,
-Python 18% (the test tools), HTML 8%, JavaScript 2%.
+in the history, as an ancestor), the workflow builds dev only, and the
+README says what each branch is. 2026-10-20 (1) (built from a728da4) gets
+its own branch only when a newer version replaces it on main. On dev the
+languages are about Rust 72%, Python 18% (the test tools), HTML 8%,
+JavaScript 2%.
 
 ## Next
 

@@ -82,9 +82,10 @@ checklist the whole recovery follows, and the tools it uses.
   tested on GitHub's Windows and Linux machines.
 - **`ci-windows`** and **`ci-linux`** hold the latest test results and the
   tested program (only the latest: they are replaced at every build).
-- Each version that went onto the PC is kept as a tag named after its
-  version, such as `version-2026-10-20-1` (the program's page shows
-  "Version 2026-10-20 (1)").
+- When a newer version replaces it on the PC, the version it replaces is
+  kept in a branch named after its version, such as `version-2026-10-20-1`
+  (the program's page shows "Version 2026-10-20 (1)"). Every earlier state
+  stays in `main`'s history too.
 
 ## What the checks say
 
