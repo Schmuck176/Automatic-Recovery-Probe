@@ -66,10 +66,13 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const waitText = (id, re, ms) => page.waitForFunction(([i, r]) => new RegExp(r).test(document.getElementById(i).textContent),
     [id, re], { timeout: ms || 60000 }).then(() => true, () => false);
 
-  // Someone without the key, or from another site, gets nothing.
-  const bad = await fetch(`http://127.0.0.1:${port}/wrongkey/api/state`).then((r) => r.status);
+  // Someone without the key, or from another site, gets nothing. (Every
+  // answer is read to its end: Node's fetch can trip over one left unread
+  // when the program closes the connection - "assert(!this.paused)".)
+  const statusOf = (r) => r.text().then(() => r.status);
+  const bad = await fetch(`http://127.0.0.1:${port}/wrongkey/api/state`).then(statusOf);
   check(bad === 404, "a wrong key gets nothing (" + bad + ")");
-  const post = await fetch(url + "api/do", { method: "POST", body: "action=selftest" }).then((r) => r.status);
+  const post = await fetch(url + "api/do", { method: "POST", body: "action=selftest" }).then(statusOf);
   check(post === 403, "an action without the key header is refused (" + post + ")");
 
   // How quickly the program answers (reading every disk is the slow one).
@@ -330,7 +333,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     { stdio: "ignore" });
   // Until it answers, the page's own requests fail, as they should.
   for (let i = 0; i < 100; i++) {
-    const up = await fetch(url).then((r) => r.ok, () => false);
+    const up = await fetch(url).then((r) => r.text().then(() => r.ok), () => false);
     if (up) break;
     await new Promise((r) => setTimeout(r, 200));
   }
