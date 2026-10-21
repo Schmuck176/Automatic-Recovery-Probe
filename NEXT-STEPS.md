@@ -403,7 +403,10 @@ copies marked NEVER_READ by the scan with the map check), Windows checks
 18/18, protection 16/16, unplugged 31/31, page 60/60; Linux map check tests
 92/92 with fsck.exfat and dissect.fat, kernel 23/23, page 59/59. The Windows
 build: 4,134,912 bytes, sha256 10614db6268e5439... (ci-windows bd80456).
-First install attempt (06:55 BST) refused: the program was open on the PC.
+Install attempts at 06:55, 07:08, 07:39, 10:19 and 15:20 BST all refused: the program was
+open on the PC the whole day. No more automatic tries: the user closes it and says so, then
+install (staged at /mnt/user-data/outputs/recovery-probe-81e3460-21oct.exe, expectedMtimeMs
+1792486849250), check its sha256 on the PC, self-test, then main + branch version-2026-10-20-1.
 
 Not changed: checkpoints compare local times as text, so in the hour the
 clocks go back (last Sunday of October, 01:00-02:00) a tick and a check in
