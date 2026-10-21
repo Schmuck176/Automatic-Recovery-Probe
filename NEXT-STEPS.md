@@ -393,6 +393,18 @@ code. Version "2026-10-21 (1)". Found and fixed:
 - tools/ui_check.js waited a fixed 1.5 s for the restarted program; under
   load the old page's poll failed in between. It now waits until it answers.
 
+- A check of the copies is recorded at its start (81e3460): a box ticked
+  while it ran no longer counts as checked by it.
+
+CI for 81e3460 was green (run 39549031906; 9e9339a's run was cancelled for
+it): Windows unit tests 59 (the crash test, the safe write and the
+unbuffered read on NTFS among them), self-test, map check tests 42/42 (103
+copies marked NEVER_READ by the scan with the map check), Windows checks
+18/18, protection 16/16, unplugged 31/31, page 60/60; Linux map check tests
+92/92 with fsck.exfat and dissect.fat, kernel 23/23, page 59/59. The Windows
+build: 4,134,912 bytes, sha256 10614db6268e5439... (ci-windows bd80456).
+First install attempt (06:55 BST) refused: the program was open on the PC.
+
 Not changed: checkpoints compare local times as text, so in the hour the
 clocks go back (last Sunday of October, 01:00-02:00) a tick and a check in
 that hour can be ordered wrongly; a put-back interrupted between its rename
