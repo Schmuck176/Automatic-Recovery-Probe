@@ -77,9 +77,9 @@ checklist the whole recovery follows, and the tools it uses.
 ## Versions and branches
 
 - **`main`** is the version in `C:\RECOVERY-TOOLS` on the PC. It moves
-  forward only when a new version has passed every test on GitHub, has been
-  installed on the PC and checked byte for byte there, and its self-test has
-  passed on the PC.
+  forward only when a new version has passed every test on GitHub and has
+  been installed on the PC and checked byte for byte there. (GitHub's tests
+  are proof enough; the self-test is still run on the PC after each install.)
 - **`dev`** is where changes are made; every change to it is built and
   tested on GitHub's Windows and Linux machines.
 - **`ci-windows`** and **`ci-linux`** hold the latest test results and the

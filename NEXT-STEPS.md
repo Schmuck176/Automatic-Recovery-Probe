@@ -8,11 +8,11 @@ reached from the development workspace. The Windows build of each commit is
 `recovery-probe.exe` on the `ci-windows` branch.
 
 `main` is the version on the user's PC (the user's rule, 21 Oct 2026). Move
-it forward only after all four: CI green on dev; installed in
-C:\RECOVERY-TOOLS and its sha256 checked on the PC; the self-test passed on
-the PC (the user says so, or results\recovery-probe-state.txt shows
-"Every check passed" after the install); the delivery recorded here in a
-`[skip ci]` commit. Then, first, keep the version main is leaving in a
+it forward once: CI is green on dev; it is installed in C:\RECOVERY-TOOLS
+and its sha256 checked on the PC; the delivery is recorded here in a
+`[skip ci]` commit. ("GitHub's tests are proof enough", the user, 21 Oct
+21:51: the self-test on the PC is still asked for after each install, but
+main does not wait for it.) Then, first, keep the version main is leaving in a
 branch named after it (the user's choice): `git push origin
 origin/main:refs/heads/version-YYYY-MM-DD-N` (2026-10-20 (1) becomes
 `version-2026-10-20-1`); then fast-forward main to that commit
@@ -406,8 +406,9 @@ build: 4,134,912 bytes, sha256 10614db6268e5439... (ci-windows bd80456).
 Install attempts at 06:55, 07:08, 07:39, 10:19 and 15:20 BST were refused: the program was
 open on the PC all day. The user closed it at 15:21; installed 15:21 BST into
 C:\RECOVERY-TOOLS\recovery-probe.exe and staged back: 4,134,912 bytes, sha256 10614db6...,
-version "2026-10-21 (1)" (mtime 1792592502300). Next: the user's self-test, then main
-(2026-10-20 (1) kept in branch version-2026-10-20-1).
+version "2026-10-21 (1)" (mtime 1792592502300). The user's self-test passed at 21:50:29
+(results\recovery-probe-state.txt agrees). main moved to this version at 21:53 BST; 2026-10-20 (1)
+(053e082) kept in branch version-2026-10-20-1.
 
 Not changed: checkpoints compare local times as text, so in the hour the
 clocks go back (last Sunday of October, 01:00-02:00) a tick and a check in
@@ -416,10 +417,7 @@ and its (synced) log line - microseconds.
 
 ## Next
 
-1. CI for this, then install it (only the exe: no change to the checklist
-   or the manifest), the self-test on the PC, then main and a branch
-   version-2026-10-20-1 for the version it leaves (the rule at the top).
-2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    Help read step 5's results; check the files fit on SPARE.
-3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
