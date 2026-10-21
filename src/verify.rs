@@ -744,11 +744,16 @@ pub fn add_to_history(
     row.push(result.to_string());
     body.push_str(&csv_row(&row));
     let _ = std::fs::create_dir_all(results);
+    // Made safe on the drive at once: the list is what the checkpoints of
+    // the checklist go by.
     std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .and_then(|mut f| f.write_all(body.as_bytes()))
+        .and_then(|mut f| {
+            f.write_all(body.as_bytes())?;
+            f.sync_all()
+        })
         .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
@@ -778,7 +783,9 @@ pub const STEP4: &str = "Image checked (step 4)";
 /// One check from the list of every check.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Checked {
-    /// Local date and time, "2026-10-21 14:02:09" (sorts as text).
+    /// Local date and time with its offset from UTC, as fmt::when_of writes
+    /// it (checks made before 22 October 2026 have no offset); compared
+    /// with fmt::instant, shown with fmt::when_shown.
     pub when: String,
     pub step: String,
     pub folder: String,
@@ -825,7 +832,7 @@ pub fn history_json(results: &Path, last: usize) -> String {
         .map(|r| {
             format!(
                 "{{\"when\":{},\"step\":{},\"folder\":{},\"files\":{},\"bytes\":{},\"ok\":{},\"result\":{}}}",
-                json_str(&r.when),
+                json_str(crate::fmt::when_shown(&r.when)),
                 json_str(&r.step),
                 json_str(&r.folder),
                 num(r.files),

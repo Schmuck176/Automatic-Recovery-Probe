@@ -91,6 +91,98 @@ pub fn local_datetime(ts: f64) -> String {
     }
 }
 
+/// This PC's offset from UTC at a moment (seconds since 1970), in seconds.
+fn offset_at(secs: i64) -> i64 {
+    match crate::sys::local_time(secs) {
+        Some(t) => {
+            crate::exfat::days_from_civil(t[0] as i64, t[1] as u32, t[2] as u32) * 86_400
+                + t[3] as i64 * 3600
+                + t[4] as i64 * 60
+                + t[5] as i64
+                - secs
+        }
+        None => 0,
+    }
+}
+
+/// A moment as the program records it (ticks, safety checks): local date
+/// and time with its offset from UTC, "2026-10-25 01:30:00 +01:00". Local
+/// time alone repeats an hour when the clocks go back; with the offset no
+/// two moments are written the same, and `instant` puts them in order.
+pub fn when_of(secs: i64) -> String {
+    match crate::sys::local_time(secs) {
+        Some(t) => {
+            let off = offset_at(secs);
+            let (sign, a) = if off < 0 { ('-', -off) } else { ('+', off) };
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02} {sign}{:02}:{:02}",
+                t[0],
+                t[1],
+                t[2],
+                t[3],
+                t[4],
+                t[5],
+                a / 3600,
+                a % 3600 / 60
+            )
+        }
+        None => String::new(),
+    }
+}
+
+/// Now, as `when_of` writes it.
+pub fn when_now() -> String {
+    when_of(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0))
+}
+
+/// The moment a recorded date and time stands for, in seconds since 1970.
+/// One without an offset (recorded before 22 October 2026, outside the hour
+/// the clocks go back) is taken as this PC's local time.
+pub fn instant(when: &str) -> Option<i64> {
+    let w = when.trim();
+    let b = w.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || b[10] != b' ' || b[13] != b':' || b[16] != b':' {
+        return None;
+    }
+    let num = |a: usize, z: usize| -> Option<i64> {
+        let s = w.get(a..z)?;
+        if s.bytes().all(|c| c.is_ascii_digit()) {
+            s.parse().ok()
+        } else {
+            None
+        }
+    };
+    let (y, mo, d, h, mi, s) = (num(0, 4)?, num(5, 7)?, num(8, 10)?, num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 60 {
+        return None;
+    }
+    let naive = crate::exfat::days_from_civil(y, mo as u32, d as u32) * 86_400 + h * 3600 + mi * 60 + s;
+    let rest = w[19..].trim();
+    if rest.is_empty() {
+        // The offset in force then (found from a first guess).
+        return Some(naive - offset_at(naive - offset_at(naive)));
+    }
+    let r = rest.as_bytes();
+    if r.len() != 6 || !(r[0] == b'+' || r[0] == b'-') || r[3] != b':' {
+        return None;
+    }
+    let digits = |s: &str| -> Option<i64> { s.bytes().all(|c| c.is_ascii_digit()).then(|| s.parse().ok()).flatten() };
+    let oh = digits(rest.get(1..3)?)?;
+    let om = digits(rest.get(4..6)?)?;
+    let off = (oh * 3600 + om * 60) * if r[0] == b'-' { -1 } else { 1 };
+    Some(naive - off)
+}
+
+/// A recorded moment as it is shown: its local date and time, without the
+/// offset.
+pub fn when_shown(when: &str) -> &str {
+    let w = when.trim();
+    match w.get(..19) {
+        Some(day_and_time) if w.len() > 19 && instant(w).is_some() => day_and_time,
+        _ => w,
+    }
+}
+
 /// `datetime.now()` formatted as `%Y%m%d-%H%M`, for default file names.
 pub fn now_stamp() -> String {
     let now = std::time::SystemTime::now()
@@ -235,6 +327,31 @@ mod tests {
         assert_eq!(size(1536), "2 KB");
         assert_eq!(size(5 << 20), "5 MB");
         assert_eq!(size(88 << 30), "88.0 GB");
+    }
+
+    #[test]
+    fn moments_are_put_in_order_across_the_clocks_going_back() {
+        // 25 October 2026 in London: 01:30 BST, then the clocks go back at
+        // 02:00 BST to 01:00 GMT, and 01:10 GMT is later than 01:30 BST.
+        let first = instant("2026-10-25 01:30:00 +01:00").unwrap();
+        let later = instant("2026-10-25 01:10:00 +00:00").unwrap();
+        assert!(later > first, "{first} {later}");
+        assert_eq!(later - first, 40 * 60);
+        assert_eq!(instant("2026-10-21 23:25:46 -05:30"), Some(instant("2026-10-21 23:25:46 +00:00").unwrap() + 5 * 3600 + 1800));
+        // Written and read back, whatever this PC's time zone.
+        for secs in [0i64, 1_792_592_502, 1_792_890_000, 1_792_893_600, 1_798_761_600] {
+            let w = when_of(secs);
+            assert_eq!(instant(&w), Some(secs), "{w}");
+            assert_eq!(when_shown(&w), &w[..19]);
+            assert_eq!(instant(when_shown(&w)).map(|t| (t - secs).abs() <= 3600), Some(true), "{w}");
+        }
+        // As recorded before 22 October 2026: local time, no offset.
+        assert!(instant("2026-10-19 23:25:46").is_some());
+        assert_eq!(when_shown("2026-10-19 23:25:46"), "2026-10-19 23:25:46");
+        for bad in ["", "unknown", "2026-13-01 00:00:00", "2026-10-25 01:30:00 +1:00", "2026-10-25 01:30:00 x01:00", "2026-10-2٥ 01:30:00"] {
+            assert_eq!(instant(bad), None, "{bad}");
+        }
+        assert_eq!(when_shown("whenever"), "whenever");
     }
 
     #[test]

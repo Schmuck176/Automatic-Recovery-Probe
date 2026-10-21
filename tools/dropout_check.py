@@ -139,10 +139,10 @@ def tree(top):
     return files, rows
 
 
-def make_ntfs_vhd(path):
+def make_ntfs_vhd(path, size_mib):
     if os.path.exists(path):
         os.remove(path)
-    W.diskpart(['create vdisk file="%s" maximum=64 type=fixed' % path, 'select vdisk file="%s"' % path,
+    W.diskpart(['create vdisk file="%s" maximum=%d type=fixed' % (path, size_mib), 'select vdisk file="%s"' % path,
                 "attach vdisk", "convert gpt", "create partition primary", 'format fs=ntfs quick label="SPARE"',
                 "detach vdisk"])
 
@@ -174,9 +174,12 @@ def main():
     log("     %d files in the straight copy" % len(want[0]))
 
     # SPARE, made now: while Windows leaves new disks switched off, a new
-    # disk also arrives read-only, so it could not be formatted then.
+    # disk also arrives read-only, so it could not be formatted then. It is
+    # exactly as big as the copy, as a 1 TB SPARE is as big as the old 1 TB
+    # drive: its own partition table is made for the size the mapfile
+    # describes too, and it must still not be taken for the copy.
     spare = os.path.join(work, "spare.vhd")
-    make_ntfs_vhd(spare)
+    make_ntfs_vhd(spare, size // X.MiB)
 
     home = os.path.join(work, "home")
     os.makedirs(home)
@@ -263,13 +266,22 @@ def main():
             len(got[1]), len(want[1])))
 
         # D.
-        log("D. A drive that is not the recovered SSD, plugged in while new disks are left switched off:")
+        log("D. A drive exactly as big as the old one but not the recovered SSD (SPARE), plugged in while new disks are left switched off:")
         j = page.act(action="guard-prepare")
         check(j.get("ok"), "Get Windows ready again")
         m = attach(spare)
         time.sleep(3)
         info = disk_info(m)
         log("     SPARE arrived: %s" % info)
+        disks = page.get("api/disks")
+        sp = [d for d in disks if d.get("spec") == "\\\\.\\PhysicalDrive%d" % m]
+        cp = [d for d in disks if d.get("spec") == spec]
+        log("     the page sees SPARE as: %s" % (sp[0].get("detail") if sp else None))
+        check(sp and (sp[0].get("detail") or {}).get("table_disk_size") == (cp[0].get("detail") or {}).get("table_disk_size"),
+              "SPARE's own partition table is made for the same size as the copy's")
+        check(sp and (sp[0].get("detail") or {}).get("matches_mapfile") is False,
+              "the page does not take SPARE for the copy ddrescue made")
+        check(cp and (cp[0].get("detail") or {}).get("matches_mapfile") is True, "the copy is still recognised")
         j = page.act(action="guard-release", disk="\\\\.\\PhysicalDrive%d" % m)
         check(j.get("ok"), "the page switches it on, writable: %s" % j)
         info = disk_info(m)
@@ -294,17 +306,19 @@ def main():
                 check(False, "a file can be written to it: %s" % e)
         else:
             check(False, "it gets a drive letter")
-        W.ps("Dismount-DiskImage -ImagePath '%s' | Out-Null" % spare, check=False)
         j = page.act(action="guard-release", disk=spec)
         check(not j.get("ok"), "it refuses to do that to the recovered SSD: %s" % j.get("error"))
         info = disk_info(n)
         check(info.get("read_only") is True, "the recovered SSD is still read-only (%s)" % info)
+        j = page.act(action="guard-restore")
+        check(not j.get("ok"), "with the SSD still plugged in, the setting is not put back: %s" % j.get("error"))
         detach(vhd)
         vhd_in = False
         time.sleep(2)
         j = page.act(action="guard-restore")
-        check(j.get("ok"), "once the SSD is unplugged, the setting is put back: %s" % j)
+        check(j.get("ok"), "once the SSD is unplugged, the setting is put back - with SPARE still plugged in: %s" % j)
         check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
+        W.ps("Dismount-DiskImage -ImagePath '%s' | Out-Null" % spare, check=False)
     finally:
         if vhd_in:
             detach(vhd)

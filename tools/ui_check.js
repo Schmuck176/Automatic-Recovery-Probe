@@ -21,6 +21,17 @@ fs.mkdirSync(path.dirname(obsidian), { recursive: true });
 fs.writeFileSync(obsidian, fs.readFileSync(path.join(__dirname, "..", "docs", "recovery-checklist.md"), "utf8").replace("- [ ] ", "- [x] "));
 const copyTo = path.join(work, "copies");
 const imageTo = path.join(work, "image");
+// A drive exactly as big as the old one that Windows set up for itself, as
+// SPARE is if it is a 1 TB drive: the test disk's partition table (made for
+// the old drive's size, as every drive that size has) and nothing else.
+const spare = path.join(work, "spare as big as the old drive.img");
+{
+  const d = fs.readFileSync(disk);
+  const s = Buffer.alloc(d.length);
+  d.copy(s, 0, 0, 34 * 512);
+  d.copy(s, d.length - 33 * 512, d.length - 33 * 512);
+  fs.writeFileSync(spare, s);
+}
 const port = 47000 + Math.floor(Math.random() * 900);
 const key = "uitestkey0123456789abcdef";
 const results = [];
@@ -28,7 +39,7 @@ const pageErrors = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
 
 (async () => {
-  const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
+  const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", spare, "--test-disk", disk, "--home", home],
     { stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
   const log = fs.createWriteStream(path.join(work, "server-output.txt"));
@@ -101,6 +112,35 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.waitForFunction(() => /Test disk/.test(document.getElementById("st-connect").textContent), null, { timeout: 10000 });
   check(true, "step 3: the test disk can be chosen");
   check((await page.textContent("#connect")).includes("the copy ddrescue made"), "step 3: the test disk is recognised as the copy");
+  // A drive exactly as big as the old one, set up for itself (SPARE), is not
+  // taken for the copy.
+  const listed = await fetch(url + "api/disks").then((r) => r.json());
+  const asSpare = listed.find((d) => d.spec === spare), asCopy = listed.find((d) => d.spec === disk);
+  check(asSpare && asSpare.detail && asSpare.detail.table_disk_size === asSpare.size && asSpare.detail.matches_mapfile === false &&
+    asCopy && asCopy.detail && asCopy.detail.matches_mapfile === true,
+    "step 3: a drive exactly as big as the old one, set up for itself (like SPARE), is not taken for the copy");
+  const lineOf = (v) => page.evaluate((s) => {
+    const r = [...document.querySelectorAll("input[name=disk]")].find((x) => x.value === s);
+    return r ? r.closest("label").textContent.replace(/\s+/g, " ").trim() : "";
+  }, v);
+  const spareLine = await lineOf(spare);
+  check(spareLine && !spareLine.includes("the copy ddrescue made") && !spareLine.includes("partition table made for") &&
+    (await lineOf(disk)).includes("the copy ddrescue made"), "step 3: only the copy is marked as the copy (" + spareLine.slice(0, 70) + ")");
+  // Clicked by hand, it stays chosen while the copy is there; a copy plugged
+  // in after another drive was clicked is chosen by itself.
+  await page.evaluate((s) => [...document.querySelectorAll("input[name=disk]")].find((x) => x.value === s).click(), spare);
+  await page.waitForFunction((s) => S && S.settings.disk === s, spare, { timeout: 10000 });
+  await page.evaluate(() => loadDisks());
+  check((await page.evaluate(() => S.settings.disk)) === spare, "step 3: a drive clicked by hand stays chosen while the copy is there");
+  const choice = await page.evaluate(([s, c]) => {
+    const sp = disks.find((d) => d.spec === s), cp = disks.find((d) => d.spec === c);
+    return [autoChoice([sp, cp], s, s, []), autoChoice([sp, cp], s, s, [c]), autoChoice([sp, cp], "", "", []), autoChoice([sp], s, s, []),
+      autoChoice([sp, cp, Object.assign({}, cp, { spec: "another copy" })], "", "", [])];
+  }, [spare, disk]);
+  check(JSON.stringify(choice) === JSON.stringify([disk, null, disk, null, null]),
+    "step 3: the copy is chosen when it arrives after another drive was clicked, and not when it was there already (" + JSON.stringify(choice) + ")");
+  await diskRadio.check();
+  await page.waitForFunction((c) => S && S.settings.disk === c, disk, { timeout: 10000 });
   // Another disk (on GitHub's Windows machine, its second drive): nothing
   // to protect there, and no button that would.
   const other = await page.evaluate(() => {
@@ -283,7 +323,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   if (!told) await shot("fail-closed");
 
   // The state survives a restart of the program.
-  const server2 = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
+  const server2 = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", spare, "--test-disk", disk, "--home", home],
     { stdio: "ignore" });
   // Until it answers, the page's own requests fail, as they should.
   for (let i = 0; i < 100; i++) {

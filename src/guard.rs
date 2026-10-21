@@ -75,6 +75,39 @@ pub fn parse_san(output: &str) -> Option<SanPolicy> {
         .find_map(|v| SanPolicy::from_keyword(&v))
 }
 
+/// Runs diskpart (`program`, its full path) with these commands, given to
+/// it through its input - never through a script file: diskpart runs with
+/// administrator rights, and a file in the temporary folder could be changed
+/// by another program between being written and being read.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn run_diskpart(program: &std::path::Path, lines: &[&str]) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(program)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run diskpart: {e}"))?;
+    let mut input = String::new();
+    for l in lines {
+        input.push_str(l);
+        input.push_str("\r\n");
+    }
+    input.push_str("exit\r\n");
+    // (Closed once written: diskpart then has all its input.)
+    let wrote = child.stdin.take().map(|mut s| s.write_all(input.as_bytes()));
+    let out = child.wait_with_output().map_err(|e| format!("could not run diskpart: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    if let Some(Err(e)) = wrote {
+        return Err(format!("could not give diskpart its commands ({e}): {}", text.trim()));
+    }
+    if !out.status.success() {
+        return Err(format!("diskpart failed: {}", text.trim()));
+    }
+    Ok(text)
+}
+
 /// One disk's switches.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DiskState {
@@ -212,18 +245,10 @@ mod imp {
         set(n, if online { 0 } else { DISK_ATTRIBUTE_OFFLINE }, DISK_ATTRIBUTE_OFFLINE, false)
     }
 
+    /// Windows' own diskpart (from System32, by its full path), given these
+    /// commands.
     fn diskpart(lines: &[&str]) -> Result<String, String> {
-        let dir = std::env::temp_dir();
-        let script = dir.join(format!("recovery-probe-diskpart-{}.txt", std::process::id()));
-        std::fs::write(&script, lines.join("\r\n") + "\r\n").map_err(|e| format!("could not write {}: {e}", script.display()))?;
-        let out = std::process::Command::new("diskpart").arg("/s").arg(&script).output();
-        let _ = std::fs::remove_file(&script);
-        let out = out.map_err(|e| format!("could not run diskpart: {e}"))?;
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        if !out.status.success() {
-            return Err(format!("diskpart failed: {}", text.trim()));
-        }
-        Ok(text)
+        super::run_diskpart(&crate::win::system_program("diskpart.exe"), lines)
     }
 
     pub fn san_policy() -> Result<SanPolicy, String> {
@@ -336,5 +361,21 @@ mod tests {
         assert_eq!(parse_san("nothing useful"), None);
         assert_eq!(SanPolicy::from_keyword("OfflineAll"), Some(SanPolicy::OfflineAll));
         assert_eq!(SanPolicy::OfflineInternal.keyword(), "OfflineInternal");
+        // What diskpart prints when its commands come through its input: a
+        // prompt before each answer.
+        let piped = "Microsoft DiskPart version 10.0.26100.1\r\n\r\nOn computer: SANDBOX-PC\r\n\r\nDISKPART> \r\n\
+                     SAN Policy  : Offline All\r\n\r\nDISKPART> \r\nLeaving DiskPart...\r\n";
+        assert_eq!(parse_san(piped), Some(SanPolicy::OfflineAll));
+        assert_eq!(parse_san("DISKPART> SAN Policy  : Online All"), Some(SanPolicy::OnlineAll));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_commands_go_in_through_diskparts_input() {
+        // `cat` gives back what it is given: the commands, then "exit".
+        let out = run_diskpart(std::path::Path::new("cat"), &["san", "san policy=OfflineAll"]).unwrap();
+        assert_eq!(out, "san\r\nsan policy=OfflineAll\r\nexit\r\n");
+        assert!(run_diskpart(std::path::Path::new("/nonexistent/diskpart"), &["san"]).unwrap_err().contains("could not run"));
+        assert!(run_diskpart(std::path::Path::new("false"), &["san"]).is_err());
     }
 }

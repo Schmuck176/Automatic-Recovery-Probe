@@ -334,6 +334,7 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 - [ ] **10.** Plug `SPARE` in **the way the recovered SSD will be plugged in**: the same USB port and cable, and if the recovered SSD sits in a USB case or adapter, the same kind of case or adapter.
 - [ ] **11.** In the step 3 list, click `SPARE`'s disk. You want: **switched off**, no **removable media** tag, the page saying *"It arrived switched off, so Windows' setting works for a disk plugged in this way"*, and no new drive in File Explorer.
   - *It says **removable media**, or `SPARE` got a drive letter?* **Stop.** That way of plugging in isn't safe for the recovered SSD. Tell Claude: a different case or adapter, a SATA port inside the PC, or a hardware write blocker are the ways round it.
+  - *`SPARE` is marked **the copy ddrescue made**, or the page offers **Protect disk N** for it?* **Stop** and tell Claude: the program is taking `SPARE` for the recovered SSD.
 - [ ] **12.** Click **Switch disk N on, writable** for `SPARE`. It gets its drive letter back. (Windows stays set to leave new disks switched off until the recovered SSD has been unplugged; step 9 of the program puts the setting back.)
 
 ## Bring in the recovered SSD — protected
@@ -344,12 +345,12 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 > click **Cancel**. Never let Windows repair the recovery drive — "fixing" can delete
 > damaged files to tidy up. (With step 3 done first, Windows never gets the chance.)
 
-- [ ] **13. Plug in the recovered SSD** (the 2 TB one; the 4 TB SSD stays in its drawer), the way you rehearsed. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, already chosen. Nothing appears in File Explorer — that's the point.
+- [ ] **13. Plug in the recovered SSD** (the 2 TB one; the 4 TB SSD stays in its drawer), the way you rehearsed. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, and the page chooses it by itself (if it isn't chosen, click it; if it doesn't appear, click **Look again**). Nothing appears in File Explorer — that's the point.
 - [ ] **14.** Click **Protect disk N**. The page answers that the disk is read-only. Step 3 gets a green tick.
   - *Not marked "the copy ddrescue made"?* Stop and tell Claude before going further.
   - *Marked **removable media**?* The page says so in red: make the image (next step) straight away, then unplug it, and tell Claude before ever plugging it in again.
   - *The page shows an error instead?* Unplug the recovered SSD, and tell Claude.
-- [ ] **15. Step 4 → Make the image.** In the box, type `D:\IMAGE` (with your PC's 2 TB drive's letter), then click **Make the image**. The program reads the whole SSD once, front to back, into one file (`recovered-ssd.img`), then reads that file back to check it. A 1 TB image over USB takes roughly 1–3 hours to make and as long again to check. The bar at the bottom shows how far it is.
+- [ ] **15. Step 4 → Make the image.** In the box, type `D:\IMAGE` (with your PC's 2 TB drive's letter), then click **Make the image**. The program reads the whole SSD once, front to back, into one file (`recovered-ssd.img`), then reads that file back to check it. A 1 TB image over USB takes roughly 1–3 hours to make and as long again to check. The bar at the bottom shows how far it is. Keep the SSD plugged in until it says **Done**: if the check found a problem, the SSD would be needed again.
   - You can click **Stop** and start it again later: it carries on where it stopped.
   - **If the page says the SSD stopped answering:** nothing is lost. Check its cable is in firmly. If it came out, plug it back in (it arrives switched off), choose it in step 3, click **Protect disk N**, then **Make the image** again: it carries on.
 - [ ] **16.** When it says **Done**, read the result. You want **"…and it reads back exactly as it was written"** and **"The SSD gave every byte."**

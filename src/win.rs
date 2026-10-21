@@ -7,7 +7,7 @@
 //! On other systems the same functions exist and do the nearest sensible
 //! thing, so the front end can be tested anywhere.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// One drive letter (or, elsewhere, one mounted folder).
 #[derive(Clone, Debug, Default)]
@@ -129,6 +129,7 @@ mod imp {
         ) -> i32;
         fn GetDiskFreeSpaceExW(root: *const u16, avail: *mut u64, total: *mut u64, free: *mut u64) -> i32;
         fn GetSystemDirectoryW(buf: *mut u16, len: u32) -> u32;
+        fn GetWindowsDirectoryW(buf: *mut u16, len: u32) -> u32;
         fn SetThreadErrorMode(mode: u32, old: *mut u32) -> i32;
         fn DeviceIoControl(
             h: Handle,
@@ -401,6 +402,20 @@ mod imp {
         s.get(..2).unwrap_or("C:").to_uppercase()
     }
 
+    /// Windows' System32 folder.
+    pub fn system_dir() -> Option<std::path::PathBuf> {
+        let mut buf = [0u16; 260];
+        let n = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+        (n > 0 && n < buf.len()).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n])))
+    }
+
+    /// Windows' own folder (where explorer.exe is).
+    pub fn windows_dir() -> Option<std::path::PathBuf> {
+        let mut buf = [0u16; 260];
+        let n = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+        (n > 0 && n < buf.len()).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n])))
+    }
+
     pub fn disks() -> Vec<Disk> {
         let drives = drives();
         let sys = system_letter();
@@ -463,6 +478,27 @@ mod imp {
     pub fn disks() -> Vec<Disk> {
         Vec::new()
     }
+
+    pub fn system_dir() -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub fn windows_dir() -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+/// One of Windows' own programs in System32 (diskpart.exe, rundll32.exe), by
+/// its full path: the program runs with administrator rights, and a program
+/// of the same name anywhere else - in its own folder, say, which Windows
+/// would look in first - must never be started in its place.
+pub fn system_program(name: &str) -> PathBuf {
+    imp::system_dir().map(|d| d.join(name)).filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// The same for a program in Windows' own folder (explorer.exe).
+pub fn windows_program(name: &str) -> PathBuf {
+    imp::windows_dir().map(|d| d.join(name)).filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from(name))
 }
 
 pub fn is_elevated() -> bool {
@@ -501,9 +537,9 @@ pub fn disks() -> Vec<Disk> {
 pub fn open_browser(url: &str) -> bool {
     #[cfg(windows)]
     let r = if is_elevated() {
-        std::process::Command::new("explorer").arg(url).spawn()
+        std::process::Command::new(windows_program("explorer.exe")).arg(url).spawn()
     } else {
-        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn()
+        std::process::Command::new(system_program("rundll32.exe")).args(["url.dll,FileProtocolHandler", url]).spawn()
     };
     #[cfg(target_os = "macos")]
     let r = std::process::Command::new("open").arg(url).spawn();
@@ -517,7 +553,7 @@ pub fn open_folder(path: &Path) -> bool {
     #[cfg(windows)]
     {
         let arg = if path.is_file() { format!("/select,{}", path.display()) } else { path.display().to_string() };
-        std::process::Command::new("explorer").arg(arg).spawn().is_ok()
+        std::process::Command::new(windows_program("explorer.exe")).arg(arg).spawn().is_ok()
     }
     #[cfg(target_os = "macos")]
     {
@@ -532,6 +568,21 @@ pub fn open_folder(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::quote_arg;
+
+    #[test]
+    fn windows_own_programs_by_their_full_path() {
+        let p = super::system_program("diskpart.exe");
+        let e = super::windows_program("explorer.exe");
+        if cfg!(windows) {
+            assert!(p.is_absolute() && p.is_file(), "{}", p.display());
+            assert!(p.to_string_lossy().to_lowercase().ends_with(r"\system32\diskpart.exe"), "{}", p.display());
+            // (A Windows without File Explorer falls back to the name.)
+            assert!(e.is_absolute() || e.as_os_str() == "explorer.exe", "{}", e.display());
+        } else {
+            assert_eq!(p, std::path::PathBuf::from("diskpart.exe"));
+            assert_eq!(e, std::path::PathBuf::from("explorer.exe"));
+        }
+    }
 
     #[test]
     fn arguments_survive_windows_quoting() {

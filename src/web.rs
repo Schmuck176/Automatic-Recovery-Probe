@@ -533,11 +533,12 @@ fn map_size_now() -> Option<u64> {
     Some(MAP_SIZE.load(Ordering::Relaxed)).filter(|&s| s > 0)
 }
 
-/// The number of a plugged-in disk that is the recovered SSD: its partition
-/// table was made for the disk the mapfile describes (or, with no mapfile
-/// chosen yet, it holds an exFAT volume). While one is attached, Windows
-/// stays set to leave new disks switched off: if it dropped off and came
-/// back, it must arrive switched off again.
+/// The number of a plugged-in disk that is the recovered SSD: the copy the
+/// mapfile describes (mapcheck::is_the_copy - not just any drive of the old
+/// drive's size, such as SPARE), or, with no mapfile chosen yet, a disk that
+/// holds an exFAT volume. While one is attached, Windows stays set to leave
+/// new disks switched off: if it dropped off and came back, it must arrive
+/// switched off again.
 pub fn recovered_disk_attached(map_size: Option<u64>) -> Option<u32> {
     for d in crate::win::disks() {
         if d.system {
@@ -546,7 +547,7 @@ pub fn recovered_disk_attached(map_size: Option<u64>) -> Option<u32> {
         let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{}", d.number)) else { continue };
         let table = crate::gpt::read(&*src, &[]);
         let it = match map_size {
-            Some(m) => table.original_disk_size() == Some(m),
+            Some(m) => crate::mapcheck::is_the_copy(&*src, &table, m),
             None => crate::mapcheck::find_volume_quick(&*src, &table).is_ok(),
         };
         if it {
@@ -748,11 +749,11 @@ fn describe_disk(spec: &str, map_size: Option<u64>) -> String {
         .map(|p| Obj::new().s("name", &p.name).s("kind", p.kind()).n("start", p.start).n("end", p.end).end())
         .collect();
     let original = table.original_disk_size();
-    let matches = match (original, map_size) {
-        (Some(o), Some(m)) => Some(o == m),
-        _ => None,
-    };
-    let volume = match crate::mapcheck::find_volume_quick(&*src, &table) {
+    let found = crate::mapcheck::find_volume_quick(&*src, &table);
+    // The copy ddrescue made: mapcheck::is_the_copy (with the volume, which
+    // is looked for here anyway).
+    let matches = map_size.map(|m| crate::mapcheck::copy_rule(original, src.size(), || found.is_ok(), m));
+    let volume = match found {
         Ok((v, _)) => Obj::new()
             .s("label", &v.label)
             .n("offset", v.offset)
@@ -1109,15 +1110,17 @@ fn is_test_disk(app: &Arc<Mutex<App>>, spec: &str) -> bool {
     lock(app).test_disks.iter().any(|t| t == spec)
 }
 
-/// Could disk `n` be the recovered SSD? (Its partition table was made for
-/// the mapfile's disk, or it holds an exFAT volume, or it cannot be read.)
-/// Such a disk is never made writable, nor switched on unless read-only.
+/// Could disk `n` be the recovered SSD? (It is the copy the mapfile
+/// describes, or it holds an exFAT volume, or it cannot be read.) Such a
+/// disk is never made writable, nor switched on unless read-only. A drive
+/// that is merely as big as the old one - SPARE, if it is a 1 TB drive -
+/// is not: see mapcheck::is_the_copy.
 fn could_be_recovered(app: &Arc<Mutex<App>>, n: u32) -> bool {
     let map = lock(app).setting("mapfile");
     let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{n}")) else { return true };
     let table = crate::gpt::read(&*src, &[]);
-    if let (Some(made_for), Some((s, e))) = (table.original_disk_size(), mapfile_domain(&map)) {
-        if made_for == e - s {
+    if let Some((s, e)) = mapfile_domain(&map) {
+        if crate::mapcheck::is_the_copy(&*src, &table, e - s) {
             return true;
         }
     }
@@ -1182,20 +1185,18 @@ fn check_disk(app: &Arc<Mutex<App>>, spec: &str) -> Result<(), String> {
         }
     }
     // Disk numbers change when drives are plugged in and out: make sure this
-    // one is still the copy the mapfile describes.
+    // one is still the copy the mapfile describes - not just another drive
+    // of the same size (mapcheck::is_the_copy).
     let map = lock(app).setting("mapfile");
     let Some((s, e)) = mapfile_domain(&map) else { return Ok(()) };
     let src = crate::disk::open_source(spec).map_err(|err| format!("could not open {spec}: {err}"))?;
     let table = crate::gpt::read(&*src, &[]);
-    match table.original_disk_size() {
-        Some(made_for) if made_for != e - s => Err(format!(
-            "This disk is not the copy ddrescue made: its partition table was made for a {}-byte drive, but the \
-             mapfile describes a {}-byte drive. Disk numbers change when drives are plugged in and out: choose the \
-             recovered SSD again in step 3.",
-            commas(made_for),
-            commas(e - s)
+    match crate::mapcheck::not_the_copy(&*src, &table, e - s) {
+        None => Ok(()),
+        Some(why) => Err(format!(
+            "This disk is not the copy ddrescue made: {why}. Disk numbers change when drives are plugged in and \
+             out: choose the recovered SSD (marked \"the copy ddrescue made\") again in step 3."
         )),
-        _ => Ok(()),
     }
 }
 
@@ -1322,7 +1323,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             .ok()
             .map(|l| crate::verify::copy_safety(&l, ssd_totals(&map_check).as_ref()));
         if let Some(s) = &safety {
-            if let Err(e) = s.record(&results, &local_now(), crate::verify::STEP6, &opts_out, None) {
+            if let Err(e) = s.record(&results, &crate::fmt::when_now(), crate::verify::STEP6, &opts_out, None) {
                 summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
             }
         }
@@ -1373,9 +1374,9 @@ fn checklist_page() -> &'static str {
     PAGE_JSON.get_or_init(|| crate::checklist::page_json(crate::checklist::TEXT))
 }
 
-fn local_of(t: std::time::SystemTime) -> String {
-    let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as f64).unwrap_or(0.0);
-    crate::fmt::local_datetime(secs)
+/// A file's time in seconds since 1970.
+fn secs_of(t: std::time::SystemTime) -> i64 {
+    t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 fn mtime_ms(p: &Path) -> Option<u64> {
@@ -1408,11 +1409,14 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     if let Some(p) = &found {
         let changed = mtime_ms(p).map(|m| m.to_string()) != Some(copy_mtime.clone());
         if changed {
-            if let (Ok(text), Ok(when)) = (std::fs::read_to_string(p), std::fs::metadata(p).and_then(|m| m.modified())) {
-                let when = local_of(when);
+            if let (Ok(text), Ok(modified)) = (std::fs::read_to_string(p), std::fs::metadata(p).and_then(|m| m.modified())) {
+                // The newer change wins, compared as moments (local times
+                // repeat an hour when the clocks go back).
+                let secs = secs_of(modified);
+                let when = crate::fmt::when_of(secs);
                 for (key, on) in cl::ticks_in(&text) {
                     let known = items.iter().any(|i| i.key == key && !i.checkpoint);
-                    if known && ticks.on(&key) != on && when.as_str() > ticks.when(&key) {
+                    if known && ticks.on(&key) != on && secs > crate::fmt::instant(ticks.when(&key)).unwrap_or(i64::MIN) {
                         if let Err(e) = ticks.set(&ticks_path, &key, on, &when) {
                             notes.push(e);
                             break;
@@ -1468,7 +1472,7 @@ fn tick(app: &Arc<Mutex<App>>, i: &str, on: bool) -> Result<String, String> {
     let path = results.join(cl::TICKS_NAME);
     let mut ticks = cl::Ticks::load(&path);
     cl::may_set(&items, &ticks, i, on)?;
-    ticks.set(&path, &items[i].key, on, &local_now())?;
+    ticks.set(&path, &items[i].key, on, &crate::fmt::when_now())?;
     Ok(checklist_sync(app))
 }
 
@@ -1532,7 +1536,7 @@ fn start_check_image(app: &Arc<Mutex<App>>) -> Result<u64, String> {
             let result = if o.verified { "OK".to_string() } else { "NOT OK: the image does not match its checksum".to_string() };
             if let Err(e) = crate::verify::add_to_history(
                 &results,
-                &local_now(),
+                &crate::fmt::when_now(),
                 crate::verify::STEP4,
                 &image,
                 [None, None, None, None, None, Some(o.size)],
@@ -1661,7 +1665,7 @@ fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) 
             return Err(format!(
                 "The last safety check of this folder ({}) found something: {} Sort that out first (ask Claude), then \
                  check again (step 7 \u{2192} Check the copies are unchanged). Put back waits for a check that passes.",
-                c.when,
+                crate::fmt::when_shown(&c.when),
                 c.result.trim_start_matches("NOT OK: ")
             ));
         }
@@ -1796,7 +1800,7 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
     start_job(app, "verify", "Checking the copies are unchanged", move |ctx| {
         // The check counts from when it started: a box ticked while it ran
         // may stand for something it did not see (the checkpoints, checklist.rs).
-        let started = local_now();
+        let started = crate::fmt::when_now();
         let mc = (!map_check.is_empty()).then(|| PathBuf::from(&map_check));
         let r = crate::verify::run_checked(
             &dir,

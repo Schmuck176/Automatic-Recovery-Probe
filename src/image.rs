@@ -18,6 +18,13 @@
 //! from the SSD again, so no such zeros can end up in the image unnoticed.
 //! The image is checked by reading it back from the drive itself, not from
 //! what Windows still holds of it in memory.
+//!
+//! Only the copy ddrescue made is ever imaged (mapcheck::is_the_copy): not
+//! another drive that happens to be the old drive's size. An image already
+//! in the folder is only taken if it starts the way the disk does. Its
+//! checksum and its list of places the SSD could not read are written, safe
+//! on the drive, before the image gets its name: whenever
+//! recovered-ssd.img is there, so are they.
 
 use crate::disk::Source;
 use crate::fmt::{commas, size};
@@ -143,6 +150,26 @@ enum Piece {
     Lost(String),
 }
 
+/// How much of the start of an image is compared with the disk: the
+/// partition table, which names its disk with a number of its own.
+const START: usize = 64 << 10;
+
+/// Does an image start the way the disk does? None if it does; otherwise
+/// why not.
+fn differs_at_start(src: &dyn Source, image: &Path, size: u64) -> Option<String> {
+    let n = (START as u64).min(size) as usize;
+    let disk = match src.read_at(0, n) {
+        Ok(d) if d.len() == n => d,
+        Ok(_) => return Some("the disk ended before its partition table did".to_string()),
+        Err(e) => return Some(format!("the disk could not be read ({e})")),
+    };
+    let img = match crate::disk::ImageFile::open(image).and_then(|f| f.read_at(0, n)) {
+        Ok(d) => d,
+        Err(e) => return Some(format!("the image could not be read ({e})")),
+    };
+    (img != disk).then(|| "it does not start the way this disk does".to_string())
+}
+
 /// Check an image made earlier against the SHA-256 saved beside it
 /// (`recovered-ssd.img.sha256`). Only reads; the SSD is not needed.
 pub fn check_existing(
@@ -197,6 +224,16 @@ pub fn make(
 ) -> Result<Outcome, String> {
     let stop_flag = opts.stop.clone();
     let stop = || stop_flag.as_ref().is_some_and(|s| s.load(Ordering::Relaxed));
+    // Only ever the copy ddrescue made: never another drive that happens to
+    // be the old drive's size (every "1 TB" drive is exactly that size).
+    let table = crate::gpt::read(src, &[]);
+    if let Some(why) = crate::mapcheck::not_the_copy(src, &table, opts.size) {
+        return Err(format!(
+            "{} is not the copy ddrescue made: {why}. Nothing was read or written. Choose the recovered SSD (marked \
+             \"the copy ddrescue made\") in step 3.",
+            src.describe()
+        ));
+    }
     let dir = crate::rescue::verbatim(Path::new(&opts.out_dir));
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", opts.out_dir))?;
     let final_path = dir.join(IMAGE_NAME);
@@ -205,15 +242,27 @@ pub fn make(
     let safe_path = dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"));
     let sha_path = dir.join(format!("{IMAGE_NAME}.sha256"));
     let map_path = dir.join(format!("{IMAGE_NAME}{READ_ERRORS_SUFFIX}"));
+    let info_path = dir.join(format!("{IMAGE_NAME}.txt"));
     let shown = Path::new(&opts.out_dir).join(IMAGE_NAME).display().to_string();
     let mut o = Outcome { path: shown.clone(), size: opts.size, ..Default::default() };
 
-    // Made before: check it against its SHA-256 (the SSD is not read).
+    // Made before: check it against its SHA-256 - if it is an image of this
+    // disk at all (another disk's image would pass its own check).
     if final_path.exists() {
-        progress(&format!("{shown} is already there: checking it against its checksum (the SSD is not needed for this)..."));
+        if let Some(why) = differs_at_start(src, &final_path, opts.size) {
+            return Err(format!(
+                "{shown} is already there, but it is not an image of {}: {why}. Choose another folder for the \
+                 image, and ask for help before deleting anything.",
+                src.describe()
+            ));
+        }
+        progress(&format!("{shown} is already there: checking it against its checksum (the SSD itself is not read for this)..."));
         let mut o = check_existing(&final_path, progress, amount, &stop)?;
         o.path = shown;
         o.verified &= o.size == opts.size;
+        // What a run stopped just after naming the image leaves behind.
+        let _ = std::fs::remove_file(&errs_path);
+        let _ = std::fs::remove_file(&safe_path);
         return Ok(o);
     }
 
@@ -252,6 +301,15 @@ pub fn make(
         let _ = std::fs::remove_file(&safe_path);
     }
     if keep > 0 {
+        // Carried on only if it was begun from this disk.
+        if let Some(why) = differs_at_start(src, &partial, keep) {
+            return Err(format!(
+                "{} holds an unfinished image, but not one of {}: {why}. Choose another folder for the image, and \
+                 ask for help before deleting anything.",
+                opts.out_dir,
+                src.describe()
+            ));
+        }
         f.set_len(keep).map_err(|e| format!("could not use {}: {e}", partial.display()))?;
         progress(&format!(
             "Carrying on with the image a stopped run began ({} of {} done{}). Reading that part back first...",
@@ -421,19 +479,28 @@ pub fn make(
         o.stopped = true;
         return Ok(o);
     }
-    // All read: make it safe on the drive, give it its name and checksum.
+    // All read: make it safe on the drive. Then everything that describes it
+    // goes beside it, safe on the drive too, and only then does it get its
+    // name - so recovered-ssd.img is never there without its checksum and
+    // its list of places the SSD could not read (a power cut in between
+    // leaves the .partial, which the next run finishes).
     f.sync_all().map_err(|e| format!("could not finish writing the image: {e}"))?;
     drop(f);
     merge(&mut o.unreadable);
-    std::fs::rename(&partial, &final_path).map_err(|e| format!("could not give the image its name: {e}"))?;
     o.sha256 = sha.finish_hex();
-    std::fs::write(&sha_path, sha_line(&o.sha256)).map_err(|e| format!("could not write {}: {e}", sha_path.display()))?;
-    if !o.unreadable.is_empty() {
-        std::fs::write(&map_path, mapfile_text(opts.size, &o.unreadable, &opts.disk))
+    if o.unreadable.is_empty() {
+        match std::fs::remove_file(&map_path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(format!("could not remove an earlier {}: {e}", map_path.display()))
+            }
+            _ => {}
+        }
+    } else {
+        crate::sys::write_safely(&map_path, mapfile_text(opts.size, &o.unreadable, &opts.disk).as_bytes())
             .map_err(|e| format!("could not write {}: {e}", map_path.display()))?;
     }
-    let _ = std::fs::remove_file(&errs_path);
-    let _ = std::fs::remove_file(&safe_path);
+    crate::sys::write_safely(&sha_path, sha_line(&o.sha256).as_bytes())
+        .map_err(|e| format!("could not write {}: {e}", sha_path.display()))?;
     let info = format!(
         "Image of {} made by {} {} on {}.\r\nSize: {} bytes. SHA-256: {}\r\nPlaces the SSD could not read: {} ({} bytes){}.\r\n",
         src.describe(),
@@ -448,8 +515,15 @@ pub fn make(
         commas(o.unreadable.iter().map(|r| r.1).sum()),
         if o.unreadable.is_empty() { "" } else { " - listed in the .ssd-read-errors.log beside it, and left as zeros" }
     );
-    let _ = std::fs::write(dir.join(format!("{IMAGE_NAME}.txt")), info);
-    progress("All of the SSD is read: it is not needed any more. Checking the image by reading it back from the drive...");
+    let _ = crate::sys::write_safely(&info_path, info.as_bytes());
+    std::fs::rename(&partial, &final_path).map_err(|e| format!("could not give the image its name: {e}"))?;
+    let _ = std::fs::remove_file(&errs_path);
+    let _ = std::fs::remove_file(&safe_path);
+    // (The SSD is needed again if this check fails: it is not "done" yet.)
+    progress(
+        "All of the SSD is read. Now the image is read back from the drive and checked, which takes about as long: \
+         keep the SSD plugged in until this step says Done.",
+    );
     let back = crate::sha256::file_hex_from_drive(&final_path, amount, &stop)
         .map_err(|e| format!("could not read the image back: {e}"))?;
     match back {
@@ -484,7 +558,7 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     } else {
         t.push(format!(
             "The image {} does NOT read back the same as it was written{}. The drive it is on may have a problem: ask for \
-             help before using it.",
+             help before using it. Keep the recovered SSD: it is still needed.",
             o.path,
             if o.reused { " (or its checksum file does not belong to it)" } else { "" }
         ));
@@ -545,6 +619,25 @@ mod tests {
         (0..n as u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8 | 1).collect()
     }
 
+    /// A disk like the copy ddrescue made: `n` bytes of data, starting with
+    /// a partition table made for a drive of `made_for` bytes (the old one).
+    fn copy_disk(n: usize, made_for: u64) -> Vec<u8> {
+        let mut d = data(n);
+        d[512..34 * 512].fill(0);
+        let h = &mut d[512..1024];
+        h[0..8].copy_from_slice(b"EFI PART");
+        h[8..12].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+        h[12..16].copy_from_slice(&92u32.to_le_bytes());
+        h[24..32].copy_from_slice(&1u64.to_le_bytes());
+        h[32..40].copy_from_slice(&(made_for / 512 - 1).to_le_bytes());
+        h[72..80].copy_from_slice(&2u64.to_le_bytes());
+        h[80..84].copy_from_slice(&128u32.to_le_bytes());
+        h[84..88].copy_from_slice(&128u32.to_le_bytes());
+        let c = crate::gpt::crc32(&h[..92]);
+        h[16..20].copy_from_slice(&c.to_le_bytes());
+        d
+    }
+
     fn hex(b: &[u8]) -> String {
         let mut s = Sha256::new();
         s.update(b);
@@ -552,12 +645,82 @@ mod tests {
     }
 
     #[test]
+    fn only_the_copy_is_imaged() {
+        let dir = std::env::temp_dir().join(format!("rp-image-other-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A drive exactly as big as the old one, set up for itself (SPARE):
+        // its partition table is made for that size too, but it is no bigger
+        // and holds no exFAT volume.
+        let spare = Memory::new(copy_disk(12 << 20, 12 << 20));
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
+        let e = make(&spare, &opts, &mut |_| {}, &mut |_, _| {}).unwrap_err();
+        assert!(e.contains("not the copy ddrescue made") && e.contains("another drive of the same size"), "{e}");
+        assert!(!dir.exists(), "nothing was written");
+        // A drive whose table was made for another size.
+        let other = Memory::new(copy_disk(20 << 20, 16 << 20));
+        let e = make(&other, &opts, &mut |_| {}, &mut |_, _| {}).unwrap_err();
+        assert!(e.contains("made for a 16,777,216-byte drive"), "{e}");
+        // The copy is imaged; another copy-like disk then finds that image is not its own.
+        let d = copy_disk(13 << 20, 12 << 20);
+        let o = make(&Memory::new(d.clone()), &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(o.verified, "{o:?}");
+        let mut d2 = d.clone();
+        d2[40_000] ^= 0xFF;
+        let e = make(&Memory::new(d2.clone()), &opts, &mut |_| {}, &mut |_, _| {}).unwrap_err();
+        assert!(e.contains("is already there, but it is not an image of"), "{e}");
+        // Nor is an unfinished image of another disk carried on.
+        std::fs::remove_file(dir.join(IMAGE_NAME)).unwrap();
+        std::fs::write(dir.join(format!("{IMAGE_NAME}.partial")), &d[..5 << 20]).unwrap();
+        std::fs::write(dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}")), "5242880\r\n").unwrap();
+        let e = make(&Memory::new(d2), &opts, &mut |_| {}, &mut |_, _| {}).unwrap_err();
+        assert!(e.contains("holds an unfinished image, but not one of"), "{e}");
+        let o = make(&Memory::new(d.clone()), &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(o.verified && std::fs::read(dir.join(IMAGE_NAME)).unwrap() == d[..12 << 20], "{o:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_checksum_and_the_list_are_there_before_the_image_is() {
+        let dir = std::env::temp_dir().join(format!("rp-image-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let d = copy_disk(13 << 20, 12 << 20);
+        let mem = Memory::new(d.clone());
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
+        // An earlier run's list of unreadable places, left by a run that
+        // stopped just before naming its image: this run reads every byte.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{IMAGE_NAME}{READ_ERRORS_SUFFIX}")), "stale").unwrap();
+        // Watched as it goes: when the read-back begins, the image has its
+        // name, its checksum is beside it and the stale list is gone.
+        let seen = std::cell::RefCell::new(None);
+        let o = make(
+            &mem,
+            &opts,
+            &mut |line: &str| {
+                if line.contains("read back from the drive") {
+                    *seen.borrow_mut() = Some((
+                        dir.join(IMAGE_NAME).is_file(),
+                        recorded_sha(&dir.join(format!("{IMAGE_NAME}.sha256"))),
+                        dir.join(format!("{IMAGE_NAME}{READ_ERRORS_SUFFIX}")).exists(),
+                        dir.join(format!("{IMAGE_NAME}.partial")).exists(),
+                    ));
+                }
+            },
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert!(o.verified, "{o:?}");
+        assert_eq!(seen.into_inner(), Some((true, Some(hex(&d[..12 << 20])), false, false)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn an_image_is_exact_checked_and_carries_on_after_a_stop() {
         let dir = std::env::temp_dir().join(format!("rp-image-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let d = data(20 << 20);
-        let mem = Memory::new(d.clone());
         let want = 18 << 20; // less than the whole disk, like the 1 TB copy on a 2 TB SSD
+        let d = copy_disk(20 << 20, want);
+        let mem = Memory::new(d.clone());
         // Stopped part-way (as soon as the first piece is read), then
         // started again.
         let stop = Arc::new(AtomicBool::new(false));
@@ -597,7 +760,7 @@ mod tests {
         assert!(o2.reused && o2.verified, "{o2:?}");
         // Changed on the drive: the check says so.
         let mut f = std::fs::OpenOptions::new().write(true).open(dir.join(IMAGE_NAME)).unwrap();
-        f.seek(SeekFrom::Start(12345)).unwrap();
+        f.seek(SeekFrom::Start(5 << 20)).unwrap();
         f.write_all(b"x").unwrap();
         drop(f);
         let o3 = make(&mem, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
@@ -608,9 +771,9 @@ mod tests {
     #[test]
     fn after_a_crash_it_carries_on_only_from_the_safe_point() {
         let dir = std::env::temp_dir().join(format!("rp-image-crash-{}", std::process::id()));
-        let d = data(20 << 20);
-        let mem = Memory::new(d.clone());
         let want = 18u64 << 20;
+        let d = copy_disk(20 << 20, want);
+        let mem = Memory::new(d.clone());
         let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None };
         let partial = dir.join(format!("{IMAGE_NAME}.partial"));
         let safe = dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"));
@@ -642,7 +805,7 @@ mod tests {
     fn a_place_the_ssd_cannot_read_is_zeros_and_recorded() {
         let dir = std::env::temp_dir().join(format!("rp-image-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let d = data(12 << 20);
+        let d = copy_disk(13 << 20, 12 << 20);
         let mem = Memory::new(d.clone());
         let bad = BadSpot { inner: &mem, bad: (9 << 20, (9 << 20) + 5000) };
         let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
@@ -651,7 +814,7 @@ mod tests {
         // Whole 4 KB units around the bad spot: 9 MiB .. 9 MiB + 8 KiB.
         assert_eq!(o.unreadable, vec![(9 << 20, 8192)]);
         let img = std::fs::read(dir.join(IMAGE_NAME)).unwrap();
-        let mut want = d.clone();
+        let mut want = d[..12 << 20].to_vec();
         want[9 << 20..(9 << 20) + 8192].fill(0);
         assert_eq!(img, want);
         let map = std::fs::read_to_string(dir.join(format!("{IMAGE_NAME}{READ_ERRORS_SUFFIX}"))).unwrap();

@@ -588,13 +588,16 @@ pub fn guard_prepare() -> Result<String, String> {
     use crate::guard::{san_policy, set_san_policy, SanPolicy};
     let now = san_policy()?;
     if policy_to_restore().is_none() {
-        std::fs::write(
-            settings_note(),
+        // Safe on the drive before the setting changes: after a power cut the
+        // program must still know what to put back.
+        crate::sys::write_safely(
+            &settings_note(),
             format!(
                 "san-policy-before\t{}\r\nThis note is written by Recovery Probe: it changed how Windows treats newly \
                  plugged-in disks and will put it back. Delete it only after running: recovery-probe disk-guard restore\r\n",
                 now.keyword()
-            ),
+            )
+            .as_bytes(),
         )
         .map_err(|e| format!("could not write {}: {e}", settings_note().display()))?;
     }

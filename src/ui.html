@@ -425,6 +425,7 @@ let S = null;          // the program's state
 let mapInfo = null;    // the chosen mapfile, read
 let disks = [];        // the disks, last asked
 let pickedByHand = ""; // the disk last clicked in the list on this page
+let copiesWhenPicked = []; // the copies ddrescue made in the list at that moment
 let mapfiles = null;   // mapfiles found in the program's folder
 let lastJobId = 0;
 const notes = {};      // short messages per step, from actions
@@ -607,8 +608,23 @@ function renderMapStep() {
   put($("r-map"), r);
 }
 
-// The copy ddrescue made (its partition table was made for the mapfile's disk).
+// The copy ddrescue made: its partition table was made for the mapfile's
+// disk, and it is bigger than that disk or holds the exFAT volume (a drive
+// that is merely as big as the old one, such as SPARE, is not).
 function isCopy(d) { return !!(d && d.detail && d.detail.matches_mapfile); }
+// Which disk to choose by itself after the list was read, if any: the one
+// copy ddrescue made in the list - unless a copy is chosen already, or
+// another disk was clicked by hand while that copy was already in the list.
+// A copy plugged in after the click is chosen: it is what was plugged in.
+function autoChoice(list, chosen, picked, copiesAtPick) {
+  const copies = list.filter((d) => isCopy(d) && !d.system);
+  if (copies.length !== 1) return null;
+  const cur = list.find((d) => d.spec === chosen);
+  if (isCopy(cur)) return null;
+  const c = copies[0].spec;
+  if (cur && picked === cur.spec && copiesAtPick.includes(c)) return null;
+  return c;
+}
 // Could be the recovered SSD: the copy, or a disk with an exFAT volume.
 // Such a disk is only ever switched on read-only.
 function couldBeCopy(d) { return !!(d && (!d.detail || d.detail.matches_mapfile || d.detail.volume || d.detail.error)); }
@@ -629,7 +645,9 @@ function diskLine(d) {
   let what = "";
   if (det.volume) what = `exFAT volume “${esc(det.volume.label)}”, ${esc(size(det.volume.size))}`;
   else if (d.drives && d.drives.length) what = d.drives.map((v) => `${esc(v.letter)} ${esc(v.label)} (${esc(v.fs)})`).join(", ");
-  if (det.table_disk_size) what += `${what ? "; " : ""}partition table made for a ${commas(det.table_disk_size)}-byte drive`;
+  // (Only worth saying when it was made for another drive: every drive's own
+  // partition table is made for itself.)
+  if (det.table_disk_size && det.table_disk_size !== d.size) what += `${what ? "; " : ""}partition table made for a ${commas(det.table_disk_size)}-byte drive`;
   if (det.error) what += `${what ? "; " : ""}${esc(det.error)}`;
   return { title: `Disk ${d.number}: ${bits.join(", ")}`, tags, what };
 }
@@ -701,13 +719,18 @@ function renderConnect() {
   void protectedDisk;
   if (el.dataset.html !== h) {
     el.innerHTML = h; el.dataset.html = h;
-    el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => { pickedByHand = r.value; save({ disk: r.value }).then(loadDisks); });
+    el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => {
+      pickedByHand = r.value;
+      copiesWhenPicked = disks.filter((d) => isCopy(d) && !d.system).map((d) => d.spec);
+      watchDisks(15 * 60);
+      save({ disk: r.value }).then(loadDisks);
+    });
     if ($("b-prepare")) $("b-prepare").onclick = prepare;
     if ($("b-protect")) $("b-protect").onclick = () => protect(sel);
     if ($("b-release")) $("b-release").onclick = () => release(sel);
     if ($("b-online")) $("b-online").onclick = () => switchDisk(sel, true);
     if ($("b-offline")) $("b-offline").onclick = () => switchDisk(sel, false);
-    $("b-look").onclick = loadDisks;
+    $("b-look").onclick = () => { watchDisks(15 * 60); loadDisks(); };
   }
 }
 
@@ -1029,6 +1052,7 @@ async function prepare() {
 }
 async function protect(d) {
   note("connect", "", "");
+  watchDisks(15 * 60);
   try {
     if (d.offline) {
       await act({ action: "guard-protect", disk: d.spec, online: "0" });
@@ -1046,6 +1070,8 @@ async function protect(d) {
   await refresh(); await loadDisks();
 }
 async function release(d) {
+  // (The recovered SSD is usually plugged in next: the list keeps looking.)
+  watchDisks(15 * 60);
   try { const r = await act({ action: "guard-release", disk: d.spec }); note("connect", "ok", r.message); }
   catch (e) { note("connect", "err", e.message); }
   await loadDisks();
@@ -1182,11 +1208,10 @@ async function updateSpace() {
 async function loadDisks() {
   try { disks = await get("api/disks"); } catch { disks = []; }
   // Disk numbers change as drives come and go: when exactly one disk is the
-  // copy ddrescue made, that is the one chosen.
-  const copies = disks.filter((d) => isCopy(d) && !d.system);
-  const cur = disks.find((d) => d.spec === setting("disk"));
-  if (copies.length === 1 && !isCopy(cur) && (!cur || pickedByHand !== cur.spec)) {
-    try { await save({ disk: copies[0].spec }); } catch { /* chosen by hand then */ }
+  // copy ddrescue made, that is the one chosen (see autoChoice).
+  const c = autoChoice(disks, setting("disk"), pickedByHand, copiesWhenPicked);
+  if (c) {
+    try { await save({ disk: c }); } catch { /* chosen by hand then */ }
   }
   render();
 }
@@ -1385,7 +1410,9 @@ async function start() {
     const running = busy();
     if (running || tick % 3 === 0) await refresh();
     if (tick % 5 === 0 && !running) loadChecklist();
-    if (Date.now() < watchUntil && tick % 2 === 0) loadDisks();
+    // Looking for disks plugged in: for a while after Get Windows ready, a
+    // disk clicked, Protect or Switch on (not while a step reads the SSD).
+    if (Date.now() < watchUntil && tick % 2 === 0 && !running) loadDisks();
   }, 1000);
 }
 start();

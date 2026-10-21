@@ -455,6 +455,48 @@ pub fn find_volume_quick<'a>(src: &'a dyn Source, table: &Table) -> Result<(Volu
     find_volume_in(src, table, false)
 }
 
+/// The rule `is_the_copy` follows, for what is already known about a disk:
+/// the size its partition table was made for, its own size, and whether it
+/// holds an exFAT volume (asked only when the rest does not settle it).
+pub fn copy_rule(made_for: Option<u64>, disk_size: u64, has_exfat: impl FnOnce() -> bool, map_size: u64) -> bool {
+    made_for == Some(map_size) && (disk_size > map_size || has_exfat())
+}
+
+/// Is this disk the copy ddrescue made (or a copy of that copy, or an image
+/// of it), for a mapfile of a drive of `map_size` bytes?
+///
+/// Its partition table must have been made for a drive of exactly that size,
+/// but that alone says little: drives sold as the same size are all exactly
+/// the same size (every "1 TB" drive holds 1,000,204,886,016 bytes), so a
+/// 1 TB drive Windows set up for itself, such as SPARE, has a partition
+/// table made for that size too. So it must also be bigger than the old
+/// drive (ddrescue copied it onto the start of a bigger SSD), or hold the
+/// exFAT volume (an image of the copy is exactly the old drive's size).
+pub fn is_the_copy(src: &dyn Source, table: &Table, map_size: u64) -> bool {
+    copy_rule(table.original_disk_size(), src.size(), || find_volume_quick(src, table).is_ok(), map_size)
+}
+
+/// Why a disk is not the copy (see `is_the_copy`), in plain words; None
+/// when it is.
+pub fn not_the_copy(src: &dyn Source, table: &Table, map_size: u64) -> Option<String> {
+    if is_the_copy(src, table, map_size) {
+        return None;
+    }
+    Some(match table.original_disk_size() {
+        Some(made_for) if made_for != map_size => format!(
+            "its partition table was made for a {}-byte drive, but the mapfile describes a {}-byte drive",
+            commas(made_for),
+            commas(map_size)
+        ),
+        Some(_) => format!(
+            "its partition table was made for a {}-byte drive, as the old drive's was - but so is every drive of that \
+             size, and this one is no bigger and holds no exFAT volume: it is another drive of the same size (SPARE?)",
+            commas(map_size)
+        ),
+        None => "it has no partition table made for the drive the mapfile describes".to_string(),
+    })
+}
+
 fn find_volume_in<'a>(src: &'a dyn Source, table: &Table, scan: bool) -> Result<(Volume<'a>, bool), String> {
     let mut starts: Vec<u64> = table.partitions.iter().map(|p| p.start).collect();
     starts.push(0);
@@ -1752,4 +1794,136 @@ pub fn page_json(r: &Report) -> String {
         hidden_groups.join(","),
         areas.join(",")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::disk::Memory;
+
+    /// Every "1 TB" drive holds exactly this many bytes (1,953,525,168
+    /// sectors), and every "2 TB" drive this many.
+    const TB1: u64 = 1_000_204_886_016;
+    const TB2: u64 = 2_000_398_934_016;
+
+    /// A disk for the tests that holds nothing but the pieces given.
+    struct Sparse {
+        size: u64,
+        pieces: Vec<(u64, Vec<u8>)>,
+    }
+
+    impl Source for Sparse {
+        fn size(&self) -> u64 {
+            self.size
+        }
+        fn read_at(&self, off: u64, len: usize) -> std::io::Result<Vec<u8>> {
+            let end = off.saturating_add(len as u64).min(self.size);
+            if end <= off {
+                return Ok(Vec::new());
+            }
+            let mut out = vec![0u8; (end - off) as usize];
+            for (at, data) in &self.pieces {
+                let (s, e) = ((*at).max(off), (at + data.len() as u64).min(end));
+                if s < e {
+                    out[(s - off) as usize..(e - off) as usize].copy_from_slice(&data[(s - at) as usize..(e - at) as usize]);
+                }
+            }
+            Ok(out)
+        }
+        fn describe(&self) -> String {
+            "a test disk".to_string()
+        }
+    }
+
+    /// The partition table Windows writes on a new drive of `size` bytes: GPT
+    /// with one basic data partition, its header and entries at the start
+    /// and its backup in the drive's last sectors; and the start of NTFS.
+    fn set_up_by_windows(size: u64) -> Vec<(u64, Vec<u8>)> {
+        let last = size / 512 - 1;
+        let mut entries = vec![0u8; 128 * 128];
+        let basic_data = [0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7];
+        entries[0..16].copy_from_slice(&basic_data);
+        entries[16] = 1;
+        entries[32..40].copy_from_slice(&2048u64.to_le_bytes());
+        entries[40..48].copy_from_slice(&(last - 34).to_le_bytes());
+        let header = |me: u64, other: u64, at: u64| {
+            let mut h = vec![0u8; 512];
+            h[0..8].copy_from_slice(b"EFI PART");
+            h[8..12].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+            h[12..16].copy_from_slice(&92u32.to_le_bytes());
+            h[24..32].copy_from_slice(&me.to_le_bytes());
+            h[32..40].copy_from_slice(&other.to_le_bytes());
+            h[40..48].copy_from_slice(&34u64.to_le_bytes());
+            h[48..56].copy_from_slice(&(last - 33).to_le_bytes());
+            h[72..80].copy_from_slice(&at.to_le_bytes());
+            h[80..84].copy_from_slice(&128u32.to_le_bytes());
+            h[84..88].copy_from_slice(&128u32.to_le_bytes());
+            h[88..92].copy_from_slice(&gpt::crc32(&entries).to_le_bytes());
+            let c = gpt::crc32(&h[..92]);
+            h[16..20].copy_from_slice(&c.to_le_bytes());
+            h
+        };
+        let mut ntfs = vec![0u8; 512];
+        ntfs[0..3].copy_from_slice(&[0xEB, 0x52, 0x90]);
+        ntfs[3..11].copy_from_slice(b"NTFS    ");
+        ntfs[510..512].copy_from_slice(&[0x55, 0xAA]);
+        let (main, backup) = (header(1, last, 2), header(last, 1, last - 32));
+        vec![(512, main), (1024, entries.clone()), (2048 * 512, ntfs), ((last - 32) * 512, entries), (last * 512, backup)]
+    }
+
+    #[test]
+    fn a_drive_as_big_as_the_old_one_is_not_taken_for_the_copy() {
+        // SPARE: a 1 TB drive Windows set up for itself. Its partition table
+        // was made for the old drive's size too: every 1 TB drive has it.
+        let spare = Sparse { size: TB1, pieces: set_up_by_windows(TB1) };
+        let t = gpt::read(&spare, &[]);
+        assert_eq!(t.original_disk_size(), Some(TB1));
+        assert!(!is_the_copy(&spare, &t, TB1));
+        let why = not_the_copy(&spare, &t, TB1).unwrap();
+        assert!(why.contains("another drive of the same size"), "{why}");
+        // The recovered SSD: the old drive's partition table at the start of
+        // a 2 TB SSD (whatever its volume holds, or if it could not be read).
+        let mut pieces = set_up_by_windows(TB1);
+        pieces.retain(|p| p.0 != 2048 * 512);
+        let ssd = Sparse { size: TB2, pieces };
+        let t = gpt::read(&ssd, &[]);
+        assert!(is_the_copy(&ssd, &t, TB1) && not_the_copy(&ssd, &t, TB1).is_none());
+        // ...but not with the mapfile of another drive.
+        assert!(!is_the_copy(&ssd, &t, TB2));
+        let why = not_the_copy(&ssd, &t, TB2).unwrap();
+        assert!(why.contains("made for a 1,000,204,886,016-byte drive"), "{why}");
+        // A 2 TB drive Windows set up for itself, and one with no partition table.
+        let two = Sparse { size: TB2, pieces: set_up_by_windows(TB2) };
+        assert!(!is_the_copy(&two, &gpt::read(&two, &[]), TB1));
+        let blank = Sparse { size: TB2, pieces: Vec::new() };
+        let t = gpt::read(&blank, &[]);
+        assert!(!is_the_copy(&blank, &t, TB1));
+        assert!(not_the_copy(&blank, &t, TB1).unwrap().contains("no partition table"));
+    }
+
+    #[test]
+    fn an_image_of_the_copy_is_the_copy_by_its_exfat_volume() {
+        // The self-test's disk: a partition table made for it, and an exFAT
+        // volume - as an image of the copy has.
+        let img = crate::selftest::disk_image().unwrap();
+        let size = img.len() as u64;
+        let disk = Memory::new(img.clone());
+        let t = gpt::read(&disk, &[]);
+        assert_eq!(t.original_disk_size(), Some(size));
+        assert!(is_the_copy(&disk, &t, size));
+        // Only its partition table, no exFAT volume: another drive that size.
+        let mut table_only = vec![0u8; img.len()];
+        table_only[..34 * 512].copy_from_slice(&img[..34 * 512]);
+        let end = img.len() - 33 * 512;
+        table_only[end..].copy_from_slice(&img[end..]);
+        let other = Memory::new(table_only);
+        let t = gpt::read(&other, &[]);
+        assert_eq!(t.original_disk_size(), Some(size));
+        assert!(!is_the_copy(&other, &t, size));
+        // The rule itself; the volume is only looked for when it matters.
+        assert!(copy_rule(Some(size), size, || true, size));
+        assert!(!copy_rule(Some(size), size, || false, size));
+        assert!(copy_rule(Some(size), size + 512, || panic!("not needed"), size));
+        assert!(!copy_rule(None, size + 512, || panic!("not needed"), size));
+    }
 }

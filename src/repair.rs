@@ -438,9 +438,26 @@ fn tree_files(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::i
 
 /// (bytes, SHA-256) of a file, or of a folder's files and their names.
 pub(crate) fn hash_of(p: &Path, stop: &dyn Fn() -> bool) -> std::io::Result<Option<(u64, String)>> {
+    hash_with(p, stop, false)
+}
+
+/// The same, read as the drive holds it, not from what Windows still keeps
+/// in memory of something just written (sha256::file_hex_from_drive).
+fn hash_on_drive(p: &Path, stop: &dyn Fn() -> bool) -> std::io::Result<Option<(u64, String)>> {
+    hash_with(p, stop, true)
+}
+
+fn hash_with(p: &Path, stop: &dyn Fn() -> bool, on_drive: bool) -> std::io::Result<Option<(u64, String)>> {
+    let one = |f: &Path| -> std::io::Result<Option<String>> {
+        if on_drive {
+            Ok(crate::sha256::file_hex_from_drive(f, &mut |_, _| {}, stop)?.map(|(_, h)| h))
+        } else {
+            file_hex(f, stop)
+        }
+    };
     let meta = std::fs::metadata(p)?;
     if !meta.is_dir() {
-        return Ok(file_hex(p, stop)?.map(|h| (meta.len(), h)));
+        return Ok(one(p)?.map(|h| (meta.len(), h)));
     }
     let mut files = Vec::new();
     tree_files(p, "", &mut files)?;
@@ -448,11 +465,27 @@ pub(crate) fn hash_of(p: &Path, stop: &dyn Fn() -> bool) -> std::io::Result<Opti
     let mut h = Sha256::new();
     let mut total = 0u64;
     for (rel, f) in files {
-        let Some(s) = file_hex(&f, stop)? else { return Ok(None) };
+        let Some(s) = one(&f)? else { return Ok(None) };
         total += std::fs::metadata(&f).map(|m| m.len()).unwrap_or(0);
         h.update(format!("{rel}\t{s}\n").as_bytes());
     }
     Ok(Some((total, h.finish_hex())))
+}
+
+/// Make a file, or every file in a folder, safe on the drive. (Windows only
+/// does that through a handle that may write; nothing is written.)
+fn make_safe_on_drive(p: &Path) -> std::io::Result<()> {
+    let sync = |f: &Path| std::fs::OpenOptions::new().write(true).open(f)?.sync_all();
+    if std::fs::metadata(p)?.is_dir() {
+        let mut files = Vec::new();
+        tree_files(p, "", &mut files)?;
+        for (_, f) in files {
+            sync(&f)?;
+        }
+        Ok(())
+    } else {
+        sync(p)
+    }
 }
 
 fn dir_bytes(p: &Path) -> u64 {
@@ -586,10 +619,10 @@ fn write_list(repair: &Path, items: &[Item]) -> Result<(), String> {
             i.copied_as.clone(),
         ]));
     }
+    // Written so that a power cut leaves the old list or the new one, whole:
+    // put back finds where everything belongs from this list alone.
     let p = repair.join(LIST_NAME);
-    let tmp = repair.join(format!("{LIST_NAME}.new"));
-    std::fs::write(&tmp, body)
-        .and_then(|_| std::fs::rename(&tmp, &p))
+    crate::sys::write_safely(&p, body.as_bytes())
         .map_err(|e| format!("could not write {} ({e}) - is it open in another program?", p.display()))
 }
 
@@ -1247,6 +1280,12 @@ fn put_one(
 ) -> Result<Option<bool>, String> {
     let read = |p: &Path| hash_of(p, stop).map_err(|e| format!("could not read {}: {e}", p.display()));
     let Some((cand_size, cand_sha)) = read(cand)? else { return Ok(None) };
+    if cand_sha == item.sha256 {
+        return Err(format!(
+            "it is exactly the damaged original of {}: nothing was repaired, so there is nothing to put back",
+            item.path
+        ));
+    }
     let target = under(work, &item.path);
     let kept = under(&repair.join(ORIGINALS), &item.path);
     let state = returned_now(work).remove(&item.path.to_lowercase());
@@ -1265,7 +1304,46 @@ fn put_one(
         Nothing,
     }
     let (then, size_before, sha_before) = match &current {
-        Some((_, sha)) if *sha == cand_sha => return Ok(Some(false)),
+        Some((_, sha)) if *sha == cand_sha && last_returned.as_deref() == Some(cand_sha.as_str()) => {
+            return Ok(Some(false))
+        }
+        Some((size, sha)) if *sha == cand_sha => {
+            // In place, but not in repair-returns.csv: a put-back the PC never
+            // finished (it stopped after putting it in place, before listing
+            // it). Listed now - if the original is where that put-back moved
+            // it; if not, the program did not put it there.
+            match read(&kept) {
+                Ok(Some((_, s))) if s == item.sha256 => {}
+                Ok(None) => return Ok(None),
+                _ => {
+                    return Err(format!(
+                        "{} in WORK is already this repaired version, but not put there by the program (the damaged \
+                         original is not in {ORIGINALS}): it was replaced by hand. Ask before going on.",
+                        item.path
+                    ))
+                }
+            }
+            let (size_before, sha_before) = match &state {
+                Some(n) if n.repaired => (n.size, n.sha.clone()),
+                _ => (item.size, item.sha256.clone()),
+            };
+            append_return(
+                work,
+                &Return {
+                    action: "RETURNED".to_string(),
+                    id: item.id.clone(),
+                    path: item.path.clone(),
+                    package: item.package,
+                    size_before,
+                    sha_before,
+                    size_after: *size,
+                    sha_after: cand_sha,
+                    when: now_text(),
+                    from: format!("{shown} (a put-back the PC never finished, listed now)"),
+                },
+            )?;
+            return Ok(Some(true));
+        }
         Some((size, sha)) if *sha == item.sha256 => (Then::KeepOriginal, *size, sha.clone()),
         Some((size, sha)) if last_returned.as_ref() == Some(sha) => (Then::SetAside, *size, sha.clone()),
         Some(_) => {
@@ -1292,7 +1370,14 @@ fn put_one(
         remove_own_temp(&tmp);
         format!("could not copy it into WORK: {e}")
     })?;
-    match hash_of(&tmp, stop) {
+    // Safe on the drive before it takes the original's place (a power cut
+    // must not leave a version that never reached the drive in WORK), and
+    // checked as the drive holds it.
+    if let Err(e) = make_safe_on_drive(&tmp) {
+        remove_own_temp(&tmp);
+        return Err(format!("could not make its copy in WORK safe on the drive: {e}"));
+    }
+    match hash_on_drive(&tmp, stop) {
         Ok(Some((_, h))) if h == cand_sha => {}
         Ok(None) => {
             remove_own_temp(&tmp);
@@ -2057,6 +2142,43 @@ mod tests {
         assert_eq!(std::fs::read(under(&work, "Photos\\IMG_0003.JPG")).unwrap(), b"repaired photo");
         assert_eq!(std::fs::read(&kept).unwrap(), b"damaged photo");
         assert!(!under(&work, &format!("Photos\\{TMP_NAME}")).exists());
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_put_back_the_pc_stopped_before_listing_is_listed() {
+        let top = std::env::temp_dir().join(format!("rp-repair-unlisted-{}", std::process::id()));
+        let (work, scan) = setup(&top);
+        let no = || false;
+        isolate(&work, &[scan], &mut |_| {}, &no).unwrap();
+        let repair = top.join(REPAIR_DIR);
+        let fixed = repair.join(REPAIRED).join("IMG_0003 [R0003].JPG");
+        std::fs::write(&fixed, b"repaired photo").unwrap();
+        assert_eq!(put_back(&work, &mut |_| {}, &no).unwrap().returned.len(), 1);
+        // The PC stopped after the repaired version was in place, before its
+        // line in repair-returns.csv: the check of the copies sees a change.
+        let returns = work.join(RETURNS_NAME);
+        let header: String = std::fs::read_to_string(&returns).unwrap().lines().take(1).map(|l| format!("{l}\r\n")).collect();
+        std::fs::write(&returns, header).unwrap();
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &no).unwrap();
+        assert_eq!(r.changed, vec!["Photos\\IMG_0003.JPG".to_string()]);
+        // Put back again: it is listed, and the check agrees.
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &no).unwrap();
+        assert!(r.changed.is_empty() && r.missing.is_empty() && r.extra.is_empty() && r.repaired == 1, "{r:?}");
+        assert_eq!(put_back(&work, &mut |_| {}, &no).unwrap().already, 1, "and then it is simply back");
+        // Undone, then the repaired version copied into WORK by hand: the
+        // original is not in REPAIR\originals, so it is not listed as put back.
+        undo(&work, "R0003").unwrap();
+        std::fs::write(under(&work, "Photos\\IMG_0003.JPG"), b"repaired photo").unwrap();
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert!(pb.returned.is_empty() && pb.skipped.iter().any(|s| s.1.contains("replaced by hand")), "{pb:?}");
+        // A "repaired" version that is exactly the damaged original.
+        std::fs::write(under(&work, "Photos\\IMG_0003.JPG"), b"damaged photo").unwrap();
+        std::fs::write(&fixed, b"damaged photo").unwrap();
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert!(pb.returned.is_empty() && pb.skipped.iter().any(|s| s.1.contains("nothing was repaired")), "{pb:?}");
         let _ = std::fs::remove_dir_all(&top);
     }
 }

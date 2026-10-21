@@ -54,9 +54,15 @@ const RENAMED: &[(&str, &str)] = &[
 /// (their text with ticks and Your numbers left out, hashed): a copy that is
 /// one of these, or the program's own, holds nothing the person wrote.
 /// (05717a4, 4c10e41, 3f05f2a and 7d47903 on GitHub: the copies delivered on
-/// 18 and 19 October 2026.)
-const KNOWN_CHECKLISTS: &[u64] =
-    &[0x24da_6933_47ce_9b4f, 0x5ddc_ea71_7c5f_2c5e, 0xdffc_617f_3ec9_451d, 0x38e5_54dd_8e58_09a2];
+/// 18 and 19 October 2026; a728da4: the checklist versions 2026-10-20 (1)
+/// and 2026-10-21 (1) wrote.)
+const KNOWN_CHECKLISTS: &[u64] = &[
+    0x24da_6933_47ce_9b4f,
+    0x5ddc_ea71_7c5f_2c5e,
+    0xdffc_617f_3ec9_451d,
+    0x38e5_54dd_8e58_09a2,
+    0x6609_d73a_ff3b_fc6f,
+];
 const KNOWN_MANIFESTS: &[u64] =
     &[0x30b6_259f_c56e_9c88, 0x960c_4dee_e8fe_0806, 0x62d1_c34d_9ee8_a40a, 0x75e3_7858_aab8_1df9];
 
@@ -157,7 +163,9 @@ fn renamed(key: &str) -> &str {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tick {
     pub on: bool,
-    /// Local date and time, "2026-10-21 14:02:09" ("" when not known).
+    /// Local date and time with its offset from UTC (fmt::when_of),
+    /// "2026-10-25 01:30:00 +01:00"; ticks made before 22 October 2026 have
+    /// no offset. "" when not known.
     pub when: String,
 }
 
@@ -225,11 +233,16 @@ impl Ticks {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        // Made safe on the drive at once: a tick is the person's record of
+        // what they have done.
         std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)
-            .and_then(|mut f| f.write_all(line.as_bytes()))
+            .and_then(|mut f| {
+                f.write_all(line.as_bytes())?;
+                f.sync_all()
+            })
             .map_err(|e| format!("could not write {}: {e}", path.display()))?;
         self.map.insert(key.to_string(), Tick { on, when: when.to_string() });
         Ok(())
@@ -311,9 +324,13 @@ pub fn statuses(items: &[Item], ticks: &Ticks, history: &[Checked]) -> Vec<Statu
             });
             continue;
         }
-        let since = done.iter().map(|&j| ticks.when(&items[j].key)).max().unwrap_or("");
+        // Compared as moments, not as text: local times repeat an hour when
+        // the clocks go back (fmt::instant). A time not known counts as the
+        // earliest.
+        let at = |w: &str| crate::fmt::instant(w).unwrap_or(i64::MIN);
+        let since = done.iter().map(|&j| at(ticks.when(&items[j].key))).max().unwrap_or(i64::MIN);
         let checks: Vec<&Checked> =
-            history.iter().filter(|h| h.step == crate::verify::STEP7 && h.when.as_str() >= since).collect();
+            history.iter().filter(|h| h.step == crate::verify::STEP7 && at(&h.when) >= since).collect();
         let all_done = done.len() == cov.len();
         let waiting = || {
             if all_done {
@@ -327,7 +344,7 @@ pub fn statuses(items: &[Item], ticks: &Ticks, history: &[Checked]) -> Vec<Statu
                 State::Failed,
                 format!(
                     "✗ The check of {} found something: {} Stop, and tell Claude.",
-                    h.when,
+                    crate::fmt::when_shown(&h.when),
                     h.result.trim_start_matches("NOT OK: ")
                 ),
             )
@@ -338,7 +355,7 @@ pub fn statuses(items: &[Item], ticks: &Ticks, history: &[Checked]) -> Vec<Statu
                 format!(
                     "✓ {} {}: {} — nothing missing, nothing changed.",
                     if both { "Both copies checked, the last on" } else { "Checked" },
-                    h.when,
+                    crate::fmt::when_shown(&h.when),
                     check_words(h)
                 ),
             )
@@ -358,7 +375,11 @@ pub fn statuses(items: &[Item], ticks: &Ticks, history: &[Checked]) -> Vec<Statu
             } else if let Some(one) = newest.first() {
                 out.push(st(
                     State::Partly,
-                    format!("One copy checked ({}, {}): now check the other one.", one.when, one.folder),
+                    format!(
+                        "One copy checked ({}, {}): now check the other one.",
+                        crate::fmt::when_shown(&one.when),
+                        one.folder
+                    ),
                 ));
             } else {
                 out.push(waiting());
@@ -523,15 +544,11 @@ pub fn find_copy(home: &Path) -> Option<PathBuf> {
     found.into_iter().max_by_key(|(m, _)| *m).map(|(_, p)| p)
 }
 
-/// Writes `text` to `path` by way of a file beside it, so a cut-off write
-/// never leaves half a checklist.
+/// Writes `text` to `path` by way of a file beside it, made safe on the
+/// drive first, so that a cut-off write or a power cut never leaves half a
+/// checklist - or a whole one full of zeros (sys::write_safely).
 pub fn write_whole(path: &Path, text: &str) -> Result<(), String> {
-    let tmp = path.with_extension("md.writing");
-    std::fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("could not write {}: {e}", path.display())
-    })
+    crate::sys::write_safely(path, text.as_bytes()).map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 // ---------------------------------------------------------------- the page
@@ -1007,6 +1024,27 @@ mod tests {
     }
 
     #[test]
+    fn checkpoints_hold_when_the_clocks_go_back() {
+        let (_, items) = parse(DOC);
+        let cp = items.iter().position(|i| i.key.starts_with("**3. ✅")).unwrap();
+        let key = |k: &str| items.iter().find(|i| i.key.starts_with(k)).unwrap().key.clone();
+        let state = |t: &Ticks, h: &[Checked]| statuses(&items, t, h).into_iter().find(|s| s.item == cp).unwrap();
+        let mut t = Ticks::default();
+        t.map.insert(key("**1."), Tick { on: true, when: "2026-10-25 00:30:00 +01:00".into() });
+        // The last box ticked at 01:10 after the clocks went back (GMT)...
+        t.map.insert(key("**2."), Tick { on: true, when: "2026-10-25 01:10:00 +00:00".into() });
+        // ...and a check at 01:50 before they did (BST): 20 minutes before
+        // that box was ticked, so it says nothing about it.
+        let before = check("2026-10-25 01:50:00 +01:00", "E:\\WORK", true);
+        assert_eq!(state(&t, std::slice::from_ref(&before)).state, State::Due);
+        // A check at 01:20 GMT, after it, counts - and is shown in local time.
+        let after = check("2026-10-25 01:20:00 +00:00", "E:\\WORK", true);
+        let s = state(&t, &[before, after]);
+        assert_eq!(s.state, State::Passed);
+        assert!(s.text.contains("Checked 2026-10-25 01:20:00:"), "{}", s.text);
+    }
+
+    #[test]
     fn the_final_check_needs_both_copies() {
         let (_, items) = parse(DOC);
         let cp8 = items.iter().position(|i| i.both_copies).unwrap();
@@ -1076,7 +1114,7 @@ mod tests {
         assert_eq!(find_copy(&home), Some(home.join("Obsidian MD files").join(COPY_NAME)));
         write_whole(&home.join("Obsidian MD files").join(COPY_NAME), "new").unwrap();
         assert_eq!(std::fs::read_to_string(home.join("Obsidian MD files").join(COPY_NAME)).unwrap(), "new");
-        assert!(!home.join("Obsidian MD files").join("recovery-checklist.md.writing").exists());
+        assert!(!home.join("Obsidian MD files").join("recovery-checklist.md.new").exists());
         std::fs::remove_dir_all(&home).ok();
     }
 }

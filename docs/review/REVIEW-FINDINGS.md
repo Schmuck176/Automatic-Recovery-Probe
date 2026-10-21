@@ -432,3 +432,33 @@ test disks (the Windows-only parts on GitHub's Windows machine):
   pieces are joined with the map check; the checklist covers `._` files,
   Thumbs.db, long paths, the iCloud guess, PAR2's limit and the Mac's NTFS
   add-ons and iCloud Photos.
+
+---
+
+# Second review (21 October 2026)
+
+A fresh session reviewed version 2026-10-21 (1) (81e3460, the build on the
+PC, checked: sha256 10614db6...). Nothing in the program writes to the
+recovered SSD, and every test passed (here: unit tests, self-test, 352
+random damaged disks). Found, and fixed in 2026-10-21 (2) at the user's
+request:
+
+1. **A 1 TB SPARE would have been taken for the recovered SSD.** The copy
+   was recognised only by its partition table being made for the old
+   drive's size, which every "1 TB" drive shares. In the rehearsal SPARE
+   could not be switched on writable; Windows' setting could not be put
+   back while it was plugged in; and if left chosen, step 4 would have
+   imaged SPARE and called the SSD not needed. Now the copy must also be
+   bigger than the old drive or hold the exFAT volume, everywhere.
+2. Step 4 said the SSD was not needed before the image's read-back check.
+3. The image's checksum (and list of unreadable places) was written after
+   the image got its name, unsynced: a crash in between left an image that
+   could be neither checked nor carried on.
+4. diskpart ran (as administrator) from a script file with a predictable
+   name in the temporary folder.
+5. The Obsidian checklist, repair-list.csv and the repaired file being put
+   back were not made safe on the drive before replacing what was there.
+6. Checkpoints compared local times as text: wrong in the hour the clocks
+   go back (25 October 2026).
+
+See NEXT-STEPS.md, "Second review and its fixes", for how.

@@ -410,10 +410,66 @@ version "2026-10-21 (1)" (mtime 1792592502300). The user's self-test passed at 2
 (results\recovery-probe-state.txt agrees). main moved to this version at 21:53 BST; 2026-10-20 (1)
 (053e082) kept in branch version-2026-10-20-1.
 
-Not changed: checkpoints compare local times as text, so in the hour the
-clocks go back (last Sunday of October, 01:00-02:00) a tick and a check in
-that hour can be ordered wrongly; a put-back interrupted between its rename
-and its (synced) log line - microseconds.
+(Both left open here were fixed in 2026-10-21 (2), below: the hour the clocks
+go back, and a put-back interrupted between its rename and its log line.)
+
+## Second review and its fixes (21 October 2026, evening)
+
+A fresh session reviewed the project; the user then asked "Fix all the
+problems". Version "2026-10-21 (2)". Found and fixed:
+
+- **SPARE taken for the recovered SSD (serious; before the rehearsal).** The
+  copy was recognised by its partition table being made for the mapfile's
+  drive, 1,000,204,886,016 bytes - the size of every "1 TB" drive, so a 1 TB
+  SPARE that Windows set up as GPT was "the copy ddrescue made" too: chosen
+  in step 3, "Switch disk N on, writable" refused for it, "Put Windows'
+  setting back" refused while it was plugged in, and steps 4-6 would have
+  read it (step 4: an image of SPARE, then "the SSD is not needed any
+  more"). Now `mapcheck::is_the_copy`: made for that size AND bigger than it
+  (the copy at the start of the 2 TB SSD) or holding the exFAT volume (the
+  image). Used by the disk list, `could_be_recovered`,
+  `recovered_disk_attached` and `check_disk`; `image::make` refuses any
+  other disk, and an existing or unfinished image that does not start like
+  the disk (first 64 KiB). The page chooses a copy that arrives after
+  another disk was clicked (`autoChoice`), keeps looking for disks for 15
+  minutes after any step 3 action, and shows a drive's partition-table size
+  only when it was made for another drive. Tests: sparse 1 TB / 2 TB
+  stand-ins (mapcheck.rs), image.rs, ui_check.js (a SPARE stand-in: the
+  test disk's partition table only; those checks fail against 2026-10-21
+  (1)), dropout_check.py (SPARE exactly as big as the copy: not the copy,
+  released, setting put back with it still plugged in).
+- image.rs: the .sha256 and the list of places the SSD could not read are
+  written safely before the image gets its name (a crash in between left an
+  image that could be neither checked nor carried on - or, after SSD read
+  errors, no list of them for the map check); a stale list is removed; the
+  line "it is not needed any more" came before the read-back check (now:
+  keep the SSD in until Done).
+- guard.rs: diskpart gets its commands on its input (it was a predictable
+  script file in %TEMP%, run with administrator rights); diskpart,
+  explorer and rundll32 are started by full path (`win::system_program`,
+  `windows_program`), not looked up in the program's own folder first.
+- Safe writes: the Obsidian checklist copy, repair-list.csv and the note of
+  Windows' setting (`sys::write_safely`); checklist-ticks.txt and
+  safety-checks.csv synced. Put back makes the repaired version safe on the
+  drive and reads it back from the drive itself before it replaces
+  anything; a put-back the PC stopped between putting the file in place
+  and listing it is listed by the next put-back (if the original is in
+  REPAIR\originals); a file put in place by hand, or a "repaired" file
+  identical to the damaged original, is refused.
+- The clocks going back: ticks and checks are recorded with their offset
+  from UTC ("2026-10-25 01:30:00 +01:00", `fmt::when_of`) and compared as
+  moments (`fmt::instant`); the older ones, without an offset, are read as
+  local time; times are shown without the offset.
+- Checklist Phase 1 steps 11 (stop if SPARE is marked the copy), 13 (chosen
+  by itself; else click it, or Look again) and 15 (keep the SSD in until
+  Done); none of them was ticked. `KNOWN_CHECKLISTS` has a728da4's hash, so
+  the copy in Obsidian is upgraded in place: simulated on a copy of the
+  PC's files, 31 ticks kept, the ticks file untouched.
+
+Here (Linux): unit tests 69, self-test, map check tests 72/72 (seed 7),
+page 63/63, in Europe/London, Los Angeles, Kolkata and Lord Howe time for
+the time tests. Not checked here: the Windows-only code (no Windows target
+in this workspace); GitHub's Windows run is the check.
 
 ## Next
 
