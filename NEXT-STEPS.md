@@ -471,6 +471,19 @@ page 63/63, in Europe/London, Los Angeles, Kolkata and Lord Howe time for
 the time tests. Not checked here: the Windows-only code (no Windows target
 in this workspace); GitHub's Windows run is the check.
 
+CI for ca03425 (run 39682118515): Windows green - unit tests 67, self-test,
+map check tests 42/42, Windows checks 18/18, protection 16/16 (diskpart
+through its input: policy set and put back), unplugged 35/35 (SPARE exactly
+as big as the copy, 399,507,456 bytes: not the copy, released, setting put
+back with it still plugged in), page 64/64. Linux: unit tests 69,
+self-test, map check tests 92/92 with fsck.exfat and dissect.fat, kernel
+23/23, page: one failure - "the program is not running any more" was
+cleared by the disk list (now re-read for 15 minutes after a step 3 action)
+redrawing the page. Fixed in cd717ac ([skip ci], tested by the next run):
+the list stays as it was and the banner is left alone while the program
+does not answer; the page test checks the banner is still there 4 s later
+(it fails against ca03425's page, passes now).
+
 ## Next
 
 1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
