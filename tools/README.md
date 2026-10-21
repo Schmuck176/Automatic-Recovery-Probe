@@ -13,7 +13,7 @@ same mistake in its test.
 | Tool | What it checks |
 |---|---|
 | `exfat_image.py` | Builds exFAT test disks the way a Mac does, with known damage (folder records, files, the FAT, the bitmap, lost folders), and writes down exactly what is where. |
-| `test_mapcheck.py` | The independent oracle: from what each test disk holds, works out what the map check must find and what the copying must produce, runs the program and compares - names, bytes, dates, folders rebuilt from their contents, pieces of lost data, stopping and carrying on, and the safety check at all three stages. Also asks `fsck.exfat` and `dissect.fat` about every disk (Linux). |
+| `test_mapcheck.py` | The independent oracle: from what each test disk holds, works out what the map check must find and what the copying must produce, runs the program and compares - names, bytes, dates, folders rebuilt from their contents, pieces of lost data, stopping and carrying on, the safety check at all three stages, and the check of the copies with the map check (exactly the copies of files that lost data are marked NEVER_READ). Also asks `fsck.exfat` and `dissect.fat` about every disk (Linux). |
 | `kernel_check.py` | Mounts the test disks with the Linux kernel's exFAT driver and compares what it lists with what the map check says Windows can't list. |
 | `windows_check.py` | Attaches test disks to Windows as virtual disks and compares what Windows lists and opens with what the map check predicts, record by record. |
 | `guard_check.py` | The disk protection on Windows: a protected disk is checked byte for byte before and after every step, to prove nothing wrote to it. |

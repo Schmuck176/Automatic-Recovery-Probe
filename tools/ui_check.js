@@ -281,12 +281,17 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     .then(() => true, () => false);
   check(told, "while the program is closed, the page says so");
   if (!told) await shot("fail-closed");
-  errors.length = 0; // (the page's own requests failed while it was closed)
 
   // The state survives a restart of the program.
   const server2 = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
     { stdio: "ignore" });
-  await new Promise((r) => setTimeout(r, 1500));
+  // Until it answers, the page's own requests fail, as they should.
+  for (let i = 0; i < 100; i++) {
+    const up = await fetch(url).then((r) => r.ok, () => false);
+    if (up) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  errors.length = 0; // (the page's own requests failed while the program was closed)
   await page.goto(url);
   await page.waitForFunction(() => /Done/.test(document.getElementById("st-check").textContent), null, { timeout: 10000 });
   check(true, "after closing and opening the program, step 5's results are still there");

@@ -53,11 +53,14 @@ pub struct ScanOpts {
     pub hole_bytes: u64,
     pub do_hole: bool,
     pub out: Option<String>,
+    /// A map check's results folder: its files that lost data are marked
+    /// NEVER_READ, as step 7 on the page does with "Use what step 5 found".
+    pub map_check: Option<String>,
 }
 
 impl Default for ScanOpts {
     fn default() -> Self {
-        ScanOpts { hole_bytes: DEFAULT_HOLE_KB * 1024, do_hole: true, out: None }
+        ScanOpts { hole_bytes: DEFAULT_HOLE_KB * 1024, do_hole: true, out: None, map_check: None }
     }
 }
 
@@ -78,6 +81,21 @@ pub fn run_scan(target: &str, opts: &ScanOpts) -> i32 {
     let mut libraries: Vec<LibInfo> = Vec::new();
     let mut untestable = Tally::default();
     let mut scanned: u64 = 0;
+    let items = match &opts.map_check {
+        Some(dir) => {
+            let p = std::path::Path::new(dir).join(crate::join::TSV_NAME);
+            match std::fs::read_to_string(&p) {
+                Ok(t) => crate::join::parse_tsv(&t),
+                Err(e) => {
+                    println!("Could not read the map check's list {}: {e}", p.display());
+                    return 2;
+                }
+            }
+        }
+        None => Vec::new(),
+    };
+    let mut collector = crate::join::Collector::new(&items);
+    collector.note_returns(target);
     println!("{APP} - version {VERSION}\nScanning {target}\nWriting to {out}\nCtrl+C to stop.\n");
     install_ctrl_c();
     let still_there = walk_and_probe(target, opts.hole_bytes, opts.do_hole, Some(&INTERRUPTED), |ev| match ev {
@@ -94,6 +112,7 @@ pub fn run_scan(target: &str, opts: &ScanOpts) -> i32 {
         }
         Event::Row(r) => {
             scanned += 1;
+            collector.saw(&r);
             *counts.entry(r.verdict).or_insert(0) += 1;
             if r.verdict == "SKIPPED" {
                 untestable.add(&untestable_key(&r.path));
@@ -114,6 +133,13 @@ pub fn run_scan(target: &str, opts: &ScanOpts) -> i32 {
     }
     if INTERRUPTED.load(Ordering::Relaxed) {
         println!("\nStopped early.");
+    }
+    if !items.is_empty() {
+        let o = crate::join::find(&items, &collector);
+        for line in crate::join::apply(&o, &mut rows, &mut skipped) {
+            println!("{line}");
+        }
+        counts.insert(crate::join::VERDICT, rows.iter().filter(|r| r.verdict == crate::join::VERDICT).count() as u64);
     }
     if let Err(e) = write_results_csv(&out, &rows) {
         println!("Could not write {out}: {e}");

@@ -763,7 +763,7 @@ pub fn rescue(
     if std::fs::metadata(&unfinished_path).is_ok() {
         // Folded into the list, which this run's goes into at the end.
         let earlier = Earlier::read(&[(&log_path, true), (&unfinished_path, true)]);
-        std::fs::write(&log_path, format!("\u{FEFF}{}", earlier.text(false)))
+        crate::sys::write_safely(&log_path, format!("\u{FEFF}{}", earlier.text(false)).as_bytes())
             .map_err(|e| format!("could not write {}: {e}", out.join(LOG_NAME).display()))?;
         let _ = std::fs::remove_file(&unfinished_path);
     }
@@ -1161,16 +1161,20 @@ pub fn rescue(
     drop(earlier);
     let tmp = base.join("rescue-log.csv.new");
     let walked_everything = walked_all && o.disk_lost.is_none();
+    // (Made safe on the drive before it takes the old list's place: a power
+    // cut just after must not leave a list of zeros.)
     let result = wrote_all.and_then(|_| {
         if had_earlier {
             let merged = Earlier::read(&[(&log_path, !walked_everything), (&unfinished_path, true)]);
-            std::fs::write(&tmp, format!("\u{FEFF}{}", merged.text(walked_everything)))
+            let mut f = File::create(&tmp)?;
+            f.write_all(format!("\u{FEFF}{}", merged.text(walked_everything)).as_bytes())?;
+            f.sync_all()
         } else {
             // The first run into this folder: its list is the whole list.
             let mut f = std::io::BufWriter::new(File::create(&tmp)?);
             f.write_all(format!("\u{FEFF}{}", csv_row(&LOG_HEADER)).as_bytes())?;
             std::io::copy(&mut File::open(&unfinished_path)?, &mut f)?;
-            f.flush()
+            f.into_inner().map_err(|e| e.into_error())?.sync_all()
         }
     });
     result

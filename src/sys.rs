@@ -215,3 +215,47 @@ pub fn drive_for_serial(serial: u32) -> Option<String> {
 pub fn drive_for_serial(_serial: u32) -> Option<String> {
     None
 }
+
+// ---------------------------------------------------------------------------
+// Files that must survive a power cut whole.
+// ---------------------------------------------------------------------------
+
+/// Write `path` so that a crash or power cut at any moment leaves either
+/// the old file or the new one, whole: the text goes into a file beside it,
+/// is made safe on the drive, and only then takes the old one's place.
+/// (Written straight over, a file can come back after a power cut as the
+/// right length but full of zeros: Windows writes the data later than it
+/// notes the file's size.)
+pub fn write_safely(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".new");
+    let tmp = path.with_file_name(name);
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_file_written_safely_replaces_the_old_one_whole() {
+        let dir = std::env::temp_dir().join(format!("rp-sys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("state.txt");
+        std::fs::write(&p, "old").unwrap();
+        super::write_safely(&p, b"new and longer").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"new and longer");
+        assert!(!dir.join("state.txt.new").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

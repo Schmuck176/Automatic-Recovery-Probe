@@ -11,8 +11,9 @@ Recovery Probe - finds damage in files recovered with ddrescue.
 Double-click the program to use it step by step in your web browser. Or:
   recovery-probe self-test
         Check the program works on this PC (on files and a disk built into it).
-  recovery-probe scan <folder> [--out results.csv] [--hole-kb N] [--no-holes]
-        Check every file in a folder and write the results CSV files.
+  recovery-probe scan <folder> [--out results.csv] [--hole-kb N] [--no-holes] [--map-check <folder>]
+        Check every file in a folder and write the results CSV files. --map-check: a
+        map check's results folder; the copies of files that lost data are marked NEVER_READ.
   recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
         One line of JSON per file (used to compare with the Python version).
   recovery-probe map-check --map <mapfile> --disk <disk> [--earlier-map <mapfile>] [--out <folder>]
@@ -112,6 +113,10 @@ fn parse_opts(args: &[String]) -> Result<(Option<String>, ScanOpts), String> {
             "--out" => {
                 i += 1;
                 opts.out = Some(args.get(i).cloned().ok_or("--out needs a file name")?);
+            }
+            "--map-check" => {
+                i += 1;
+                opts.map_check = Some(args.get(i).cloned().ok_or("--map-check needs the map check's results folder")?);
             }
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => {

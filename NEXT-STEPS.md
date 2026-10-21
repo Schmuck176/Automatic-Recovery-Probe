@@ -360,11 +360,50 @@ its own branch only when a newer version replaces it on main. On dev the
 languages are about Rust 72%, Python 18% (the test tools), HTML 8%,
 JavaScript 2%.
 
+## Testing everything and looking for bugs (21 October 2026)
+
+The user asked: test everything and look for bugs. Done here (Linux):
+unit tests, self-test, the oracle's standard 92, 400 + 4,000 more random
+damaged disks, 1,500 more with the new scan check, 4,000 corrupted disks
+(map check, copying and the safety check on each: no crash, hang or
+disagreement), 66,000 damaged sample files through the file checks (no
+crash, hang or internal error), the page test; and a read of the riskiest
+code. Version "2026-10-21 (1)". Found and fixed:
+
+- image.rs (serious, after a crash only): carrying on with a stopped image
+  kept the whole .partial file; after a crash or power cut its end can be
+  zeros (Windows notes the size before the data reaches the drive), which
+  would have gone into the image and its SHA-256 unnoticed. Now the image
+  and the list of unreadable places are made safe on the drive every 2 GiB
+  and when stopped, the point is noted (recovered-ssd.img.partial-safe.txt,
+  written safely), and a run carries on only from there. Test
+  after_a_crash_it_carries_on_only_from_the_safe_point fails without it.
+- image.rs: the read-back after making the image, and "Check the image is
+  unchanged", read from the drive itself (unbuffered on Windows), not from
+  what Windows still holds in memory of a file it just wrote.
+- rescue-log.csv (both places it is rewritten) and the program's state file
+  are written safely (sys::write_safely: a file beside, synced, renamed).
+- tools/test_mapcheck.py: an operator-precedence slip in the oracle expected
+  an unreadable area running from unpartitioned space into the EFI
+  partition to hit only "unpartitioned" (2 of 4,000 random disks; the
+  program was right).
+- The command-line scan takes --map-check (as the page does), and the
+  oracle now checks on every random disk that exactly the copies of the
+  files that lost data are marked NEVER_READ.
+- tools/ui_check.js waited a fixed 1.5 s for the restarted program; under
+  load the old page's poll failed in between. It now waits until it answers.
+
+Not changed: checkpoints compare local times as text, so in the hour the
+clocks go back (last Sunday of October, 01:00-02:00) a tick and a check in
+that hour can be ordered wrongly; a put-back interrupted between its rename
+and its (synced) log line - microseconds.
+
 ## Next
 
-1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+1. CI for this, then install it (only the exe: no change to the checklist
+   or the manifest), the self-test on the PC, then main and a branch
+   version-2026-10-20-1 for the version it leaves (the rule at the top).
+2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    Help read step 5's results; check the files fit on SPARE.
-2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
-3. Any new version: CI, install, self-test on the PC, then main and a tag
-   (the rule at the top of this file).

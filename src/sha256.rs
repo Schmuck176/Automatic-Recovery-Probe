@@ -119,6 +119,72 @@ pub fn file_hex(path: &std::path::Path, stop: &dyn Fn() -> bool) -> std::io::Res
     Ok(Some(h.finish_hex()))
 }
 
+/// The SHA-256 of a whole file as the drive itself holds it - not what
+/// Windows still keeps of it in memory, which for a file just written is
+/// where an ordinary read would get its last gigabytes from. On Windows the
+/// file is read unbuffered (straight from the drive); elsewhere as usual.
+/// `amount` gets (bytes read, file size) as it goes. Returns (size, hex), or
+/// None when stopped.
+pub fn file_hex_from_drive(
+    path: &std::path::Path,
+    amount: &mut dyn FnMut(u64, u64),
+    stop: &dyn Fn() -> bool,
+) -> std::io::Result<Option<(u64, String)>> {
+    const CHUNK: usize = 8 << 20;
+    // Unbuffered reads need a buffer that starts on a sector boundary.
+    const ALIGN: usize = 4096;
+    let len = std::fs::metadata(path)?.len();
+    let mut raw = vec![0u8; CHUNK + ALIGN];
+    let at = raw.as_ptr().align_offset(ALIGN);
+    let buf = &mut raw[at..at + CHUNK];
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN
+        let unbuffered = std::fs::OpenOptions::new().read(true).custom_flags(0x2000_0000 | 0x0800_0000).open(path);
+        match unbuffered.and_then(|mut f| hash_reader(&mut f, buf, len, amount, stop)) {
+            // ERROR_INVALID_PARAMETER: a drive with sectors bigger than 4 KB.
+            Err(e) if e.raw_os_error() == Some(87) => {}
+            other => return other,
+        }
+    }
+    let mut f = std::fs::File::open(path)?;
+    hash_reader(&mut f, buf, len, amount, stop)
+}
+
+fn hash_reader(
+    f: &mut std::fs::File,
+    buf: &mut [u8],
+    len: u64,
+    amount: &mut dyn FnMut(u64, u64),
+    stop: &dyn Fn() -> bool,
+) -> std::io::Result<Option<(u64, String)>> {
+    use std::io::Read;
+    let mut h = Sha256::new();
+    let mut done = 0u64;
+    let mut last = std::time::Instant::now();
+    amount(0, len);
+    // Reads of a whole buffer at a time, until the size known at the start
+    // (an unbuffered read must not start past the end).
+    while done < len {
+        if stop() {
+            return Ok(None);
+        }
+        let n = f.read(buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+        done += n as u64;
+        if last.elapsed().as_millis() > 300 {
+            amount(done, len);
+            last = std::time::Instant::now();
+        }
+    }
+    amount(done, len);
+    Ok(Some((done, h.finish_hex())))
+}
+
 /// Run the compression function over whole 64-byte blocks.
 fn compress(state: &mut [u32; 8], blocks: &[u8]) {
     debug_assert_eq!(blocks.len() % 64, 0);
@@ -317,6 +383,26 @@ mod tests {
         s.update(&data);
         s.update_zeros(200_001);
         assert_eq!(s.finish_hex(), h(&z));
+    }
+
+    #[test]
+    fn a_file_read_from_the_drive_gives_the_same_digest() {
+        let dir = std::env::temp_dir().join(format!("rp-sha-drive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Sizes around the 8 MiB read and the 4 KB sector, and none at all.
+        for len in [0usize, 1, 4095, 4096, 4097, (8 << 20) - 1, 8 << 20, (8 << 20) + 12_345, (17 << 20) + 511] {
+            let p = dir.join(format!("f{len}"));
+            let data: Vec<u8> = (0..len as u32).map(|i| (i.wrapping_mul(2_246_822_519) >> 9) as u8).collect();
+            std::fs::write(&p, &data).unwrap();
+            let mut seen = (0u64, 0u64);
+            let got = file_hex_from_drive(&p, &mut |d, t| seen = (d, t), &|| false).unwrap().unwrap();
+            assert_eq!(got, (len as u64, h(&data)), "{len}");
+            assert_eq!(seen, (len as u64, len as u64), "{len}");
+            assert_eq!(file_hex(&p, &|| false).unwrap().unwrap(), got.1);
+        }
+        assert!(file_hex_from_drive(&dir.join("f4097"), &mut |_, _| {}, &|| true).unwrap().is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

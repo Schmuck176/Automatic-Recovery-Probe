@@ -219,7 +219,8 @@ impl App {
             t.push_str(&f("data", &j.data));
         }
         let _ = std::fs::create_dir_all(&self.results);
-        let _ = std::fs::write(self.state_file(), t);
+        // Written so that a power cut leaves the old state or the new one, whole.
+        let _ = crate::sys::write_safely(&self.state_file(), t.as_bytes());
     }
 
     fn load(&mut self) {

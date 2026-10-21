@@ -614,7 +614,7 @@ class Oracle:
                     spans.append((pos, "partition-table", "", None))
                     pos = min(t[0], e)
                     continue
-                nxt = min([self.vo] if pos < self.vo else [] + [ts for ts, _ in table if ts > pos] +
+                nxt = min(([self.vo] if pos < self.vo else []) + [ts for ts, _ in table if ts > pos] +
                           [p["start"] for p in parts if p["start"] > pos] + [1 << 62])
                 inside = [p for p in parts if p["start"] <= pos < p["end"]]
                 if inside:
@@ -995,9 +995,44 @@ def check_rescue(exe, d, img, truth, exp, oracle):
                 diffs.append("the safety check does not agree (exit %d): %s" % (p.returncode, vlog[-900:]))
             else:
                 COVERAGE["safety checks with all three stages the same"] += 1
+            diffs += check_scan_join(exe, d, out, exp, copy_of, want & got)
         if mode == "everything":
             diffs += check_stop_and_again(exe, d, img, out)
         shutil.rmtree(out, ignore_errors=True)
+    return diffs
+
+
+def check_scan_join(exe, d, out, exp, copy_of, copied):
+    """Checking the copies together with the map check (step 7, "Use what
+    step 5 found"): the copy of every file that lost data is marked
+    NEVER_READ, and no other copy is."""
+    csv_path = os.path.join(d, "scan-joined.csv")
+    p = subprocess.run([os.path.abspath(exe), "scan", out, "--no-holes", "--map-check", os.path.join(d, "out"),
+                        "--out", csv_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=d)
+    log = p.stdout.decode("utf-8", "replace")
+    if p.returncode != 0:
+        return ["the scan with the map check failed (exit %d): %s" % (p.returncode, log[-600:])]
+    top = os.path.abspath(out)
+    marked = set()
+    with open(csv_path, encoding="utf-8-sig", newline="") as f:
+        for row in csv.reader(f):
+            if row and row[0] == "NEVER_READ":
+                where = row[-1][4:] if row[-1].startswith("\\\\?\\") else row[-1]
+                rel = os.path.relpath(where, top).replace(os.sep, "\\")
+                if not rel.startswith("lost data (no name)\\"):
+                    marked.add(rel)
+    want = set()
+    for path, it in exp["items"].items():
+        if it["is_dir"] or it["only_past_valid_data"] or not it["ranges"] or path not in copied:
+            continue
+        want.add(copy_of[path])
+    diffs = []
+    if marked != want:
+        diffs.append("the scan with the map check marked NEVER_READ: only marked %s; not marked %s" % (
+            sorted(marked - want)[:4], sorted(want - marked)[:4]))
+    else:
+        COVERAGE["copies marked NEVER_READ by the scan with the map check"] += len(want)
+    os.remove(csv_path)
     return diffs
 
 

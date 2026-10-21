@@ -27,8 +27,10 @@ opens a page in the PC's own web browser with two tabs:
    Disks Windows calls "removable media" are shown as such: Windows' setting
    does not cover them.
 4. **Make an image of the SSD** — the whole SSD read once into one file on
-   another drive, with its SHA-256, read back to check it; places the SSD
-   could not read are recorded the way ddrescue does. From then on the next
+   another drive, with its SHA-256, read back from that drive to check it;
+   places the SSD could not read are recorded the way ddrescue does. Stopped
+   (or after a power cut), it carries on from the last point known to be
+   safe on the drive. From then on the next
    steps read the image, and the SSD can go back in its drawer. The image
    can be checked again later against its SHA-256, without the SSD.
 5. **See what the damage touched** — the *map check*: from the mapfile and
@@ -114,7 +116,7 @@ recovery-probe isolate <folder the copies went into> --scan <scan results .csv>
 recovery-probe put-back <folder the copies went into>
 recovery-probe undo-put-back <folder the copies went into> R0012
 recovery-probe evaluate <folder the copies went into> --scan <scan results .csv>
-recovery-probe scan <folder>
+recovery-probe scan <folder> [--map-check <map check results folder>]
 recovery-probe sha256 <file>
 recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
 recovery-probe map-info <mapfile>

@@ -8,6 +8,16 @@
 //! cannot read (not expected: it is a healthy drive) is left as zeros and
 //! recorded in a ddrescue-style mapfile beside the image, so the map check
 //! counts it as never read too. A stopped image carries on where it stopped.
+//!
+//! Carrying on is only done from a point known to be safe on the drive:
+//! every few gigabytes the image (and the list of places the SSD could not
+//! read) is made safe on the drive and that point is noted beside it. After
+//! a crash or a power cut a file can come back the right length but with
+//! zeros where its last-written part should be (Windows writes the data
+//! later than it notes the size); the part after the noted point is read
+//! from the SSD again, so no such zeros can end up in the image unnoticed.
+//! The image is checked by reading it back from the drive itself, not from
+//! what Windows still holds of it in memory.
 
 use crate::disk::Source;
 use crate::fmt::{commas, size};
@@ -22,6 +32,10 @@ pub const IMAGE_NAME: &str = "recovered-ssd.img";
 pub const READ_ERRORS_SUFFIX: &str = ".ssd-read-errors.log";
 const CHUNK: usize = 8 << 20;
 const UNIT: usize = 4096;
+/// How often what is made so far is made safe on the drive (see the top).
+const SAFE_EVERY: u64 = 2 << 30;
+/// Beside the image while it is made: how much of it is safe on the drive.
+const SAFE_SUFFIX: &str = ".partial-safe.txt";
 /// Stop rather than go on if the SSD cannot read this much: something is
 /// wrong with it, and the person should ask before going on.
 const TOO_MUCH_UNREADABLE: u64 = 64 << 20;
@@ -143,32 +157,26 @@ pub fn check_existing(
     sha_name.push(".sha256");
     let want = recorded_sha(&image.with_file_name(&sha_name))
         .ok_or_else(|| format!("{shown} has no checksum file beside it ({}), so it cannot be checked", sha_name.to_string_lossy()))?;
-    let mut f = std::fs::File::open(&image).map_err(|e| format!("could not open {shown}: {e}"))?;
-    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let len = std::fs::metadata(&image).map_err(|e| format!("could not open {shown}: {e}"))?.len();
     let mut o = Outcome { path: shown.clone(), size: len, reused: true, ..Default::default() };
-    let mut sha = Sha256::new();
-    let mut buf = vec![0u8; CHUNK];
-    let (mut done, mut last) = (0u64, std::time::Instant::now());
-    amount(0, len);
-    loop {
-        if stop() {
-            o.stopped = true;
-            return Ok(o);
-        }
-        let n = f.read(&mut buf).map_err(|e| format!("could not read {shown}: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        sha.update(&buf[..n]);
-        done += n as u64;
-        if last.elapsed().as_millis() > 300 {
-            amount(done, len);
-            progress(&format!("Checked {} of {}", size(done), size(len)));
-            last = std::time::Instant::now();
-        }
-    }
-    amount(done, len);
-    o.sha256 = sha.finish_hex();
+    let mut last = std::time::Instant::now();
+    let got = crate::sha256::file_hex_from_drive(
+        &image,
+        &mut |done, total| {
+            amount(done, total);
+            if last.elapsed().as_millis() > 1000 {
+                progress(&format!("Checked {} of {}", size(done), size(total)));
+                last = std::time::Instant::now();
+            }
+        },
+        stop,
+    )
+    .map_err(|e| format!("could not read {shown}: {e}"))?;
+    let Some((_, hex)) = got else {
+        o.stopped = true;
+        return Ok(o);
+    };
+    o.sha256 = hex;
     o.verified = o.sha256 == want;
     if let Some(m) = read_errors_map(&image.display().to_string()) {
         if let Ok(t) = std::fs::read_to_string(m) {
@@ -194,6 +202,7 @@ pub fn make(
     let final_path = dir.join(IMAGE_NAME);
     let partial = dir.join(format!("{IMAGE_NAME}.partial"));
     let errs_path = dir.join(format!("{IMAGE_NAME}.partial-unreadable.txt"));
+    let safe_path = dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"));
     let sha_path = dir.join(format!("{IMAGE_NAME}.sha256"));
     let map_path = dir.join(format!("{IMAGE_NAME}{READ_ERRORS_SUFFIX}"));
     let shown = Path::new(&opts.out_dir).join(IMAGE_NAME).display().to_string();
@@ -228,13 +237,27 @@ pub fn make(
         .open(&partial)
         .map_err(|e| format!("could not create {}: {e}", partial.display()))?;
     let have = f.metadata().map(|m| m.len()).unwrap_or(0);
-    if have > 0 {
-        let keep = have.min(opts.size) / (1 << 20) * (1 << 20);
+    // Only as far as it is known to be safe on the drive (see the top).
+    let safe = std::fs::read_to_string(&safe_path)
+        .ok()
+        .and_then(|t| t.split_whitespace().next().and_then(|n| n.parse::<u64>().ok()))
+        .unwrap_or(0);
+    let keep = if safe <= have.min(opts.size) { safe } else { 0 };
+    if keep == 0 {
+        // Nothing known to be safe: start from the beginning.
+        if have > 0 {
+            f.set_len(0).map_err(|e| format!("could not use {}: {e}", partial.display()))?;
+            progress("An earlier image was not finished, and none of it is known to be safe on the drive: starting again.");
+        }
+        let _ = std::fs::remove_file(&safe_path);
+    }
+    if keep > 0 {
         f.set_len(keep).map_err(|e| format!("could not use {}: {e}", partial.display()))?;
         progress(&format!(
-            "Carrying on with the image a stopped run began ({} of {} done). Reading that part back first...",
+            "Carrying on with the image a stopped run began ({} of {} done{}). Reading that part back first...",
             size(keep),
-            size(opts.size)
+            size(opts.size),
+            if have > keep { "; what was written after the last safe point is read from the SSD again" } else { "" }
         ));
         if !hash_file_part(&mut f, keep, &mut sha, &stop).map_err(|e| format!("could not read {}: {e}", partial.display()))? {
             o.stopped = true;
@@ -250,10 +273,20 @@ pub fn make(
                 }
             }
         }
+        // The list keeps only the places before the safe point: the rest is
+        // read again.
+        let kept: String = o.unreadable.iter().map(|(s, n)| format!("{s} {n}\n")).collect();
+        crate::sys::write_safely(&errs_path, kept.as_bytes()).map_err(|e| format!("could not write {}: {e}", errs_path.display()))?;
         start = keep;
     } else {
         let _ = std::fs::remove_file(&errs_path);
     }
+    // Make what is written so far safe on the drive, and note how far that is.
+    let make_safe = |f: &std::fs::File, errs: &std::fs::File, at: u64| -> bool {
+        errs.sync_all().is_ok()
+            && f.sync_all().is_ok()
+            && crate::sys::write_safely(&safe_path, format!("{at}\r\n").as_bytes()).is_ok()
+    };
     if let Some(free) = crate::win::free_space(&dir) {
         let need = opts.size - start + (64 << 20);
         if need > free {
@@ -277,6 +310,7 @@ pub fn make(
     let quit = AtomicBool::new(false);
     let t0 = std::time::Instant::now();
     let mut pos = start;
+    let mut safe_at = start;
     let mut unreadable_total: u64 = o.unreadable.iter().map(|r| r.1).sum();
     let mut write_error: Option<String> = None;
     let mut too_much = false;
@@ -343,6 +377,9 @@ pub fn make(
                     let _ = errs.flush();
                     o.unreadable.extend(bad);
                     pos += data.len() as u64;
+                    if pos - safe_at >= SAFE_EVERY && pos < opts.size && make_safe(&f, &errs, pos) {
+                        safe_at = pos;
+                    }
                     if last.elapsed().as_millis() > 500 {
                         amount(pos, opts.size);
                         last = std::time::Instant::now();
@@ -363,6 +400,10 @@ pub fn make(
     o.read_seconds = t0.elapsed().as_secs();
     amount(pos, opts.size);
     let _ = f.flush();
+    if write_error.is_none() && pos > safe_at && pos < opts.size {
+        // Stopped part-way: so the next run carries on from here.
+        let _ = make_safe(&f, &errs, pos);
+    }
     if let Some(e) = write_error {
         return Err(format!(
             "could not write the image ({e}) - was the drive it goes on unplugged, or is it full? What is made so far is \
@@ -392,6 +433,7 @@ pub fn make(
             .map_err(|e| format!("could not write {}: {e}", map_path.display()))?;
     }
     let _ = std::fs::remove_file(&errs_path);
+    let _ = std::fs::remove_file(&safe_path);
     let info = format!(
         "Image of {} made by {} {} on {}.\r\nSize: {} bytes. SHA-256: {}\r\nPlaces the SSD could not read: {} ({} bytes){}.\r\n",
         src.describe(),
@@ -407,10 +449,11 @@ pub fn make(
         if o.unreadable.is_empty() { "" } else { " - listed in the .ssd-read-errors.log beside it, and left as zeros" }
     );
     let _ = std::fs::write(dir.join(format!("{IMAGE_NAME}.txt")), info);
-    progress("All of the SSD is read: it is not needed any more. Checking the image by reading it back...");
-    let back = crate::sha256::file_hex(&final_path, &stop).map_err(|e| format!("could not read the image back: {e}"))?;
+    progress("All of the SSD is read: it is not needed any more. Checking the image by reading it back from the drive...");
+    let back = crate::sha256::file_hex_from_drive(&final_path, amount, &stop)
+        .map_err(|e| format!("could not read the image back: {e}"))?;
     match back {
-        Some(b) => o.verified = b == o.sha256,
+        Some((_, b)) => o.verified = b == o.sha256,
         None => o.stopped = true,
     }
     Ok(o)
@@ -539,6 +582,9 @@ mod tests {
         assert!(o.stopped, "{o:?}");
         let part = std::fs::metadata(dir.join(format!("{IMAGE_NAME}.partial"))).unwrap().len();
         assert!(part > 0 && part < want, "{part}");
+        // Stopped: all of it was made safe on the drive, and noted.
+        let note = std::fs::read_to_string(dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"))).unwrap();
+        assert_eq!(note.trim().parse::<u64>().unwrap(), part);
         stop.store(false, Ordering::Relaxed);
         let o = make(&mem, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
         assert!(o.verified && !o.stopped && o.unreadable.is_empty(), "{o:?}");
@@ -556,6 +602,39 @@ mod tests {
         drop(f);
         let o3 = make(&mem, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
         assert!(o3.reused && !o3.verified, "{o3:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn after_a_crash_it_carries_on_only_from_the_safe_point() {
+        let dir = std::env::temp_dir().join(format!("rp-image-crash-{}", std::process::id()));
+        let d = data(20 << 20);
+        let mem = Memory::new(d.clone());
+        let want = 18u64 << 20;
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None };
+        let partial = dir.join(format!("{IMAGE_NAME}.partial"));
+        let safe = dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"));
+        // What a power cut can leave: the right data up to some point, then
+        // zeros where the last-written data never reached the drive.
+        let crashed = |safe_note: Option<&str>| {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut left = d[..5 << 20].to_vec();
+            left.extend(std::iter::repeat_n(0u8, 6 << 20));
+            std::fs::write(&partial, &left).unwrap();
+            if let Some(n) = safe_note {
+                std::fs::write(&safe, n).unwrap();
+            }
+        };
+        for note in [Some("5242880\r\n"), Some("3145728"), None, Some("999999999999"), Some("not a number")] {
+            crashed(note);
+            let o = make(&mem, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
+            assert!(o.verified && !o.stopped, "{note:?}: {o:?}");
+            let img = std::fs::read(dir.join(IMAGE_NAME)).unwrap();
+            assert!(img == d[..want as usize], "{note:?}: the image is not the disk");
+            assert_eq!(o.sha256, hex(&d[..want as usize]), "{note:?}");
+            assert!(!safe.exists() && !partial.exists(), "{note:?}");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 
