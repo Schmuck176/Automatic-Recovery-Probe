@@ -7,6 +7,18 @@ land on the `ci-windows` and `ci-linux` branches (read them with
 reached from the development workspace. The Windows build of each commit is
 `recovery-probe.exe` on the `ci-windows` branch.
 
+`main` is the version on the user's PC (the user's rule, 21 Oct 2026). Move
+it forward only after all four: CI green on dev; installed in
+C:\RECOVERY-TOOLS and its sha256 checked on the PC; the self-test passed on
+the PC (the user says so, or results\recovery-probe-state.txt shows
+"Every check passed" after the install); the delivery recorded here in a
+`[skip ci]` commit. Then fast-forward main to that commit
+(`git push origin dev:main`) and tag the commit the exe was built from (its
+BUILD-INFO.txt on ci-windows) as `version-YYYY-MM-DD-N`, annotated with the
+CI run and the exe's sha256 (`git push origin <tag>`). Tags, not branches,
+so the branch list stays short. Pushes to main never start a build (the
+workflow builds dev only).
+
 ## Done
 
 - File checks (`scan`), ported from the original Python program; identical
@@ -330,12 +342,27 @@ Version "2026-10-20 (1)":
   names show as "name no file in WORK", look at Unicode normalisation (NFD
   from the Mac vs the names in WORK).
 
+## main brought up to date (21 October 2026)
+
+The user ran the self-test with 2026-10-20 (1) on the PC (passed at
+05:06:20, results\recovery-probe-state.txt agrees), and opening it upgraded
+the Obsidian checklist (31 ticks kept) and the manifest, both checked. The
+user deleted the `review` branch. GitHub's front page showed `main`, still
+at 2fe0e9b (17 Oct, 52 changes behind, with the old Python program in
+reference/), hence "Python 54.7%". The user asked: bring main up to date;
+from now on main = what is in C:\RECOVERY-TOOLS, moved only once tested and
+proven to work; old versions kept under their version numbers; the old main
+needs no branch of its own. Done: main fast-forwarded to dev (2fe0e9b stays
+in the history, as an ancestor), the workflow builds dev only, the README
+says what each branch is, and the installed version is tagged
+`version-2026-10-20-1` (a728da4). On dev the languages are about Rust 72%,
+Python 18% (the test tools), HTML 8%, JavaScript 2%.
+
 ## Next
 
-1. The user runs Phase -1 E again (the self-test) with the new program; the
-   program then upgrades the Obsidian copy and the manifest itself.
-2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    Help read step 5's results; check the files fit on SPARE.
-3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
-4. The user deletes the `review` branch on GitHub (Branches page).
+3. Any new version: CI, install, self-test on the PC, then main and a tag
+   (the rule at the top of this file).

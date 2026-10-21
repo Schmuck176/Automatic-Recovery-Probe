@@ -1,10 +1,12 @@
 name: Build and test
-# Only dev and main are built on push: other branches (review notes, the
-# ci-* result branches) must never start a run, because a run publishes its
-# results over ci-windows and ci-linux. Publishing happens only for dev.
+# Only dev is built on push. main only ever receives a version that was
+# already built and tested here on dev and then installed on the person's
+# PC, so building it again would only spend Windows minutes. Other branches
+# (the ci-* result branches) must never start a run, because a run publishes
+# its results over ci-windows and ci-linux. Publishing happens only for dev.
 on:
   push:
-    branches: [dev, main]
+    branches: [dev]
   pull_request:
   workflow_dispatch:
 permissions:

@@ -72,6 +72,20 @@ opens a page in the PC's own web browser with two tabs:
 Results are kept in a `results` folder next to the program. `docs/` has the
 checklist the whole recovery follows, and the tools it uses.
 
+## Versions and branches
+
+- **`main`** is the version in `C:\RECOVERY-TOOLS` on the PC. It moves
+  forward only when a new version has passed every test on GitHub, has been
+  installed on the PC and checked byte for byte there, and its self-test has
+  passed on the PC.
+- **`dev`** is where changes are made; every change to it is built and
+  tested on GitHub's Windows and Linux machines.
+- **`ci-windows`** and **`ci-linux`** hold the latest test results and the
+  tested program (only the latest: they are replaced at every build).
+- Each version that went onto the PC is kept as a tag named after its
+  version, such as `version-2026-10-20-1` (the program's page shows
+  "Version 2026-10-20 (1)").
+
 ## What the checks say
 
 | Verdict | Meaning |
