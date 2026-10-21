@@ -1794,6 +1794,9 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
     let map_check = lock(app).setting("last_map_check");
     let results = lock(app).results.clone();
     start_job(app, "verify", "Checking the copies are unchanged", move |ctx| {
+        // The check counts from when it started: a box ticked while it ran
+        // may stand for something it did not see (the checkpoints, checklist.rs).
+        let started = local_now();
         let mc = (!map_check.is_empty()).then(|| PathBuf::from(&map_check));
         let r = crate::verify::run_checked(
             &dir,
@@ -1807,7 +1810,7 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
         let safety = (!r.stopped).then(|| crate::verify::safety(&r));
         let mut summary = crate::verify::summary(&r);
         if let Some(s) = &safety {
-            if let Err(e) = s.record(&results, &local_now(), crate::verify::STEP7, &dir.display().to_string(), Some(&r)) {
+            if let Err(e) = s.record(&results, &started, crate::verify::STEP7, &dir.display().to_string(), Some(&r)) {
                 summary.push(format!("(The safety check could not be added to the list of every check: {e})"));
             }
         }
