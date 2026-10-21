@@ -484,9 +484,30 @@ the list stays as it was and the banner is left alone while the program
 does not answer; the page test checks the banner is still there 4 s later
 (it fails against ca03425's page, passes now).
 
+CI for 7306788 (run 39685988470): Windows green; on Linux every check
+passed, then Node's own fetch threw "assert(!this.paused)" in ui_check.js
+while it waited for the restarted program (a page it fetched was left
+unread). 346dc0a: ui_check.js reads every answer; no change to the program.
+
+CI for 346dc0a (run 39689600750) green: Windows unit tests 67, self-test,
+map check tests 42/42, Windows checks 18/18, protection 16/16, unplugged
+35/35, page 64/64; Linux unit tests 69, self-test, map check tests 92/92
+with fsck.exfat and dissect.fat, kernel 23/23, page 63/63. Installed 22 Oct
+00:21 BST into C:\RECOVERY-TOOLS\recovery-probe.exe (from ci-windows of
+346dc0a, staged under a fresh name) and staged back: 4,154,880 bytes,
+sha256 4f1145962c3e085e..., version "2026-10-21 (2)" (mtime
+1792624889196), identical to the tested build. main moved to this version;
+2026-10-21 (1) (ddb0d5b) kept in branch version-2026-10-21-1. Still to do on
+the PC: the user's self-test; the first time it opens, the program upgrades
+the Obsidian checklist (Phase 1 steps 11, 13, 15; 31 ticks kept, as
+simulated).
+
 ## Next
 
-1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
-   Help read step 5's results; check the files fit on SPARE.
-2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+1. The user runs the self-test with 2026-10-21 (2) on the PC.
+2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+   In the rehearsal, SPARE must not be marked "the copy ddrescue made" (if
+   it is a 1 TB GPT drive, 2026-10-21 (1) would have marked it). Help read
+   step 5's results; check the files fit on SPARE.
+3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
