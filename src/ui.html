@@ -539,6 +539,8 @@ function renderTop() {
   if (S.elevated) { r.className = "rights"; r.textContent = "Running with administrator rights"; }
   else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 6 cannot read the SSD"; }
   $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
+  // While the program is not answering, its banner (set by refresh) stays.
+  if (lost) return;
   const b = $("restore-banner");
   const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue" || S.job.kind === "image");
   if (S.policy_to_restore && reading) {
@@ -1206,7 +1208,9 @@ async function updateSpace() {
 // ------------------------------------------------------------ keeping up
 
 async function loadDisks() {
-  try { disks = await get("api/disks"); } catch { disks = []; }
+  // (Not answering: the program was closed. refresh() says so; the list
+  // stays as it was.)
+  try { disks = await get("api/disks"); } catch { return; }
   // Disk numbers change as drives come and go: when exactly one disk is the
   // copy ddrescue made, that is the one chosen (see autoChoice).
   const c = autoChoice(disks, setting("disk"), pickedByHand, copiesWhenPicked);

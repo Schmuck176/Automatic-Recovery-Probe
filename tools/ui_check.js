@@ -319,7 +319,10 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   const told = await page.waitForFunction(
     () => document.getElementById("restore-banner").textContent.includes("not running any more"), null, { timeout: 15000 })
     .then(() => true, () => false);
-  check(told, "while the program is closed, the page says so");
+  // ...and keeps saying so while it goes on looking for disks.
+  await page.waitForTimeout(4000);
+  const stays = (await page.textContent("#restore-banner")).includes("not running any more");
+  check(told && stays, "while the program is closed, the page says so, and keeps saying it (" + told + ", " + stays + ")");
   if (!told) await shot("fail-closed");
 
   // The state survives a restart of the program.
