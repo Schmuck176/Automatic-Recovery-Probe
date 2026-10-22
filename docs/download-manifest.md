@@ -4,7 +4,7 @@
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
-You've already downloaded everything below, except **OSFMount** (section 3), which is
+You've already downloaded everything below, except **AIM Toolkit** (section 3), which is
 new in this version: download it while you're still online. This page is here so you
 know what each one is for, and where to get it again if you ever need to. **Installing is covered in
 the checklist, Phase −1 section D.**
@@ -104,10 +104,11 @@ account — it runs ~70 virus scanners on it).
 - **https://github.com/Yutaka-Sawada/MultiPar/releases** — you have `MultiPar1336_setup.exe` ✔
 - Makes "PAR2" files that can detect *and repair* files that quietly change over the years. A PAR2 set covers at most 32,768 files, so it doesn't suit big folders, and a Photos Library you keep using changes all the time. The plan now uses two copies on two drives plus the program's checksum list instead (Phase 8). MultiPar still suits a small folder you'll never change.
 
-### OSFMount — opens the image read-only (Phase 1, once)
-- **https://www.osforensics.com/tools/mount-disk-images.html** (PassMark Software, the makers of OSForensics) → the 64-bit installer, `osfmount.exe` (version 3.3, for Windows 10 and 11). Free. **New: download it now**, while you're online.
-- Opens a disk image as a drive, read-only by default, so Windows can read the files in it without anything changing the image. Phase 1, step 19 opens `recovered-ssd.img` this way, and step 5 then compares the program's reading of the image with Windows' own, file by file.
-- Only ever used read-only: never untick **Read-only drive**, and never use its write-cache or format options. (The image is marked read-only anyway.)
+### AIM Toolkit — opens the image read-only (Phase 1, once)
+- **https://sourceforge.net/projects/aim-toolkit/files/** → the newest folder (`20260420` in October 2026) → **`AIMtk.zip`** (about 2 MB). Only from that page, the project's own. **New: download it now**, while you're online.
+- Free and **open source** (Affero GPL). It is by the author of ImDisk Toolkit, which it replaces, and it works with the **Arsenal Image Mounter** driver: Arsenal Recon's, open source too (AGPL v3), signed for Windows, and long used for forensic work. Needs .NET Framework 4.8, which Windows 10 (since 2019) and Windows 11 already have.
+- It opens a disk image as a disk Windows can read — read-only, when its read-only option is ticked — so Windows can list the files in it while nothing changes the image. Phase 1, step 19 opens `recovered-ssd.img` this way, and step 5 then compares the program's reading of the image with Windows' own, file by file. (It opens the image so that other programs can still read it, which step 5 needs.)
+- Only ever used read-only. (The image is marked read-only anyway.) Its RAM-disk tool isn't needed.
 
 ### Obsidian — for reading this checklist
 - **https://obsidian.md** — you have `Obsidian-1.13.7.exe` ✔

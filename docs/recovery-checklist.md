@@ -158,8 +158,8 @@ Mac (Phase 5 checks, and the checkpoint after it would show it).
 
 **Recovery Probe** (`recovery-probe.exe`) does the essential work: the image, the map
 check, the copying, the checks, and taking the damaged files out to repair and putting
-them back. **OSFMount** opens the image read-only once, so that Windows' own reading of
-it can be compared with the program's (Phase 1). Everything else is optional: **Krokiet**, **7-Zip**
+them back. **AIM Toolkit** (open source) opens the image read-only once, so that
+Windows' own reading of it can be compared with the program's (Phase 1). Everything else is optional: **Krokiet**, **7-Zip**
 and **MP3val** for extra checks that only read (Phase 4), **ffmpeg** for Krokiet's
 video check, **`sips`** on the Mac (built in, only reads), and **untrunc** and the
 paid repair tools, used only on the copies in `REPAIR` (Phase 6).
@@ -253,7 +253,7 @@ need to download one again.
   4. `Win+R` → type `sysdm.cpl` → **Advanced** → **Environment Variables** → under *User variables* select **Path** → **Edit** → **New** → paste the path → OK, OK, OK.
   5. **Open a new Command Prompt** (an old one won't see the change) and type `ffmpeg -version`, then `ffprobe -version`.
   6. A block of version text for both means it worked. *"Not recognized"* means Krokiet will list **every** video as broken with "Failed to run ffmpeg" — go back to step 3 and check the path.
-- [ ] **OSFMount** (`osfmount.exe`, free, from PassMark's osforensics.com — the manifest has the address; download it now, while you're online) — run it to install it. Phase 1 uses it once, to open the image read-only.
+- [ ] **AIM Toolkit** (`AIMtk.zip`, free and open source, from its SourceForge page — the manifest has the address; download it now, while you're online) — unzip it and run the installer in it (it asks for administrator rights, and installs the Arsenal Image Mounter driver it works with). Phase 1 uses it once, to open the image read-only.
 - [ ] Check the files from the box at the top of this checklist are in `C:\RECOVERY-TOOLS\`.
 
 ### On the Mac, while still online
@@ -379,8 +379,8 @@ file and folder Windows lists against the ones the program says Windows can list
 their sizes. It is the one check of the program's reading that doesn't rely on the
 program.
 
-- [ ] **19. Open the image read-only with OSFMount.** Start **OSFMount** → **Mount new…** → **Disk image file**: choose `D:\IMAGE\recovered-ssd.img` → **Next**. Choose **Mount partitions as virtual disks** and tick only the big partition (about 1,000 GB, exFAT — not the small EFI one) → **Next** (pass any page about a RAM drive without changing anything). On the last page leave **Read-only drive** ticked (it is by default) and **Mount as removable media** unticked, choose **Logical Emulation** and drive letter **auto** → **Mount**. A new drive appears in File Explorer, with your files. If Windows offers to scan or fix it, click **Cancel**. Leave it open until Phase 2, step 2.
-  - *OSFMount says it can't open the image, or the drive isn't read-only?* Click **Dismount all & Exit**, and tell Claude.
+- [ ] **19. Open the image read-only with AIM Toolkit.** Start AIM Toolkit's **Mount Image File** tool (in the Start menu; the program is `MountImg.exe`), choose `D:\IMAGE\recovered-ssd.img`, tick its **read-only** option, and mount it. Windows takes the image for a disk and gives its big partition (about 1,000 GB, exFAT) a drive letter: a new drive appears in File Explorer, with your files. If Windows offers to scan, fix or format anything, click **Cancel**. (The image itself is marked read-only, so nothing can write to it whatever the setting — but tick read-only anyway: step 5 checks it. While it is open, step 3 may list it as a disk marked *the copy ddrescue made*: that's the image; leave step 3 alone.) Leave it open until Phase 2, step 2.
+  - *It won't mount, or no new drive appears?* Unmount it in AIM Toolkit, and tell Claude.
 
 ---
 
@@ -391,7 +391,7 @@ in; the recovered SSD and the 4 TB SSD stay in their drawer. (Step 5 and 6 say
 **"Reads from the image"** under their text; if they don't, step 4's image isn't
 there: tell Claude.)
 
-- [ ] **1. Step 5 → Find what the damage touched.** A few minutes (a little longer with the image open in OSFMount: it also compares itself with what Windows lists there). It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down; the program puts the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
+- [ ] **1. Step 5 → Find what the damage touched.** A few minutes (a little longer with the image open in AIM Toolkit: it also compares itself with what Windows lists there). It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down; the program puts the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
 
 > **Your numbers**, from step 5 (the program fills them in). They never change: every
 > safety check from now on should show the same number of files.
@@ -402,8 +402,8 @@ there: tell Claude.)
 
 - [ ] **2. Read the lines under the numbers.**
   - The date line should say the newest date on the SSD is *before* ddrescue finished (24 April 2024). **If it shows a yellow warning instead, stop and tell Claude**: something may have changed the SSD after the copy (a computer it was plugged into, say), or a file simply has a wrong date.
-  - The green line should say *"Checked against Windows' own reading of the volume (drive R:): Windows lists N files and folders, exactly the ones this check says it can list, with the same sizes."* **If it says they differ instead, or there's a red or yellow message about leftovers or about records that point at space that isn't theirs, stop and tell Claude**: the program may be reading part of the volume wrongly, and that must be understood before anything is copied. *(It says the volume has no drive letter? The image isn't open in OSFMount: do Phase 1, step 19, and run step 5 again.)*
-  - Then close the image: in OSFMount, click **Dismount all & Exit**.
+  - The green line should say *"Checked against Windows' own reading of the volume (drive R:): Windows lists N files and folders, exactly the ones this check says it can list, with the same sizes."* **If it says they differ instead, or there's a red or yellow message about leftovers or about records that point at space that isn't theirs, stop and tell Claude**: the program may be reading part of the volume wrongly, and that must be understood before anything is copied. *(It says the volume has no drive letter? The image isn't open: do Phase 1, step 19, and run step 5 again.)*
+  - Then close the image: unmount it in AIM Toolkit. (If you can't find how, it can stay: it's read-only, and it is gone after the PC next restarts.)
 - [ ] **3.** If the page says some **folders were found by their contents**: those are folders whose own record (with the folder's name) sat on a never-read place. The files inside keep their names, dates and folders; only the folder's own name is lost. Step 6 puts each one in `found folders (name lost)\folder at cluster N`.
 - [ ] **4.** If **data no folder names any more** is more than a few MB, tell Claude before going further. It is usually files whose folder record was lost; a second recovery program can be tried on the image to put names to some of it (safely: it's the image).
 - [ ] **5. Will it fit on `SPARE`?** It holds about 930 GB. If step 5's *size in all* is more than about 900 GB, **stop and tell Claude** (the copying would refuse to start anyway).

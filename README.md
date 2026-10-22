@@ -44,7 +44,7 @@ opens a page in the PC's own web browser with two tabs:
    newest date on the volume (a date after the copy means something changed
    it). Folders whose own record was lost are found by their contents. It
    checks itself: with the volume open as a drive (the image mounted
-   read-only with OSFMount), every file Windows lists is compared with what
+   read-only with AIM Toolkit), every file Windows lists is compared with what
    it says Windows can list; records left after a folder's end are named as
    leftovers, not damage; records that claim another's clusters, or free
    ones, are named.

@@ -572,12 +572,13 @@ VDS_SAN_POLICY (learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vds/81e
 
 1. **The checklist** (Phase 1 steps 10, 11, 13, 15, 16, a new step 19 and its
    section; Phase 2 steps 1, 2, 6; the drives table; the checks table; "What
-   this catches"; Phase −1 section D gets OSFMount; the manifest gets
-   OSFMount): the very same case or adapter, port and cable; what SPARE
+   this catches"; Phase −1 section D and the manifest get AIM Toolkit -
+   first OSFMount, then, at the user's wish for open source, AIM Toolkit):
+   the very same case or adapter, port and cable; what SPARE
    arriving with a drive letter can mean, and what to note; the SATA port
    only if it allows hot-plugging; the 4 TB SSD the same way; SPARE perhaps
    switched off in Phase 2; what the image does now at a weak spot, and
-   when to stop; open the image read-only with OSFMount and read step 5's
+   when to stop; open the image read-only with AIM Toolkit and read step 5's
    comparison with Windows; Excel: look, never save. Ticked lines are
    unchanged (all 31 ticks carry over).
 2. **The image at a weak spot** (`image.rs`): a piece that will not read is
@@ -607,7 +608,8 @@ VDS_SAN_POLICY (learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vds/81e
      the bitmap was read - are reported (summary, `map-check-consistency.csv`,
      JSON, page);
    - when the volume has a drive letter here (found by its serial number:
-     the image open in OSFMount, or the SSD switched on read-only), every
+     the image open read-only with AIM Toolkit, or the SSD switched on
+     read-only), every
      file and folder Windows lists is compared with what the check says
      Windows can list, sizes included, and whether that volume is read-only
      (`map-check-windows-compare.csv`, JSON, page); `--compare-with` names

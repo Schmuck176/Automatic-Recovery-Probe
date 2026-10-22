@@ -1719,12 +1719,12 @@ pub fn windows_lines(r: &Report) -> Vec<String> {
     let mut t = Vec::new();
     let Some(w) = &r.windows else {
         t.push("Not checked against Windows' own reading of the volume: it has no drive letter here. To check,".to_string());
-        t.push("mount the image read-only (OSFMount: Read-only drive) and run this check again.".to_string());
+        t.push("open the image read-only (AIM Toolkit, read-only ticked) and run this check again.".to_string());
         return t;
     };
     if w.read_only == Some(false) {
         t.push(format!("WARNING: {} is NOT read-only: Windows can write to it. If it is the image, unmount it and", w.root));
-        t.push("mount it again read-only (in OSFMount, tick \"Read-only drive\"). If it is the recovered SSD, switch it off".to_string());
+        t.push("open it again read-only (in AIM Toolkit, tick read-only). If it is the recovered SSD, switch it off".to_string());
         t.push("in step 3 and protect it again.".to_string());
     }
     if let Some(e) = &w.failed {

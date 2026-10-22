@@ -588,9 +588,23 @@ think are necessary." Version "2026-10-22 (1)".
   `FAT_BLOCKS_KEPT` (128) 1 MiB blocks and drops the oldest (it emptied
   itself whole at 64); version "2026-10-22 (1)".
 - **Checklist and manifest** (both dated 2026-10-22 (1)): the wording above;
-  OSFMount (osforensics.com, 3.3, free, read-only by default; opens image
-  files with share permissions since 3.0.1005, so the program can read the
-  image while it is mounted). No ticked line changed: all 31 ticks carry
+  AIM Toolkit to open the image read-only (first OSFMount; the user, 19:07:
+  "I prefer to use the best open source software rather than OSFMount").
+  AIM Toolkit: sourceforge.net/projects/aim-toolkit, AIMtk.zip (20260420),
+  Affero GPL, by v77 (ImDisk Toolkit's author; ImDisk Toolkit is no longer
+  developed), built on Arsenal Image Mounter's driver (Arsenal Recon, dual
+  licence, AGPL v3 for open projects; github.com/ArsenalRecon/
+  Arsenal-Image-Mounter), .NET Framework 4.8. AIM opens a raw image with
+  FileShare.Read | FileShare.Delete (DevioServiceFactory.cs), so the
+  program can read the image while it is mounted. AIM mounts the whole
+  image as a disk: Windows gives its exFAT partition a letter (with the
+  SAN policy put back, Phase 1 step 18 before step 19), and the disk list
+  in step 3 shows it as "the copy ddrescue made" (made for the map's size,
+  holding the exFAT volume) - harmless (read-only, nothing reads it but
+  Windows), and the checklist says to leave step 3 alone. Its menus were
+  not seen here (SourceForge is not reachable from this workspace), so the
+  checklist names only its Mount Image File tool and its read-only option;
+  the map check itself says whether the drive is read-only. No ticked line changed: all 31 ticks carry
   over. `KNOWN_CHECKLISTS` / `KNOWN_MANIFESTS` have 8d0eb83's hashes
   (0x49bf8839aa61ffcf, 0xf73b22a601bcfcfb), so the copies in Obsidian are
   upgraded in place.
@@ -629,7 +643,7 @@ places" before).
    should arrive switched off; if it gets a drive letter, ask which name
    step 3 shows for it (SPARE's own: Windows remembers SPARE, the SSD should
    still arrive switched off; the adapter's: use an adapter this PC has
-   never seen). Then OSFMount (Phase 1 step 19) and step 5's comparison
+   never seen). Then AIM Toolkit (Phase 1 step 19) and step 5's comparison
    with Windows. Help read step 5's results; check the files fit on SPARE.
 2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
