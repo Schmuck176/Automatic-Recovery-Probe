@@ -636,6 +636,24 @@ literal once and the names joined on). Also: the image summary words a
 place stepped over without any unreadable one properly ("could not read 0
 places" before).
 
+CI for 23c9fc5 (run 39824837852) green: Windows unit tests 73, map check
+tests 43/43, Windows checks 19/19 (the checksum experiment: Windows
+reports "Many" as corrupted, the map check's comparison agrees),
+protection 20/20, unplugged 35/35, page 64/64; Linux unit tests 75, map
+check tests 93/93 with fsck.exfat and dissect.fat, kernel 23/23, page
+63/63. Then OSFMount was replaced by AIM Toolkit (0d537a5, the user's
+wish for open source; texts only). CI for 0d537a5 (run 39856022908) green,
+the same numbers on both. Installed 22 Oct 22:44 BST into
+C:\RECOVERY-TOOLS\recovery-probe.exe (from ci-windows of 0d537a5, staged as
+recovery-probe-2026-10-22-1-0d537a5.exe) and staged back: 4,338,176 bytes,
+sha256 96e180940fa699ff..., mtime 1792705468376, identical to the tested
+build. Simulated on a copy of the PC's files beforehand: opening it
+upgrades the Obsidian checklist and manifest to the new texts with all 31
+ticks (the old copy's hash 0x49bf8839aa61ffcf is in KNOWN_CHECKLISTS),
+checklist-ticks.txt untouched. main moved to this version; 2026-10-21 (2)
+(8d0eb83) kept in branch version-2026-10-21-2. The self-test on the PC is
+still to be run.
+
 ## Next
 
 1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
