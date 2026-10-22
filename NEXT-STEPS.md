@@ -497,17 +497,18 @@ with fsck.exfat and dissect.fat, kernel 23/23, page 63/63. Installed 22 Oct
 346dc0a, staged under a fresh name) and staged back: 4,154,880 bytes,
 sha256 4f1145962c3e085e..., version "2026-10-21 (2)" (mtime
 1792624889196), identical to the tested build. main moved to this version;
-2026-10-21 (1) (ddb0d5b) kept in branch version-2026-10-21-1. Still to do on
-the PC: the user's self-test; the first time it opens, the program upgrades
-the Obsidian checklist (Phase 1 steps 11, 13, 15; 31 ticks kept, as
-simulated).
+2026-10-21 (1) (ddb0d5b) kept in branch version-2026-10-21-1. The user ran
+the self-test on the PC on 22 Oct: every check passed (started 06:24:36;
+results\recovery-probe-state.txt agrees). Opening the program upgraded the
+Obsidian checklist at 06:24:34: the new text (steps 11, 13, 15) with all 31
+ticks, checked on the PC (checklist_copy_hash 0x49bf8839aa61ffcf, the new
+text's); checklist-ticks.txt untouched.
 
 ## Next
 
-1. The user runs the self-test with 2026-10-21 (2) on the PC.
-2. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
+1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
    In the rehearsal, SPARE must not be marked "the copy ddrescue made" (if
    it is a 1 TB GPT drive, 2026-10-21 (1) would have marked it). Help read
    step 5's results; check the files fit on SPARE.
-3. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
+2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
