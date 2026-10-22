@@ -100,6 +100,9 @@ pub struct WindowsView {
     /// Folders Windows would not let the program look into: left out of the
     /// comparison.
     pub unlistable: Vec<String>,
+    /// Folders Windows reports as corrupted: it lists nothing in them (and
+    /// this check expects it to list nothing there, or they differ).
+    pub corrupt: Vec<String>,
     /// Why there is no comparison after all.
     pub failed: Option<String>,
 }
@@ -1303,45 +1306,71 @@ struct Claimant {
     leftover: bool,
 }
 
-/// Every file and folder under `root`, as Windows lists them: path (folders
-/// separated by '\') -> (is a folder, size). Folders it may not look into
-/// are listed apart.
-fn list_tree(root: &Path, say: &mut dyn FnMut(&str)) -> Result<(HashMap<String, (bool, u64)>, Vec<String>), String> {
-    let mut out: HashMap<String, (bool, u64)> = HashMap::new();
-    let mut unlistable = Vec::new();
+/// What Windows lists under a folder (list_tree).
+struct Listing {
+    /// Path (folders separated by '\') -> (is a folder, size).
+    entries: HashMap<String, (bool, u64)>,
+    /// Folders Windows does not let the program look into (as System Volume
+    /// Information): left out of the comparison.
+    shut: Vec<String>,
+    /// Folders Windows fails to list part-way (it reports them as corrupted):
+    /// to Windows' own listing (File Explorer, a copy) they hold nothing, so
+    /// nothing of theirs counts as listed - as the check predicts for a folder
+    /// holding a damaged record (exfat.rs, Stop::Damaged).
+    corrupt: Vec<String>,
+}
+
+/// Every file and folder under `root`, as Windows lists them.
+fn list_tree(root: &Path, say: &mut dyn FnMut(&str)) -> Result<Listing, String> {
+    let mut out = Listing { entries: HashMap::new(), shut: Vec::new(), corrupt: Vec::new() };
     let mut stack = vec![String::new()];
     let mut last = std::time::Instant::now();
     while let Some(rel) = stack.pop() {
         let dir = if rel.is_empty() { root.to_path_buf() } else { root.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR)) };
-        let rd = match std::fs::read_dir(&dir) {
-            Ok(rd) => rd,
-            Err(e) if rel.is_empty() => return Err(format!("could not list {}: {e}", root.display())),
-            Err(_) => {
-                unlistable.push(rel);
-                continue;
+        // A folder's entries are taken only once Windows has listed all of it.
+        let mut here: Vec<(String, bool, u64)> = Vec::new();
+        let failed = match std::fs::read_dir(&dir) {
+            Err(e) => Some(e),
+            Ok(rd) => {
+                let mut failed = None;
+                for ent in rd {
+                    let ent = match ent {
+                        Ok(ent) => ent,
+                        Err(e) => {
+                            failed = Some(e);
+                            break;
+                        }
+                    };
+                    let name = ent.file_name().to_string_lossy().into_owned();
+                    let path = if rel.is_empty() { name } else { format!("{rel}\\{name}") };
+                    let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                    let len = if is_dir { 0 } else { ent.metadata().map(|m| m.len()).unwrap_or(0) };
+                    here.push((path, is_dir, len));
+                }
+                failed
             }
         };
-        for ent in rd {
-            let Ok(ent) = ent else {
-                unlistable.push(rel.clone());
-                break;
-            };
-            let name = ent.file_name().to_string_lossy().into_owned();
-            let path = if rel.is_empty() { name } else { format!("{rel}\\{name}") };
-            let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            let len = if is_dir { 0 } else { ent.metadata().map(|m| m.len()).unwrap_or(0) };
-            if is_dir {
-                stack.push(path.clone());
-            }
-            out.insert(path, (is_dir, len));
-            if last.elapsed().as_millis() > 500 {
-                say(&format!("Listing what Windows shows: {} files and folders so far", commas(out.len() as u64)));
-                last = std::time::Instant::now();
+        match failed {
+            Some(e) if rel.is_empty() => return Err(format!("could not list {}: {e}", root.display())),
+            Some(e) if e.kind() == std::io::ErrorKind::PermissionDenied => out.shut.push(rel),
+            Some(_) => out.corrupt.push(rel),
+            None => {
+                for (path, is_dir, len) in here {
+                    if is_dir {
+                        stack.push(path.clone());
+                    }
+                    out.entries.insert(path, (is_dir, len));
+                }
             }
         }
+        if last.elapsed().as_millis() > 500 {
+            say(&format!("Listing what Windows shows: {} files and folders so far", commas(out.entries.len() as u64)));
+            last = std::time::Instant::now();
+        }
     }
-    unlistable.sort();
-    Ok((out, unlistable))
+    out.shut.sort();
+    out.corrupt.sort();
+    Ok(out)
 }
 
 /// What Windows lists under `root` against what this check says it can
@@ -1366,7 +1395,7 @@ fn windows_view(root: &str, found: &[Claimant], names_kept: bool, say: &mut dyn 
     } else {
         PathBuf::from(root)
     };
-    let (mut listed, unlistable) = match list_tree(&path, say) {
+    let Listing { entries: mut listed, shut: unlistable, corrupt } = match list_tree(&path, say) {
         Ok(x) => x,
         Err(e) => {
             v.failed = Some(e);
@@ -1374,6 +1403,7 @@ fn windows_view(root: &str, found: &[Claimant], names_kept: bool, say: &mut dyn 
         }
     };
     v.listed = listed.len() as u64;
+    v.corrupt = corrupt;
     let shut: std::collections::HashSet<&str> = unlistable.iter().map(|s| s.as_str()).collect();
     let inside_shut = |p: &str| !shut.is_empty() && p.match_indices('\\').any(|(i, _)| shut.contains(&p[..i]));
     let mut only_here = Vec::new();
@@ -1730,6 +1760,13 @@ pub fn windows_lines(r: &Report) -> Vec<String> {
             "(Windows would not let the program look into {} folders, such as {}: left out of the comparison.)",
             commas(w.unlistable.len() as u64),
             w.unlistable[0]
+        ));
+    }
+    if !w.corrupt.is_empty() {
+        t.push(format!(
+            "(Windows reports {} folders as corrupted and lists nothing in them, such as {}.)",
+            commas(w.corrupt.len() as u64),
+            shown(&w.corrupt[0])
         ));
     }
     t
@@ -2182,7 +2219,7 @@ fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
         format!("[{},{},{}]", json_str(p), n(a), n(b))
     }).collect();
     format!(
-        "{{\"root\":{},\"read_only\":{},\"agrees\":{},\"failed\":{},\"listed\":{},\"expected\":{},\"only_windows\":[{}],\"only_windows_count\":{},\"only_here\":[{}],\"only_here_count\":{},\"other_size\":[{}],\"other_size_count\":{},\"unlistable\":[{}]}}",
+        "{{\"root\":{},\"read_only\":{},\"agrees\":{},\"failed\":{},\"listed\":{},\"expected\":{},\"only_windows\":[{}],\"only_windows_count\":{},\"only_here\":[{}],\"only_here_count\":{},\"other_size\":[{}],\"other_size_count\":{},\"unlistable\":[{}],\"corrupt\":[{}]}}",
         json_str(&w.root),
         opt_bool(w.read_only),
         w.agrees(),
@@ -2195,7 +2232,8 @@ fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
         w.only_here_count,
         sizes.join(","),
         w.other_size_count,
-        list(&w.unlistable)
+        list(&w.unlistable),
+        list(&w.corrupt)
     )
 }
 
@@ -2439,24 +2477,24 @@ mod tests {
     #[test]
     fn what_windows_lists_is_compared_name_by_name() {
         let dir = std::env::temp_dir().join(format!("rp-compare-{}", std::process::id()));
-        // Taken literally on Windows, so a name ending in a space can be made.
-        let lit = |p: &Path| {
-            if cfg!(windows) {
-                PathBuf::from(format!(r"\\?\{}", std::path::absolute(p).unwrap().display()))
-            } else {
-                p.to_path_buf()
-            }
+        // Taken literally on Windows, so a name ending in a space can be made:
+        // the folder made a full path once (that would trim such a name), with
+        // \\?\ before it, and the names joined on after.
+        let base = if cfg!(windows) {
+            PathBuf::from(format!(r"\\?\{}", std::path::absolute(&dir).unwrap().display()))
+        } else {
+            dir.clone()
         };
-        let _ = std::fs::remove_dir_all(lit(&dir));
+        let _ = std::fs::remove_dir_all(&base);
         let file = |rel: &str, n: usize| {
-            let p = lit(&dir.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR)));
+            let p = base.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR));
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, vec![7u8; n]).unwrap();
         };
         file(r"Photos\IMG_0001.JPG", 100);
         file(r"Photos\name ending in a space ", 7);
         file(r"Docs\a.txt", 5);
-        std::fs::create_dir_all(lit(&dir.join("Empty"))).unwrap();
+        std::fs::create_dir_all(base.join("Empty")).unwrap();
         let c = |kind: Kind, path: &str, size: u64, listed: bool| Claimant { kind, path: path.into(), size, listed, leftover: false };
         let found = vec![
             c(Kind::Folder, "Photos", 4096, true),
@@ -2473,10 +2511,10 @@ mod tests {
         assert!(v.agrees(), "{v:?}");
         assert_eq!((v.listed, v.expected), (6, 6));
         // One file gone, one added, one a byte longer, and a folder where a file was.
-        std::fs::remove_file(lit(&dir.join("Docs").join("a.txt"))).unwrap();
+        std::fs::remove_file(base.join("Docs").join("a.txt")).unwrap();
         file("extra.bin", 1);
         file(r"Photos\IMG_0001.JPG", 101);
-        std::fs::remove_dir(lit(&dir.join("Empty"))).unwrap();
+        std::fs::remove_dir(base.join("Empty")).unwrap();
         file("Empty", 3);
         let v = windows_view(&root, &found, true, &mut |_| {});
         assert!(!v.agrees());
@@ -2491,7 +2529,7 @@ mod tests {
         assert!(gone.failed.is_some() && !gone.agrees());
         let too_many = windows_view(&root, &found, false, &mut |_| {});
         assert!(too_many.failed.is_some());
-        let _ = std::fs::remove_dir_all(lit(&dir));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

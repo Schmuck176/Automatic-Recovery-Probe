@@ -571,9 +571,9 @@ think are necessary." Version "2026-10-22 (1)".
   claimed twice and claimed though free, and checks them; a new case
   `leftover-records` (one leftover on another file's clusters, one on free
   clusters, and a file hidden by real damage for contrast; fsck.exfat is
-  not asked about it: exfatprogs calls a record after a folder's end an
-  error, and dissect.fat lists such records, so they are left out of its
-  comparison); `check_compare` (POSIX only) builds a folder holding what
+  not asked about it: exfatprogs' current source calls a record after a
+  folder's end an error, and dissect.fat lists such records, so they are
+  left out of its comparison); `check_compare` (POSIX only) builds a folder holding what
   Windows should list and runs `--compare-with` on it: it must agree, then
   name exactly a file taken away, one added and one a byte longer (every
   hand-made case, every fifth random one); `tools/windows_check.py`: part 1
@@ -598,6 +598,29 @@ think are necessary." Version "2026-10-22 (1)".
 Here (Linux): unit tests 75, self-test, map check tests 73/73 (60 random,
 24 comparisons with a folder), page 63/63. Not checked here: the
 Windows-only code (no Windows target in this workspace).
+
+CI for 31d19ac (run 39819262663): Linux green - unit tests 75, self-test,
+map check tests 93/93 with fsck.exfat (exfatprogs 1.2.2) and dissect.fat
+(leftover-records included), kernel 23/23, page 63/63. Windows: map check
+tests 43/43, protection 20/20 (part E: protect, offline and protect
+--online on disk 0, Windows' own, all refused, the disk unchanged),
+unplugged 35/35, page 64/64, self-test, started elevated; Windows checks
+18/19: every disk agrees with Windows, the leftover disk included (Windows
+does not list the leftovers, even undamaged), and the map check's own
+comparison agrees and sees the VHD's volume read-only - but in the folder
+experiment "one letter of a name changed (checksum wrong)" the comparison
+listed 125 of the folder's files as listed by Windows only: Windows'
+enumeration returns its first entries, then fails ("corrupted"); Python's
+os.walk drops such a folder whole, and so do File Explorer and copies. Now
+`list_tree` takes a folder's entries only once Windows has listed all of it:
+a folder that fails part-way is `corrupt` (nothing of it listed: as the
+model says for a folder holding a damaged record; anything the check
+expects listed there shows as a difference), access denied is `shut` (left
+out). Unit tests: 1 failure, the new `windows_view` test's own helper
+(std::path::absolute trims a trailing space; the folder is now made
+literal once and the names joined on). Also: the image summary words a
+place stepped over without any unreadable one properly ("could not read 0
+places" before).
 
 ## Next
 

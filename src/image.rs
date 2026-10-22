@@ -869,18 +869,27 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     if o.unreadable.is_empty() && o.stepped_over.is_empty() {
         t.push("The SSD gave every byte.".to_string());
     } else {
-        let mut what = format!(
-            "The SSD could not read {} places ({})",
-            commas(o.unreadable.len() as u64),
-            size(o.unreadable.iter().map(|r| r.1).sum())
-        );
-        if !o.stepped_over.is_empty() {
-            what.push_str(&format!(
-                ", and {} more around them ({}) were stepped over without being tried, to spare the SSD",
-                if o.stepped_over.len() == 1 { "1 place".to_string() } else { format!("{} places", commas(o.stepped_over.len() as u64)) },
-                size(o.stepped_over.iter().map(|r| r.1).sum())
-            ));
-        }
+        let places = |n: usize| if n == 1 { "1 place".to_string() } else { format!("{} places", commas(n as u64)) };
+        let (bad, over) = (o.unreadable.len(), o.stepped_over.len());
+        let (bad_b, over_b): (u64, u64) = (o.unreadable.iter().map(|r| r.1).sum(), o.stepped_over.iter().map(|r| r.1).sum());
+        let what = match (bad, over) {
+            (_, 0) => format!("The SSD could not read {} ({})", places(bad), size(bad_b)),
+            (0, _) => format!(
+                "{} ({}) {} stepped over without being read, to get the image past where the SSD stopped answering",
+                places(over),
+                size(over_b),
+                if over == 1 { "was" } else { "were" }
+            ),
+            _ => format!(
+                "The SSD could not read {} ({}), and {} around {} ({}) {} stepped over without being read, to spare the SSD",
+                places(bad),
+                size(bad_b),
+                places(over),
+                if bad == 1 { "it" } else { "them" },
+                size(over_b),
+                if over == 1 { "was" } else { "were" }
+            ),
+        };
         t.push(format!(
             "{what}. They are zeros in the image, listed in {IMAGE_NAME}{READ_ERRORS_SUFFIX} beside it, and the map check \
              counts them as never read. Tell Claude before going on: the 4 TB copy may still hold them."
@@ -1238,7 +1247,7 @@ mod tests {
         assert_eq!(kinds, vec![(bad_at, 16 * 4096, '-'), (bad_at + 16 * 4096, piece_end - bad_at - 16 * 4096, '?')]);
         assert!(lines.iter().any(|l| l.contains("stepped over without being tried")), "{lines:?}");
         let s = summary(&o).join(" ");
-        assert!(s.contains("could not read 1 places") && s.contains("stepped over without being tried") && s.contains("4 TB copy"), "{s}");
+        assert!(s.contains("could not read 1 place (64 KB), and 1 place around it") && s.contains("4 TB copy"), "{s}");
         // Checked again later: both kinds are read back from the list.
         let c = check_existing(&dir.join(IMAGE_NAME), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert!(c.verified && c.unreadable == o.unreadable && c.stepped_over == o.stepped_over, "{c:?}");
@@ -1340,6 +1349,8 @@ mod tests {
         assert_eq!(runs, vec![(true, Some(16 << 20)), (true, Some(bad_at)), (false, None)], "{runs:?}");
         let o = done.unwrap();
         assert!(o.unreadable.is_empty(), "{o:?}");
+        let s = summary(&o).join(" ");
+        assert!(s.contains("1 place (") && s.contains("was stepped over without being read, to get the image past"), "{s}");
         assert_eq!(o.stepped_over, vec![(bad_at, (24 << 20) - bad_at)]);
         let img = std::fs::read(dir.join(IMAGE_NAME)).unwrap();
         let mut expect = d[..want as usize].to_vec();

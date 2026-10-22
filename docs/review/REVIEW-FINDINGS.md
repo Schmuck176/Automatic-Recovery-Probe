@@ -618,8 +618,9 @@ VDS_SAN_POLICY (learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vds/81e
    the image's checksum carries across stops (above); the Excel and SATA
    notes are in the checklist.
 
-**Found on the way:** `fsck.exfat` (exfatprogs) calls any record after a
-folder's end an error ("other entry follows unused entry"), while
+**Found on the way:** `fsck.exfat` (exfatprogs, in its current source)
+calls any record after a folder's end an error ("other entry follows unused
+entry"), while
 `dissect.fat` lists such records as files (it reads on past the end).
 Windows stops at the end (measured: `tools/windows_check.py`, which now
 also attaches a disk with leftovers). The program follows Windows, and now

@@ -643,9 +643,12 @@ def listing_experiments(exe, work):
                 if not wc or ow or oh or wc.get("other_size_count") or wc.get("failed"):
                     failed.append(name)
                     log("FAIL %s: %s, as predicted, but the map check's own comparison with Windows says otherwise: "
-                        "%s" % (name, what, {k: wc.get(k) for k in ("only_windows", "only_here", "other_size", "failed")}))
+                        "%s" % (name, what, {k: wc.get(k) for k in ("only_windows", "only_here", "other_size", "failed",
+                                                                    "corrupt")}))
                 else:
-                    log("ok   %s: %s, and opens by full path just the ones predicted" % (name, what))
+                    log("ok   %s: %s, and opens by full path just the ones predicted%s" % (
+                        name, what, "; the map check's comparison: Windows reports %s as corrupted" % wc["corrupt"]
+                        if wc.get("corrupt") else ""))
             else:
                 failed.append(name)
                 log("FAIL %s: %s; the map check predicts %d listed (only Windows: %s; only the map check: %s); "
