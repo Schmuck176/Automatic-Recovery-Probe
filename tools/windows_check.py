@@ -12,6 +12,11 @@ Part 1 - test disks made by exfat_image.py, attached as virtual disks:
   * Files the map check says Windows cannot list must not be listed, and
     Windows must open by its full path exactly the hidden files the map
     check says it still opens that way.
+  * The map check's own comparison with what Windows lists (it finds the
+    attached disk's drive letter by the volume's serial number) must agree,
+    and must see that the volume is read-only.
+  * Records left after a folder's end (tools/test_mapcheck.py,
+    leftover_case) are never listed by Windows, even undamaged.
 
 Part 2 - a disk formatted and filled by Windows itself:
   * Every 512-byte block of every file names its file and position, so after
@@ -247,7 +252,9 @@ def part1(exe, work, case):
             problems.append("Windows gave the undamaged test disk no drive letter")
         else:
             got = listing(letter)
-            want = {x.path: x for x in case.disk.vol.nodes() if x is not case.disk.vol.root and not x.deleted}
+            # (Records left after a folder's end are no files to Windows.)
+            want = {x.path: x for x in case.disk.vol.nodes()
+                    if x is not case.disk.vol.root and not x.deleted and not x.leftover}
             if mine(got) != set(want):
                 problems.append("Windows lists different files: only Windows: %s; only the builder: %s" % (
                     sorted(mine(got) - set(want))[:4], sorted(set(want) - mine(got))[:4]))
@@ -297,6 +304,21 @@ def part1(exe, work, case):
                 problems.append("damaged: Windows lists %d, the map check says %d can be listed; only Windows: %s; "
                                 "only the map check: %s" % (len(mine(got)), len(listable), sorted(only_win)[:4],
                                                             sorted(only_map)[:4]))
+            # The map check's own comparison with what Windows lists there
+            # (it found the drive by the volume's serial number).
+            wc = got_raw.get("windows_compare")
+            if wc is None:
+                problems.append("the map check did not compare itself with what Windows lists on %s" % letter)
+            else:
+                ow = {p for p in wc["only_windows"] if p.split("\\")[0] not in IGNORE} - flipped
+                oh = {p for p in wc["only_here"] if p.split("\\")[0] not in IGNORE}
+                if ow or oh or wc["other_size_count"] or wc["failed"]:
+                    problems.append("the map check's own comparison with what Windows lists differs: only Windows: %s; "
+                                    "only the map check: %s; another size: %s; %s" % (
+                                        sorted(ow)[:4], sorted(oh)[:4], wc["other_size"][:3], wc["failed"] or ""))
+                if wc["read_only"] is not True:
+                    problems.append("the map check says %s is %s, but it is mounted read-only" % (
+                        letter, "writable" if wc["read_only"] is False else "of unknown kind"))
             if got_raw["volume"]["drive"] is None:
                 problems.append("the map check did not find the volume's drive letter %s" % letter)
             else:
@@ -615,7 +637,15 @@ def listing_experiments(exe, work):
                 failed.append(name)
                 log("FAIL %s: the map check differs from the oracle: %s" % (name, diffs[:3]))
             elif listed == expect_listed and not open_wrong:
-                log("ok   %s: %s, and opens by full path just the ones predicted" % (name, what))
+                wc = got.get("windows_compare") or {}
+                ow = [p for p in wc.get("only_windows", []) if p.split("\\")[0] not in IGNORE]
+                oh = [p for p in wc.get("only_here", []) if p.split("\\")[0] not in IGNORE]
+                if not wc or ow or oh or wc.get("other_size_count") or wc.get("failed"):
+                    failed.append(name)
+                    log("FAIL %s: %s, as predicted, but the map check's own comparison with Windows says otherwise: "
+                        "%s" % (name, what, {k: wc.get(k) for k in ("only_windows", "only_here", "other_size", "failed")}))
+                else:
+                    log("ok   %s: %s, and opens by full path just the ones predicted" % (name, what))
             else:
                 failed.append(name)
                 log("FAIL %s: %s; the map check predicts %d listed (only Windows: %s; only the map check: %s); "
@@ -638,7 +668,7 @@ def main():
     work = os.path.abspath(sys.argv[2])
     os.makedirs(work, exist_ok=True)
     cases = [T.deliberate_cases(4096)[0], T.deliberate_cases(32768)[0], T.hidden_folder_case(),
-             T.bigger_ssd_case()]
+             T.bigger_ssd_case(), T.leftover_case()]
     for c in cases:
         c.garbage = []
     # Random disks too (with garbage, like a used SSD's leftovers).

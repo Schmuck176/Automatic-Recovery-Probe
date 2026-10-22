@@ -1,11 +1,12 @@
 # Download Manifest — the tools, where they came from, what they're for
 
-*Version 2026-10-20 (1) — written with Claude Opus 5.5. Goes with
+*Version 2026-10-22 (1) — written with Claude Opus 5.5. Goes with
 `recovery-checklist.md` and `recovery-probe.exe`. Any copy with an older date is an
 old draft — delete it.*
 
-You've already downloaded everything below. This page is here so you know what each
-one is for, and where to get it again if you ever need to. **Installing is covered in
+You've already downloaded everything below, except **OSFMount** (section 3), which is
+new in this version: download it while you're still online. This page is here so you
+know what each one is for, and where to get it again if you ever need to. **Installing is covered in
 the checklist, Phase −1 section D.**
 
 **Software cost: $0.** Only the optional repair software in Section 5 costs money, and
@@ -102,6 +103,11 @@ account — it runs ~70 virus scanners on it).
 ### MultiPar — optional now
 - **https://github.com/Yutaka-Sawada/MultiPar/releases** — you have `MultiPar1336_setup.exe` ✔
 - Makes "PAR2" files that can detect *and repair* files that quietly change over the years. A PAR2 set covers at most 32,768 files, so it doesn't suit big folders, and a Photos Library you keep using changes all the time. The plan now uses two copies on two drives plus the program's checksum list instead (Phase 8). MultiPar still suits a small folder you'll never change.
+
+### OSFMount — opens the image read-only (Phase 1, once)
+- **https://www.osforensics.com/tools/mount-disk-images.html** (PassMark Software, the makers of OSForensics) → the 64-bit installer, `osfmount.exe` (version 3.3, for Windows 10 and 11). Free. **New: download it now**, while you're online.
+- Opens a disk image as a drive, read-only by default, so Windows can read the files in it without anything changing the image. Phase 1, step 19 opens `recovered-ssd.img` this way, and step 5 then compares the program's reading of the image with Windows' own, file by file.
+- Only ever used read-only: never untick **Read-only drive**, and never use its write-cache or format options. (The image is marked read-only anyway.)
 
 ### Obsidian — for reading this checklist
 - **https://obsidian.md** — you have `Obsidian-1.13.7.exe` ✔

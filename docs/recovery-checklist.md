@@ -1,9 +1,9 @@
 # Recovery Checklist — Recovered SSD → safe, checked copies
 
-*Version 2026-10-20 (1) — written with Claude Opus 5.5 for the Recovery Probe program
-(`recovery-probe.exe`), after an independent review of the program and of the
-2026-10-18 plan. Replaces every earlier copy; where a step is the same as in the
-earlier copy, the box you ticked there stays ticked here.*
+*Version 2026-10-22 (1) — written with Claude Opus 5.5 for the Recovery Probe program
+(`recovery-probe.exe`), after independent reviews of the program (the latest on
+22 October 2026) and of the 2026-10-18 plan. Replaces every earlier copy; where a step
+is the same as in the earlier copy, the box you ticked there stays ticked here.*
 
 **What you have:** a 2 TB SSD holding the ddrescue copy of your dead 1 TB hard drive
 (a GUID partition map with one exFAT volume, as the Mac made it): **the recovered
@@ -19,7 +19,7 @@ there and tell Claude.
 | Drive | What it's for |
 |---|---|
 | **The recovered SSD** (2 TB) | Read once more, to make the image (Phase 1). Then back in its drawer for good: your untouched master. |
-| **The 4 TB SSD** | Your spare copy of the recovered SSD, in case it fails while the image is made. It stays unplugged, in a drawer. |
+| **The 4 TB SSD** | Your spare copy of the recovered SSD, in case it fails while the image is made. It stays unplugged, in a drawer. If it is ever needed, it is plugged in exactly as the recovered SSD is: after step 3's *Get Windows ready*, in the same rehearsed case or adapter, USB port and cable (Phase 1, steps 8–13). |
 | **The PC's 2 TB drive** | The image (Phase 1): one file of 1,000 GB (Windows shows 932 GB), in a folder `IMAGE`. Later, the second copy of your files (Phase 8). |
 | **`SPARE`** (1 TB) | Your copies (`WORK`) and the repairs (`REPAIR`), from Phase 2 on. It goes to the Mac in Phases 5 and 7. |
 
@@ -81,6 +81,7 @@ copies, and anything that deletes or moves files by the thousand.
 |---|---|---|
 | Phase 1, step 16 | The image reads back exactly as it was written | Before the SSD goes back in the drawer |
 | Phase 2, step 1 | The files on the old drive: how many, how much in all (**Your numbers**) | The yardstick every later check is held against |
+| Phase 2, step 2 | The program's reading of the image against Windows' own, file by file | The one check of the program's reading that doesn't rely on the program |
 | Phase 2, step 7 | Every file step 5 found is in the list of copies, same size in all | A copying that stopped early, or files that couldn't be copied |
 | ✅ End of Phase 2 | Three stages: the old drive, the list of copies, every copy read back | The copies are right before anything else touches them |
 | ✅ End of Phases 4, 5, 6 and 7 | The same | Each of these uses something that *could* change `WORK` — Krokiet, the Mac, repairs — so a ✗ says which phase it was. Phase 3 only reads, so Phase 4's checkpoint covers it |
@@ -101,7 +102,7 @@ the check no longer covers it.
 > | `recovery-probe.exe` | **The program. Double-click it.** It checks itself, makes the image, works out from the mapfile exactly which files the damage touched, copies everything off without letting Windows write to the SSD (including files Windows can't even see), and checks every copied file. |
 > | `1TB hard drive DDRescue-GUI second attempt.log` | The mapfile from the final ddrescue run: the list of every place on the old drive that could never be read. **Keep it forever.** |
 >
-> The program's page says **Version 2026-10-20 (1)** (or later) at the top. The older
+> The program's page says **Version 2026-10-22 (1)** (or later) at the top. The older
 > files `recovery_probe.py`, `probe_selftest.py`, `RUN_PROBE.bat` and
 > `RUN_SELFTEST.bat` aren't needed any more. You can delete them, or leave them;
 > they do no harm.
@@ -157,7 +158,8 @@ Mac (Phase 5 checks, and the checkpoint after it would show it).
 
 **Recovery Probe** (`recovery-probe.exe`) does the essential work: the image, the map
 check, the copying, the checks, and taking the damaged files out to repair and putting
-them back. Everything else is optional: **Krokiet**, **7-Zip**
+them back. **OSFMount** opens the image read-only once, so that Windows' own reading of
+it can be compared with the program's (Phase 1). Everything else is optional: **Krokiet**, **7-Zip**
 and **MP3val** for extra checks that only read (Phase 4), **ffmpeg** for Krokiet's
 video check, **`sips`** on the Mac (built in, only reads), and **untrunc** and the
 paid repair tools, used only on the copies in `REPAIR` (Phase 6).
@@ -251,6 +253,7 @@ need to download one again.
   4. `Win+R` → type `sysdm.cpl` → **Advanced** → **Environment Variables** → under *User variables* select **Path** → **Edit** → **New** → paste the path → OK, OK, OK.
   5. **Open a new Command Prompt** (an old one won't see the change) and type `ffmpeg -version`, then `ffprobe -version`.
   6. A block of version text for both means it worked. *"Not recognized"* means Krokiet will list **every** video as broken with "Failed to run ffmpeg" — go back to step 3 and check the path.
+- [ ] **OSFMount** (`osfmount.exe`, free, from PassMark's osforensics.com — the manifest has the address; download it now, while you're online) — run it to install it. Phase 1 uses it once, to open the image read-only.
 - [ ] Check the files from the box at the top of this checklist are in `C:\RECOVERY-TOOLS\`.
 
 ### On the Mac, while still online
@@ -326,14 +329,17 @@ which files and folders sit on those places, whatever size they are.
 
 Windows' setting that keeps a new disk switched off does **not** work for a disk
 Windows calls "removable media", and some USB cases and adapters say that about the
-SSD inside them. So first try the way the recovered SSD will be plugged in, with
-`SPARE`, which is empty and has nothing to lose.
+SSD inside them. And Windows applies that setting only the first time it meets a disk:
+it remembers each disk by the way it was plugged in, and with some cases and adapters
+a different SSD in the same case counts as the same disk. So first try the way the
+recovered SSD will be plugged in — the very same case or adapter, USB port and cable —
+with `SPARE`, which is empty and has nothing to lose.
 
 - [ ] **8.** Unplug every USB drive. Double-click `recovery-probe.exe` → **Yes**.
 - [ ] **9. Step 3 → Get Windows ready.** It answers that new disks now stay switched off. (The PC's own drives stay as they are.)
-- [ ] **10.** Plug `SPARE` in **the way the recovered SSD will be plugged in**: the same USB port and cable, and if the recovered SSD sits in a USB case or adapter, the same kind of case or adapter.
+- [ ] **10.** Plug `SPARE` in **exactly the way the recovered SSD will be plugged in**: the same USB port and cable, and if the recovered SSD sits in a USB case or adapter, **the very same case or adapter** — not just the same kind.
 - [ ] **11.** In the step 3 list, click `SPARE`'s disk. You want: **switched off**, no **removable media** tag, the page saying *"It arrived switched off, so Windows' setting works for a disk plugged in this way"*, and no new drive in File Explorer.
-  - *It says **removable media**, or `SPARE` got a drive letter?* **Stop.** That way of plugging in isn't safe for the recovered SSD. Tell Claude: a different case or adapter, a SATA port inside the PC, or a hardware write blocker are the ways round it.
+  - *It says **removable media**, or `SPARE` got a drive letter?* **Stop,** and tell Claude, with the name step 3 shows for `SPARE`'s disk. `SPARE` has been plugged into this PC before, so Windows may simply remember it: if step 3 shows `SPARE`'s own drive name (for example *Samsung SSD 870 EVO 1TB*), the recovered SSD, which this PC has never seen, should still arrive switched off. If it shows the case's or adapter's own name instead, the recovered SSD needs a case or adapter this PC has never seen. Other ways round it: a hardware write blocker, or a SATA port inside the PC — but only one that lets a drive be plugged in while the PC is on (hot-plug, switched on in the PC's settings), as the PC must never start with the recovered SSD in it.
   - *`SPARE` is marked **the copy ddrescue made**, or the page offers **Protect disk N** for it?* **Stop** and tell Claude: the program is taking `SPARE` for the recovered SSD.
 - [ ] **12.** Click **Switch disk N on, writable** for `SPARE`. It gets its drive letter back. (Windows stays set to leave new disks switched off until the recovered SSD has been unplugged; step 9 of the program puts the setting back.)
 
@@ -345,23 +351,36 @@ SSD inside them. So first try the way the recovered SSD will be plugged in, with
 > click **Cancel**. Never let Windows repair the recovery drive — "fixing" can delete
 > damaged files to tidy up. (With step 3 done first, Windows never gets the chance.)
 
-- [ ] **13. Plug in the recovered SSD** (the 2 TB one; the 4 TB SSD stays in its drawer), the way you rehearsed. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, and the page chooses it by itself (if it isn't chosen, click it; if it doesn't appear, click **Look again**). Nothing appears in File Explorer — that's the point.
+- [ ] **13. Plug in the recovered SSD** (the 2 TB one; the 4 TB SSD stays in its drawer), exactly the way you rehearsed: the same case or adapter, USB port and cable. Within a few seconds it appears in the step 3 list marked **the copy ddrescue made** and **switched off**, and the page chooses it by itself (if it isn't chosen, click it; if it doesn't appear, click **Look again**). Nothing appears in File Explorer — that's the point.
 - [ ] **14.** Click **Protect disk N**. The page answers that the disk is read-only. Step 3 gets a green tick.
   - *Not marked "the copy ddrescue made"?* Stop and tell Claude before going further.
   - *Marked **removable media**?* The page says so in red: make the image (next step) straight away, then unplug it, and tell Claude before ever plugging it in again.
   - *The page shows an error instead?* Unplug the recovered SSD, and tell Claude.
 - [ ] **15. Step 4 → Make the image.** In the box, type `D:\IMAGE` (with your PC's 2 TB drive's letter), then click **Make the image**. The program reads the whole SSD once, front to back, into one file (`recovered-ssd.img`), then reads that file back to check it. A 1 TB image over USB takes roughly 1–3 hours to make and as long again to check. The bar at the bottom shows how far it is. Keep the SSD plugged in until it says **Done**: if the check found a problem, the SSD would be needed again.
-  - You can click **Stop** and start it again later: it carries on where it stopped.
-  - **If the page says the SSD stopped answering:** nothing is lost. Check its cable is in firmly. If it came out, plug it back in (it arrives switched off), choose it in step 3, click **Protect disk N**, then **Make the image** again: it carries on.
+  - You can click **Stop** at any moment and start it again later: it carries on where it stopped.
+  - *The bar stops moving for a while?* The SSD is struggling to read a place (it sat unpowered for years, so that can happen). The program reads around it 4 KB at a time — the line under the bar says how that is going — and never keeps at one place for long: what won't read is stepped over, left as zeros and listed, and it goes on. Let it run.
+  - **If the page says the SSD stopped answering:** nothing is lost. Check its cable is in firmly. If it came out, plug it back in (it arrives switched off), choose it in step 3, click **Protect disk N**, then **Make the image** again: it carries on, reading the place where it stopped 4 KB at a time. If it stops answering there again, the next start steps over that place, so the image always gets past it.
+  - **Stop and tell Claude** if the SSD stops answering at more than two places, or the page says it stopped the image because the SSD could not read too much: the SSD itself is then failing, and the 4 TB copy can fill in what it can't read.
 - [ ] **16.** When it says **Done**, read the result. You want **"…and it reads back exactly as it was written"** and **"The SSD gave every byte."**
-  - *It lists places the SSD could not read?* They are zeros in the image, and the map check counts them as never read, so nothing is hidden. But tell Claude before going on: the SSD itself is then failing, and the 4 TB copy may still hold those places.
+  - *It lists places the SSD could not read (or stepped over)?* They are zeros in the image, and the map check counts them as never read, so nothing is hidden. But tell Claude before going on: the SSD itself is then failing, and the 4 TB copy may still hold those places.
   - *It says the image does NOT read back the same?* The PC's 2 TB drive has a problem. Don't use that image; tell Claude.
 - [ ] **17. Step 9:** click **Switch it off** (if shown), then unplug the recovered SSD and put it in a drawer. It's your untouched master, and it is not needed again.
 - [ ] **18.** Still in step 9, click **Put Windows' setting back**. It answers *"Windows' setting for new disks is as it was."* (It refuses while the recovered SSD is still plugged in.)
 
 Next to the image, in `D:\IMAGE\`, there are now `recovered-ssd.img.sha256` (its
 checksum) and `recovered-ssd.img.txt` (what it is, where it came from). Keep all three
-together.
+together. The image itself is marked read-only, so nothing can change it by accident.
+
+## Open the image read-only — to check the program against Windows
+
+The map check (Phase 2) reads the image with the program's own exFAT reader. Windows
+has its own. With the image open as a drive, step 5 compares the two by itself: every
+file and folder Windows lists against the ones the program says Windows can list, and
+their sizes. It is the one check of the program's reading that doesn't rely on the
+program.
+
+- [ ] **19. Open the image read-only with OSFMount.** Start **OSFMount** → **Mount new…** → **Disk image file**: choose `D:\IMAGE\recovered-ssd.img` → **Next**. Choose **Mount partitions as virtual disks** and tick only the big partition (about 1,000 GB, exFAT — not the small EFI one) → **Next** (pass any page about a RAM drive without changing anything). On the last page leave **Read-only drive** ticked (it is by default) and **Mount as removable media** unticked, choose **Logical Emulation** and drive letter **auto** → **Mount**. A new drive appears in File Explorer, with your files. If Windows offers to scan or fix it, click **Cancel**. Leave it open until Phase 2, step 2.
+  - *OSFMount says it can't open the image, or the drive isn't read-only?* Click **Dismount all & Exit**, and tell Claude.
 
 ---
 
@@ -372,7 +391,7 @@ in; the recovered SSD and the 4 TB SSD stay in their drawer. (Step 5 and 6 say
 **"Reads from the image"** under their text; if they don't, step 4's image isn't
 there: tell Claude.)
 
-- [ ] **1. Step 5 → Find what the damage touched.** A few minutes. It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down; the program puts the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
+- [ ] **1. Step 5 → Find what the damage touched.** A few minutes (a little longer with the image open in OSFMount: it also compares itself with what Windows lists there). It shows how many **files lost data**, how many **files Windows cannot list** (their folder record sat on a place that was never read, so File Explorer and TeraCopy would never see them), how many **folders** are damaged, how much **data no folder names any more**, and how many files are on the SSD **and how much they take in all**. The red marks on the map at the top now show what each place held. Write the numbers down; the program puts the last two into **Your numbers** just below. Everything is also saved in `C:\RECOVERY-TOOLS\results\map-check-…\`.
 
 > **Your numbers**, from step 5 (the program fills them in). They never change: every
 > safety check from now on should show the same number of files.
@@ -381,12 +400,17 @@ there: tell Claude.)
 > |---|---|
 > |  |  |
 
-- [ ] **2. Read the date line under the numbers.** It should say the newest date on the SSD is *before* ddrescue finished (24 April 2024). **If it shows a yellow warning instead, stop and tell Claude**: something may have changed the SSD after the copy (a computer it was plugged into, say), or a file simply has a wrong date.
+- [ ] **2. Read the lines under the numbers.**
+  - The date line should say the newest date on the SSD is *before* ddrescue finished (24 April 2024). **If it shows a yellow warning instead, stop and tell Claude**: something may have changed the SSD after the copy (a computer it was plugged into, say), or a file simply has a wrong date.
+  - The green line should say *"Checked against Windows' own reading of the volume (drive R:): Windows lists N files and folders, exactly the ones this check says it can list, with the same sizes."* **If it says they differ instead, or there's a red or yellow message about leftovers or about records that point at space that isn't theirs, stop and tell Claude**: the program may be reading part of the volume wrongly, and that must be understood before anything is copied. *(It says the volume has no drive letter? The image isn't open in OSFMount: do Phase 1, step 19, and run step 5 again.)*
+  - Then close the image: in OSFMount, click **Dismount all & Exit**.
 - [ ] **3.** If the page says some **folders were found by their contents**: those are folders whose own record (with the folder's name) sat on a never-read place. The files inside keep their names, dates and folders; only the folder's own name is lost. Step 6 puts each one in `found folders (name lost)\folder at cluster N`.
 - [ ] **4.** If **data no folder names any more** is more than a few MB, tell Claude before going further. It is usually files whose folder record was lost; a second recovery program can be tried on the image to put names to some of it (safely: it's the image).
 - [ ] **5. Will it fit on `SPARE`?** It holds about 930 GB. If step 5's *size in all* is more than about 900 GB, **stop and tell Claude** (the copying would refuse to start anyway).
 - [ ] **6. Step 6 → Copy everything.** Click **Choose…**, click `SPARE`, then **Choose this folder**: the program puts the copies in a `WORK` folder on it (e.g. `E:\WORK`). Keep **"Also save the data no folder names any more"** ticked. Click **Start copying**.
+  - *`SPARE` isn't in File Explorer, or not in the list when you click **Choose…**?* Windows may remember it from the rehearsal as a disk to leave switched off: in step 3, click `SPARE`'s disk, then **Switch disk N on, writable**.
   - It copies **every** file, including the ones Windows can't list, into `SPARE\WORK`, with the same folders and dates, and writes each file's checksum (SHA-256) into the list `WORK\rescue-log.csv`. It takes hours. The bar at the bottom shows how far it is and about how long is left.
+  - You can open `rescue-log.csv` in Excel to look at it, but **never save it from Excel**: if Excel asks whether to save when you close it, click **Don't Save**. Excel changes the file as it saves it (long numbers, for one), and the safety checks would then fail.
   - You can click **Stop** and start it again later (same folder): what's already copied is checked against its checksum and kept.
   - A few names change slightly, because Windows can't use them (a name ending in a space gets `_` instead). `rescue-log.csv` lists every one, and every file.
   - *The PC lost power or crashed?* Start the program again and **Start copying** again into the same folder: each earlier copy is read back whole and copied again if the crash spoilt it.
@@ -751,6 +775,7 @@ osxphotos export ~/Desktop/photos-export --directory "{folder_album}" --library
 | **Any part of a file the old drive never gave up** — even one 512-byte sector, even in a photo that looks perfect, even HEIC and RAW | **Yes** — the map check (Phase 2), marked NEVER_READ (Phase 3) |
 | Files Windows can't even list, because their folder record was never read | **Yes** — found by the map check and copied anyway (Phase 2) |
 | A folder whose own record was never read | **Yes** — found by its contents; its files keep their names (Phase 2). Only the folder's own name is lost |
+| The program reading a folder record wrongly, or taking an old leftover record for a file | **Checked** — step 5 compares itself with Windows' own reading of the image (Phase 1, step 19 and Phase 2, step 2), names records left over after a folder's end, and records that point at space that isn't theirs |
 | A copy that changes later — on the drive, in a later copy, over the years | **Yes** — the checksum list and *Check the copies are unchanged* (every checkpoint, Phases 2–8) |
 | A file deleted, moved or renamed by mistake — by you, a tool or another computer — at any point | **Yes** — the safety check names it, and the checkpoint after each phase shows when it happened (Phases 2–8) |
 | A file added to `WORK` by mistake (a Mac writing `._` files, a file saved there) | **Yes** — named by the safety check |

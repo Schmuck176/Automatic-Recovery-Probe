@@ -94,6 +94,41 @@ impl Sha256 {
     pub fn finish_hex(self) -> String {
         hex(&self.finish())
     }
+
+    /// How far the digest has got, as text, so that it can be carried on
+    /// later from exactly here (image.rs notes it at every safe point): the
+    /// eight state words and the number of bytes so far. Only between whole
+    /// 64-byte blocks (None otherwise).
+    pub fn export(&self) -> Option<String> {
+        if self.buf_len != 0 {
+            return None;
+        }
+        let mut s: String = self.state.iter().map(|w| format!("{w:08x}")).collect();
+        s.push_str(&format!("{:016x}", self.total));
+        Some(s)
+    }
+
+    /// A digest carried on from what `export` gave.
+    pub fn import(text: &str) -> Option<Sha256> {
+        let t = text.trim();
+        if t.len() != 80 || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let mut state = [0u32; 8];
+        for (i, w) in state.iter_mut().enumerate() {
+            *w = u32::from_str_radix(&t[i * 8..i * 8 + 8], 16).ok()?;
+        }
+        let total = u64::from_str_radix(&t[64..80], 16).ok()?;
+        if total % 64 != 0 {
+            return None;
+        }
+        Some(Sha256 { state, buf: [0; 64], buf_len: 0, total })
+    }
+
+    /// Bytes fed in so far.
+    pub fn total(&self) -> u64 {
+        self.total
+    }
 }
 
 pub fn hex(d: &[u8]) -> String {
@@ -403,6 +438,28 @@ mod tests {
         }
         assert!(file_hex_from_drive(&dir.join("f4097"), &mut |_, _| {}, &|| true).unwrap().is_none());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_digest_carried_on_from_its_saved_state_is_the_same() {
+        let data: Vec<u8> = (0..1_000_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 7) as u8).collect();
+        let whole = h(&data);
+        for cut in [0usize, 64, 4096, 65_536, 999_936] {
+            let mut s = Sha256::new();
+            s.update(&data[..cut]);
+            let saved = s.export().expect("a whole number of blocks");
+            let mut t = Sha256::import(&saved).unwrap();
+            assert_eq!(t.total(), cut as u64);
+            t.update(&data[cut..]);
+            assert_eq!(t.finish_hex(), whole, "cut {cut}");
+        }
+        let mut s = Sha256::new();
+        s.update(b"abc");
+        assert!(s.export().is_none(), "not between whole blocks");
+        assert!(Sha256::import("nonsense").is_none());
+        assert!(Sha256::import(&"0".repeat(79)).is_none());
+        // A byte count that is not a whole number of blocks is refused.
+        assert!(Sha256::import(&format!("{}{:016x}", "0".repeat(64), 65)).is_none());
     }
 
     #[test]

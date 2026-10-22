@@ -12,11 +12,11 @@ same mistake in its test.
 
 | Tool | What it checks |
 |---|---|
-| `exfat_image.py` | Builds exFAT test disks the way a Mac does, with known damage (folder records, files, the FAT, the bitmap, lost folders), and writes down exactly what is where. |
-| `test_mapcheck.py` | The independent oracle: from what each test disk holds, works out what the map check must find and what the copying must produce, runs the program and compares - names, bytes, dates, folders rebuilt from their contents, pieces of lost data, stopping and carrying on, the safety check at all three stages, and the check of the copies with the map check (exactly the copies of files that lost data are marked NEVER_READ). Also asks `fsck.exfat` and `dissect.fat` about every disk (Linux). |
+| `exfat_image.py` | Builds exFAT test disks the way a Mac does, with known damage (folder records, files, the FAT, the bitmap, lost folders) and, on purpose, records left after a folder's end, and writes down exactly what is where. |
+| `test_mapcheck.py` | The independent oracle: from what each test disk holds, works out what the map check must find and what the copying must produce, runs the program and compares - names, bytes, dates, folders rebuilt from their contents, pieces of lost data, stopping and carrying on, the safety check at all three stages, and the check of the copies with the map check (exactly the copies of files that lost data are marked NEVER_READ); leftover records, and clusters claimed twice or claimed though free; and the map check's comparison with what Windows lists, against a folder made to hold just that (Linux). Also asks `fsck.exfat` and `dissect.fat` about every disk (Linux). |
 | `kernel_check.py` | Mounts the test disks with the Linux kernel's exFAT driver and compares what it lists with what the map check says Windows can't list. |
-| `windows_check.py` | Attaches test disks to Windows as virtual disks and compares what Windows lists and opens with what the map check predicts, record by record. |
-| `guard_check.py` | The disk protection on Windows: a protected disk is checked byte for byte before and after every step, to prove nothing wrote to it. |
+| `windows_check.py` | Attaches test disks to Windows as virtual disks and compares what Windows lists and opens with what the map check predicts, record by record - and checks the map check's own comparison with Windows agrees. |
+| `guard_check.py` | The disk protection on Windows: a protected disk is checked byte for byte before and after every step, to prove nothing wrote to it; and Windows' own disk is refused. |
 | `dropout_check.py` | Unplugs a virtual disk in the middle of copying, on Windows: the copying must stop cleanly and carry on to the same result. |
 | `make_big_disk.py` | A test disk with very many files, for timing and for `dropout_check.py`. |
 | `make_selftest_disk.py` | Makes the small damaged disk the program's own self-test carries (`src/selftest/`); GitHub checks the committed one is exactly what it makes. |

@@ -1,5 +1,9 @@
 # Independent review: findings
 
+Three reviews so far, each by a fresh Claude session: the first (18-19
+October 2026) is this page down to "What was fixed"; then "Second review (21
+October 2026)" and "Third review (22 October 2026)", at the end.
+
 Reviewer: a fresh Claude session, 18-19 October 2026, working from
 REVIEW-BRIEF.md on `dev` at 2fe1eec (the code built and delivered as 05717a4,
 version "2026-10-18 (2)"). Nothing on the person's PC was changed;
@@ -462,3 +466,163 @@ request:
    go back (25 October 2026).
 
 See NEXT-STEPS.md, "Second review and its fixes", for how.
+
+---
+
+# Third review (22 October 2026)
+
+A fresh session reviewed version 2026-10-21 (2) (8d0eb83 on `main`, the build
+on the PC). What follows is the review as given to the user, then what was
+done about it. The user then asked: "make fixes 2 and 3 plus the checklist
+wording in one new build, and add this review to the project's review notes
+so later sessions can find it. Do whatever fixes you think are necessary."
+That became version 2026-10-22 (1).
+
+## The review, as given
+
+**Verdict:** the project is in good shape; nothing stops Phase 1. Before the
+recovered SSD is plugged in, two things about how the plugging-in and the
+image are done should change.
+
+**What was checked**
+
+- The program on the PC is the tested one: `C:\RECOVERY-TOOLS\recovery-probe.exe`
+  is byte for byte the build GitHub tested (4,154,880 bytes, sha256
+  4f1145962c3e085e...). `main` differed from it only in the notes file.
+- Nothing in the program can write to the SSD: only the protection code
+  (`guard.rs`) opens a disk for writing, and it only changes Windows' on/off
+  and read-only switches.
+- Every test passed here too: 69 unit tests, the self-test, and 52 of 52
+  test disks for the map check (40 with random damage).
+- The earlier reviews' fixes are all in: image first, nothing deleted, a
+  checksum for every file, the safety checks, put-back that is safe.
+
+**1. Windows remembers USB adapters, so the rehearsal needs the very same
+adapter and port.** Microsoft documents that the "leave new disks switched
+off" decision (the SAN policy) is made when a disk is first identified, and
+then remembered per device (the Partmgr `Attributes` value). GitHub's tests
+cannot show this: virtual disks are new to Windows every time. So:
+
+- Phase 1 step 10 said "the same *kind* of case or adapter"; it must be the
+  very same case or adapter, in the same USB port.
+- SPARE has been plugged into this PC before, so in the rehearsal it may
+  come up with a drive letter without the adapter being unsafe: Windows may
+  just remember SPARE. The checklist's "stop" is still right; the model name
+  step 3 shows for SPARE tells which: SPARE's own drive name means the SSD,
+  which this PC has never seen, should still arrive switched off; the
+  adapter's own name means the SSD needs an adapter this PC has never seen.
+- The 4 TB SSD needs the same care, if it is ever needed.
+- After the rehearsal SPARE may keep arriving switched off on this PC; then,
+  at Phase 2 step 6, step 3's "Switch disk N on, writable".
+
+**2. The image step can get stuck on a weak spot.** The SSD sat unpowered for
+about 2.5 years. Tested with a test disk with a weak spot: a stretch that
+fails is re-read in 4 KB pieces - up to 2,048 failed reads per 8 MB - with
+the bar not moving, and Stop took effect only after all 2,049 failed reads
+(on a real drive each can take seconds: hours of strain on a weak SSD). And
+if the weak spot makes the USB adapter reset, every "carry on" stopped at
+exactly the same place (four times out of four in the test). Interim advice:
+if the bar does not move for about 10 minutes, or the SSD stops answering
+twice at the same point, close the program and ask for help.
+
+**3. Nothing compared the program's reading of the real disk with anything
+else.** All the numbers come from the program's own exFAT reader, tested
+only on made-up disks. A file it misses shows up as "data no folder names
+any more", but a record it misreads would pass every check. Shown with a
+test disk with no damage and one leftover record after a folder's end (a
+"ghost"): the program reported a file "Windows cannot list", copied the
+leftover under its name with a different file's contents, and every check
+passed. Unlikely on a Mac-made disk, but cheap safeguards exist:
+
+- trust "hidden behind a blank record" only when that blank is on a place
+  ddrescue never read;
+- use the volume's own allocation bitmap to flag clusters claimed twice, or
+  claimed though marked free;
+- once, after the image is made: open it read-only (OSFMount) and compare
+  Windows' own listing with step 5's; "Check the image is unchanged" then
+  shows the image was not touched.
+
+**Smaller points**
+
+- The program wrote and deleted a test file in `C:\RECOVERY-TOOLS` every few
+  seconds (the page's polling); a failed write (antivirus) could make it
+  lose track of the Windows setting it changed.
+- The program itself did not refuse to switch off or protect Windows' own
+  disk; only the page stopped it being chosen.
+- With clusters of 32 KB or less, steps 5 and 6 could be slow (the FAT
+  cache was emptied whole whenever it held 64 MiB). A Mac normally uses
+  128 KB clusters on a drive this size, which is fine.
+- An image stopped and carried on was checked against the file, not the
+  SSD, for the part made before the stop (the checksum was worked out again
+  from the file).
+- `rescue-log.csv` may be looked at in Excel but never saved from it: the
+  safety checks would then fail.
+- The checklist's "a SATA port inside the PC" clashes with "never restart
+  with the SSD plugged in", unless that port allows plugging in while the
+  PC is on.
+
+Sources given: Microsoft, "How to set the Partmgr Attributes registry value"
+(support.microsoft.com/en-us/topic/8b948867-15b2-0612-a409-0ef6e100025e: the
+setting "is initially set when a disk is identified based on the SAN Policy
+value in place at the time", stored for each device); Microsoft,
+VDS_SAN_POLICY (learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vds/81e7ff81-71d7-408f-a800-38a0dd2828de:
+"All newly discovered disks remain offline and READONLY").
+
+## What was done (version 2026-10-22 (1))
+
+1. **The checklist** (Phase 1 steps 10, 11, 13, 15, 16, a new step 19 and its
+   section; Phase 2 steps 1, 2, 6; the drives table; the checks table; "What
+   this catches"; Phase −1 section D gets OSFMount; the manifest gets
+   OSFMount): the very same case or adapter, port and cable; what SPARE
+   arriving with a drive letter can mean, and what to note; the SATA port
+   only if it allows hot-plugging; the 4 TB SSD the same way; SPARE perhaps
+   switched off in Phase 2; what the image does now at a weak spot, and
+   when to stop; open the image read-only with OSFMount and read step 5's
+   comparison with Windows; Excel: look, never save. Ticked lines are
+   unchanged (all 31 ticks carry over).
+2. **The image at a weak spot** (`image.rs`): a piece that will not read is
+   read 4 KB at a time, but only so far - after 16 failed 4 KB reads in a
+   row, 64 in the piece, or 5 minutes on it, the rest of the 8 MB piece is
+   stepped over unread ('?' in the list beside the image; '-' tried and not
+   read; both zeros, both counted as never read by the map check). Stop
+   works at any moment (the main loop no longer waits on the reader), and
+   the page hears how the careful reading is going every 5 s. A place where
+   the SSD stops answering is noted beside the image: the next run reads
+   that piece 4 KB at a time; if it stops answering there again, the run
+   after steps over the rest of the piece from that place - so the image
+   always gets past it, in at most three runs. The checksum's state is
+   saved with each safe point, so the SHA-256 always comes from the SSD's
+   own bytes, also across stops (the read-back then catches a part changed
+   on the PC's drive in between). The checked image is marked read-only.
+3. **The map check checks itself** (`exfat.rs`, `mapcheck.rs`):
+   - every entry hidden by a blank record carries where that record is
+     (`Entry::hidden_by_blank`, inherited by a folder's contents); one whose
+     blank record was read is a *leftover*, reported apart ("most likely a
+     leftover of something deleted or replaced long ago, not something the
+     damage hid"), not counted among the files Windows cannot list, and
+     left out of the join's HIDDEN lines; the wording no longer calls the
+     blank record "never-read";
+   - clusters claimed twice (with who first and who again) and clusters
+     claimed that the allocation bitmap marks as free - where that part of
+     the bitmap was read - are reported (summary, `map-check-consistency.csv`,
+     JSON, page);
+   - when the volume has a drive letter here (found by its serial number:
+     the image open in OSFMount, or the SSD switched on read-only), every
+     file and folder Windows lists is compared with what the check says
+     Windows can list, sizes included, and whether that volume is read-only
+     (`map-check-windows-compare.csv`, JSON, page); `--compare-with` names
+     another drive or folder.
+4. **Smaller points:** the program's folder is found once (no test file every
+   poll); `guard.rs` refuses to change Windows' own disk, from anywhere; the
+   FAT cache keeps 128 MB and lets the oldest 1 MB block go, one at a time;
+   the image's checksum carries across stops (above); the Excel and SATA
+   notes are in the checklist.
+
+**Found on the way:** `fsck.exfat` (exfatprogs) calls any record after a
+folder's end an error ("other entry follows unused entry"), while
+`dissect.fat` lists such records as files (it reads on past the end).
+Windows stops at the end (measured: `tools/windows_check.py`, which now
+also attaches a disk with leftovers). The program follows Windows, and now
+says when such a record is a leftover.
+
+See NEXT-STEPS.md, "Third review and its fixes", for how, and for the tests.

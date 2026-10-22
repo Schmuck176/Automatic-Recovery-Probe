@@ -28,16 +28,26 @@ opens a page in the PC's own web browser with two tabs:
    does not cover them.
 4. **Make an image of the SSD** — the whole SSD read once into one file on
    another drive, with its SHA-256, read back from that drive to check it;
-   places the SSD could not read are recorded the way ddrescue does. Stopped
-   (or after a power cut), it carries on from the last point known to be
-   safe on the drive. From then on the next
-   steps read the image, and the SSD can go back in its drawer. The image
-   can be checked again later against its SHA-256, without the SSD.
+   places the SSD could not read are recorded the way ddrescue does. A weak
+   SSD is not worn down: a place it struggles with is read 4 KB at a time,
+   within limits, and what will not read is stepped over (zeros, listed);
+   Stop works at any moment, and a place where the SSD stops answering is
+   got past. Stopped (or after a power cut), it carries on from the last
+   point known to be safe on the drive, the checksum still worked out from
+   the SSD's own bytes. Once checked, the image is marked read-only. From
+   then on the next steps read the image, and the SSD can go back in its
+   drawer. The image can be checked again later against its SHA-256,
+   without the SSD.
 5. **See what the damage touched** — the *map check*: from the mapfile and
    the volume's own exFAT structures, exactly which files lost which bytes,
    which folders are damaged, which files Windows cannot even list, and the
    newest date on the volume (a date after the copy means something changed
-   it). Folders whose own record was lost are found by their contents.
+   it). Folders whose own record was lost are found by their contents. It
+   checks itself: with the volume open as a drive (the image mounted
+   read-only with OSFMount), every file Windows lists is compared with what
+   it says Windows can list; records left after a folder's end are named as
+   leftovers, not damage; records that claim another's clusters, or free
+   ones, are named.
 6. **Copy everything off** — straight from the image (or the disk), past
    Windows: also the files Windows cannot list, the folders found by their
    contents (in `found folders (name lost)`), and the data no folder names
@@ -109,7 +119,7 @@ The checks only ever read. They never change, move or delete a file. The only ch
 ```
 recovery-probe self-test
 recovery-probe image --disk \\.\PhysicalDriveN --map <mapfile> --out <folder>
-recovery-probe map-check --map <mapfile> --disk <image or \\.\PhysicalDriveN> --out <folder>
+recovery-probe map-check --map <mapfile> --disk <image or \\.\PhysicalDriveN> --out <folder> [--compare-with <drive>]
 recovery-probe rescue --disk <image or \\.\PhysicalDriveN> --out <folder> --everything --lost
 recovery-probe verify <folder the copies went into> [--map-check <map check results folder>]
 recovery-probe isolate <folder the copies went into> --scan <scan results .csv>
@@ -143,9 +153,10 @@ Every push is built and tested on GitHub's Windows and Linux machines
   built-in self-test checks them on intact and damaged samples of every
   kind (`tests/seeds`).
 - The map check and the copying are tested on hundreds of damaged test disks
-  made by `tools/exfat_image.py`, against an independent oracle
-  (`tools/test_mapcheck.py`), against `fsck.exfat` and `dissect.fat`, and
-  against the Linux kernel's exFAT driver.
+  made by `tools/exfat_image.py` (some with records left after a folder's
+  end), against an independent oracle (`tools/test_mapcheck.py`), against
+  `fsck.exfat` and `dissect.fat`, and against the Linux kernel's exFAT
+  driver.
 - Against Windows itself: test disks attached as virtual disks, with what
   Windows lists and opens compared with what the map check predicts, record
   by record (`tools/windows_check.py`); and the disk protection, byte for

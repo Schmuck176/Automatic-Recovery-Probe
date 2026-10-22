@@ -14,6 +14,8 @@ compared with the original afterwards.
   C. The same disk attached again later: does Windows remember it is
      read-only? (Logged: for virtual disks it does not.)
   D. A disk that was plugged in before Windows was ready, protected after.
+  E. Windows' own disk: the program refuses to switch it off or mark it
+     read-only, from the command line too.
 
     python guard_check.py <recovery-probe.exe> <work folder>
 """
@@ -273,6 +275,16 @@ def main():
     finally:
         detach(vhd)
     report_changes("in all", changed(vhd, keep, size), t)
+
+    # E. Windows' own disk.
+    log("E. Windows' own disk is never touched:")
+    sysdisk = int(W.ps("(Get-Partition -DriveLetter $env:SystemDrive.Substring(0,1)).DiskNumber"))
+    before = disk_info(sysdisk)
+    for args in (["protect", str(sysdisk)], ["offline", str(sysdisk)], ["protect", str(sysdisk), "--online"]):
+        code, text = rp(exe, "disk-guard", *args)
+        check(code != 0 and "Windows itself" in text, "disk-guard %s on Windows' own disk is refused: %s" % (
+            " ".join(args), text))
+    check(disk_info(sysdisk) == before, "Windows' own disk is as it was (%s)" % disk_info(sysdisk))
 
     code, text = rp(exe, "disk-guard", "status")
     log("After:\n" + "\n".join("     " + x for x in text.splitlines()))

@@ -211,6 +211,7 @@ fn disk_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(Vec<String>, Ve
     say("Map check on the built-in test disk...");
     let out = dir.join("map check");
     let opts = crate::mapcheck::Options {
+        compare_with: None,
         map_path: map.display().to_string(),
         earlier_maps: Vec::new(),
         disk: img.display().to_string(),

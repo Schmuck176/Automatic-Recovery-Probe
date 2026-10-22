@@ -353,6 +353,9 @@ class Oracle:
         claimed = set()
         for _, _, cl, _ in structures:
             claimed.update(cl)
+        # Everything that claims clusters, in the order the walk finds it.
+        claims = [(kind, path, cl) for kind, path, cl, _ in structures]
+        leftover = set()
 
         found = {}  # path shown -> (node, clusters, broken, hidden)
         maybe_of = {}  # path shown -> not listed, but Windows still opens it by its full path
@@ -361,10 +364,13 @@ class Oracle:
         # Where each record begins, from the builder's record.
         first_slot = {n["record_offsets"][0]: n for n in self.t["nodes"] if not n["deleted"] and n["record_offsets"]}
 
+        def in_areas(off, n=32):
+            return any(s < off + n and e > off for s, e, _ in self.areas)
+
         def walk(starts):
             stack = list(starts)
             while stack:
-                d, cl, d_broken, d_hidden, d_maybe = stack.pop()
+                d, cl, d_broken, d_hidden, d_maybe, d_by = stack.pop()
                 if cl:
                     if cl[0] in visited:
                         count["problems"] += 1  # two folders claim the same records
@@ -394,6 +400,7 @@ class Oracle:
                 # anything else is skipped.
                 # Every damaged file record reached is a problem to report.
                 stop_kind, stop_at = None, slots
+                blank_at = []  # where the blank record that ends it for Windows is
                 reached = []
                 k = 0
                 while k < slots:
@@ -402,6 +409,7 @@ class Oracle:
                     if t == 0:
                         if stop_kind is None:
                             stop_kind, stop_at = "blank", k
+                            blank_at = [self.slot_off(cl, k)]
                         k += 1
                         continue
                     if t & 0x80 == 0 or t != 0x85:
@@ -420,6 +428,7 @@ class Oracle:
                     if 0 in types[1:]:
                         if stop_kind is None:
                             stop_kind, stop_at = "blank", k
+                            blank_at = [self.slot_off(cl, k + types.index(0, 1))]
                         k += 1
                         continue
                     if not 2 <= sc <= 18:
@@ -439,25 +448,31 @@ class Oracle:
                 for slot, n in reached:
                     path = (d + "\\" if d else "") + n["path"].split("\\")[-1]
                     ncl, broken = self.clusters_of(n)
+                    # by: where the blank record that hides it is (exfat.rs,
+                    # Entry::hidden_by_blank).
                     if d_hidden and not d_maybe:
-                        hidden, maybe = True, False
+                        hidden, maybe, by = True, False, d_by
                     elif stop_kind is not None and slot > stop_at:
-                        hidden, maybe = True, False
+                        hidden, maybe, by = True, False, blank_at if stop_kind == "blank" else []
                     elif stop_kind == "damaged":
-                        hidden, maybe = True, True
+                        hidden, maybe, by = True, True, []
                     elif d_hidden:
-                        hidden, maybe = True, True
+                        hidden, maybe, by = True, True, d_by
                     else:
-                        hidden, maybe = False, False
+                        hidden, maybe, by = False, False, []
                     found[path] = (n, ncl, broken, hidden)
                     maybe_of[path] = maybe
+                    # A blank record that was read: the old drive had it too.
+                    if by and not any(in_areas(o) for o in by):
+                        leftover.add(path)
                     claimed.update(ncl)
+                    claims.append(("folder" if n["is_dir"] else "file", path, ncl))
                     if n["is_dir"]:
                         count["folders"] += 1
                         if d_hidden and (not d_maybe or maybe):
-                            sub = (True, d_maybe)
+                            sub = (True, d_maybe, d_by)
                         else:
-                            sub = (hidden, maybe)
+                            sub = (hidden, maybe, by)
                         subdirs.append((path, ncl, broken) + sub)
                     else:
                         count["files"] += 1
@@ -465,7 +480,7 @@ class Oracle:
                 for sd in reversed(subdirs):
                     stack.append(sd)
 
-        walk([("", root_cl, root_broken, False, False)])
+        walk([("", root_cl, root_broken, False, False, [])])
         # Then the folders whose own record is lost, found by their contents
         # (exfat.rs, walk_until): each as "found folders (name lost)\folder at
         # cluster N", walked like any other, Windows reaching none of it.
@@ -483,10 +498,11 @@ class Oracle:
                      "vdl": len(lst) * cs, "runs": X.runs_of(lst), "no_fat_chain": False, "parent": None,
                      "slot": None, "slots": 0, "record_offsets": []}
                 claimed.update(lst)
+                claims.append(("folder", path, lst))
                 found[path] = (n, lst, False, True)
                 maybe_of[path] = False
                 count["folders"] += 1
-                starts.append((path, lst, False, True, False))
+                starts.append((path, lst, False, True, False, []))
                 self.orphans.append((first, lst))
             starts.reverse()
             walk(starts)
@@ -652,6 +668,27 @@ class Oracle:
                         self.lost_runs[-1][1] += 1
                     else:
                         self.lost_runs.append([c, 1])
+        # Clusters claimed twice (who first, who again, how many), and
+        # clusters claimed that the bitmap marks as free where it was read.
+        first_owner = {}
+        twice = collections.Counter()
+        for kind, path, cl in claims:
+            for c in cl:
+                if c in first_owner:
+                    twice[first_owner[c] + (kind, path)] += 1
+                else:
+                    first_owner[c] = (kind, path)
+        free = collections.Counter()
+        if bm is not None:
+            bm_cl = self.chain(self.v["bitmap"][0][0], self.v["bitmap_bytes"])[0]
+            for kind, path, cl in claims:
+                for c in cl:
+                    if allocated(c):
+                        continue
+                    k, r = divmod((c - 2) // 8, cs)
+                    if k >= len(bm_cl) or in_areas(self.coff(bm_cl[k]) + r, 1):
+                        continue  # where the mark was never read, it says nothing
+                    free[(kind, path)] += 1
         # Found from records that lie in never-read places.
         unread = []
         for path, (n, ncl, broken, hidden) in found.items():
@@ -659,10 +696,15 @@ class Oracle:
                 unread.append(path)
         return {
             "found": sorted(found),
+            "found_dirs": {p: v[0]["is_dir"] for p, v in found.items()},
+            "found_sizes": {p: v[0]["data_length"] for p, v in found.items()},
             "unread_records": sorted(unread),
             "items": items,
             "hidden": sorted(p for p, v in found.items() if v[3]),
             "hidden_maybe": sorted(p for p, m in maybe_of.items() if m),
+            "leftovers": sorted(leftover),
+            "claimed_twice": sorted(list(k) + [n] for k, n in twice.items()),
+            "claimed_free": sorted(list(k) + [n] for k, n in free.items()),
             "areas": areas_out,
             "lost_clusters": lost,
             "folder_problems": problems,
@@ -720,6 +762,17 @@ def compare(exp, got):
         gh = [{"kind": h["kind"], "path": h["path"], "ranges": [list(r) for r in h["ranges"]]} for h in g["hits"]]
         if gh != e["hits"]:
             diffs.append("area %d hits: got %s, expected %s" % (s, gh, e["hits"]))
+    gl = sorted(h["path"] for h in got["hidden"] if h.get("leftover"))
+    if gl != exp["leftovers"]:
+        diffs.append("leftovers (hidden by a blank record that was read) differ: got %s, expected %s" % (
+            gl[:5], exp["leftovers"][:5]))
+    gt = sorted([t["first"]["kind"], t["first"]["path"], t["again"]["kind"], t["again"]["path"], t["clusters"]]
+                for t in got.get("claimed_twice", []))
+    if gt != exp["claimed_twice"]:
+        diffs.append("clusters claimed twice differ: got %s, expected %s" % (gt[:4], exp["claimed_twice"][:4]))
+    gf = sorted([f["by"]["kind"], f["by"]["path"], f["clusters"]] for f in got.get("claimed_free", []))
+    if gf != exp["claimed_free"]:
+        diffs.append("clusters claimed though free differ: got %s, expected %s" % (gf[:4], exp["claimed_free"][:4]))
     gu = sorted(r["path"] for r in got["unread_records"])
     if gu != exp["unread_records"]:
         diffs.append("records in never-read places differ: got %s, expected %s" % (gu[:5], exp["unread_records"][:5]))
@@ -757,6 +810,8 @@ class Case:
         self.domain = domain  # mapfile size (default: the GPT's disk size)
         self.extra_args = extra_args
         self.expect = expect or {}
+        self.breaks_rules = False  # built against the exFAT rules on purpose (fsck.exfat would object)
+        self.compare = False  # also check the comparison with what Windows lists (here: a folder like it)
 
 
 def run_case(exe, work, case, keep=False):
@@ -837,6 +892,8 @@ def finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective):
                     k, actual, v))
         elif actual != v:
             diffs.append("%s: got %r, expected %r" % (k, actual, v))
+    if case.compare and not diffs and os.name != "nt":
+        diffs += check_compare(exe, d, img, exp)
     if case.rescue and not diffs:
         diffs += check_rescue(exe, d, img, truth, exp, oracle)
     with open(os.path.join(d, "expected.json"), "w") as f:
@@ -888,6 +945,70 @@ def finish_case(exe, d, case, img, truth, exp, oracle, got, keep, effective):
         oracle.close()
         for name in ("disk.img", "pristine.img"):
             os.remove(os.path.join(d, name))
+    return diffs
+
+
+def check_compare(exe, d, img, exp):
+    """The comparison with what Windows lists (map-check --compare-with),
+    against a folder made to hold exactly what Windows should list: every
+    file and folder found that is not hidden, with its size. It must agree;
+    then, with one file taken away, one added and one a byte longer, it must
+    name exactly those. (On Windows, tools/windows_check.py compares with
+    Windows itself.)"""
+    tree = os.path.join(d, "as Windows lists it")
+    shutil.rmtree(tree, ignore_errors=True)
+    listable = sorted(set(exp["found"]) - set(exp["hidden"]))
+    dirs = {p for p in listable if exp["found_dirs"].get(p)}
+    sizes = exp["found_sizes"]
+    try:
+        os.makedirs(tree)
+        for p in listable:
+            where = os.path.join(tree, *p.split("\\"))
+            if p in dirs:
+                os.makedirs(where, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(where), exist_ok=True)
+                with open(where, "wb") as f:
+                    f.truncate(sizes[p])
+    except OSError as e:
+        return ["could not make the folder to compare with: %s" % e]
+
+    def run(tag):
+        out = os.path.join(d, "out-compare-" + tag)
+        p = subprocess.run([exe, "map-check", "--map", os.path.join(d, "disk.map"), "--disk", img, "--out", out,
+                            "--compare-with", tree], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if p.returncode != 0:
+            return None, p.stdout.decode("utf-8", "replace")[-600:]
+        with open(os.path.join(out, "map-check.json"), encoding="utf-8") as f:
+            w = json.load(f)["windows_compare"]
+        shutil.rmtree(out, ignore_errors=True)
+        return w, ""
+
+    diffs = []
+    w, err = run("same")
+    if w is None:
+        return ["map-check --compare-with failed: %s" % err]
+    if not w["agrees"] or w["listed"] != len(listable) or w["expected"] != len(listable):
+        diffs.append("compared with a folder holding exactly what Windows should list, it does not agree: %s" % (
+            {k: w[k] for k in ("listed", "expected", "only_windows", "only_here", "other_size", "failed")}))
+    files = [p for p in listable if p not in dirs]
+    if len(files) >= 2:
+        gone, longer = files[0], files[-1]
+        os.remove(os.path.join(tree, *gone.split("\\")))
+        with open(os.path.join(tree, *longer.split("\\")), "r+b") as f:
+            f.truncate(sizes[longer] + 1)
+        with open(os.path.join(tree, "not on the volume.txt"), "wb") as f:
+            f.write(b"x")
+        w, err = run("changed")
+        if w is None:
+            diffs.append("map-check --compare-with failed: %s" % err)
+        elif (w["agrees"] or w["only_here"] != [gone] or w["only_windows"] != ["not on the volume.txt"]
+              or w["other_size"] != [[longer, sizes[longer], sizes[longer] + 1]]):
+            diffs.append("compared with a folder with one file gone, one added and one longer: %s" % (
+                {k: w[k] for k in ("agrees", "only_windows", "only_here", "other_size")}))
+    if not diffs:
+        COVERAGE["comparisons with what Windows lists"] += 1
+        shutil.rmtree(tree, ignore_errors=True)
     return diffs
 
 
@@ -1352,6 +1473,34 @@ def earlier_attempt_case():
     return c
 
 
+def leftover_case():
+    """Records left after a folder's end (a blank record that was read, then
+    records never cleared): Windows never listed them on the old drive
+    either, so they are leftovers, not files the damage hid. One claims
+    another file's clusters, one free clusters. Damage in another folder
+    hides a file the usual way, for contrast."""
+    v = X.Volume(24 * X.MiB, cluster_size=4096, label="LEFTOVERS", serial=0x5EED1234)
+    v.mkdir("Photos", extra_clusters=1)
+    for i in range(4):
+        v.add_file("Photos/IMG_%04d.JPG" % i, X.tagged(i + 1, 20000 + 997 * i))
+    v.add_leftover("Photos/OLD_0001.JPG", points_at="Photos/IMG_0002.JPG", size=15000)
+    v.add_leftover("Photos/OLD_0002.JPG", data=X.tagged(90, 9000))
+    v.mkdir("Docs")
+    for i in range(12):
+        v.add_file("Docs/letter %02d.docx" % i, X.tagged(20 + i, 3000 + 100 * i))
+    v.add_file("notes.txt", X.tagged(50, 700))
+    disk = X.Disk(v, 32 * X.MiB, efi_start_lba=40, efi_size=X.MiB, vol_start_lba=40 + 2048 + 7, seed=21)
+    t = disk.truth()
+    # The second sector of Docs' records was never read: "letter 05" loses
+    # the rest of its record there, which ends the folder for Windows, so
+    # "letter 11" (whose record is intact, after it) is hidden by the damage.
+    area = sector_of(node(t, "Docs\\letter 06.docx")["record_offsets"][0])
+    c = Case("leftover-records", disk, [(area, SECTOR, "-")], expect={"min_hidden": 3})
+    c.breaks_rules = True
+    c.compare = True
+    return c
+
+
 def keep_mountable(case):
     """Leave out damage that can stop an operating system from opening the
     drive at all (the boot area, the partition table, the allocation
@@ -1581,7 +1730,10 @@ def dissect_check(dissect_root, work, disk, name):
         walk(fs.files["/"][1], "")
     os.remove(p)
     errors = []
-    want = {n.path: n for n in disk.vol.nodes() if n is not disk.vol.root and not n.deleted}
+    want = {n.path: n for n in disk.vol.nodes() if n is not disk.vol.root and not n.deleted and not n.leftover}
+    # dissect.fat reads on past a folder's end (records left there are no
+    # files to Windows or to the exFAT rules): those are left out.
+    got = {p: v for p, v in got.items() if p not in {n.path for n in disk.vol.nodes() if n.leftover}}
     if set(got) != set(want):
         errors.append("dissect.fat sees different files: only it: %s; only the builder: %s" % (
             sorted(set(got) - set(want))[:5], sorted(set(want) - set(got))[:5]))
@@ -1611,7 +1763,9 @@ def main():
     for cs in (512, 4096, 32768, 131072):
         cases += deliberate_cases(cs)
     cases += [hidden_folder_case(), boot_case(), gpt_lost_case(), fat_case(), bigger_ssd_case(),
-              wrong_disk_case(), earlier_attempt_case(), no_exfat_case()]
+              wrong_disk_case(), earlier_attempt_case(), no_exfat_case(), leftover_case()]
+    for c in cases:
+        c.compare = True  # every hand-made disk; the random ones: every fifth (below)
     # Random disks are built one at a time (each holds its files in memory).
     cases += [a.seed + i for i in range(a.random)]
     if a.only:
@@ -1621,8 +1775,9 @@ def main():
     for c in cases:
         if not isinstance(c, Case):
             c = random_case(c)
+            c.compare = c.name.endswith(("0", "5"))
         diffs = run_case(a.exe, a.work, c, keep=a.keep)
-        if a.fsck:
+        if a.fsck and not c.breaks_rules:
             diffs += fsck_check(a.fsck, a.work, c.disk, c.name)
         if a.dissect:
             diffs += dissect_check(a.dissect, a.work, c.disk, c.name)

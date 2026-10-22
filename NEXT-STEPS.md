@@ -504,11 +504,109 @@ Obsidian checklist at 06:24:34: the new text (steps 11, 13, 15) with all 31
 ticks, checked on the PC (checklist_copy_hash 0x49bf8839aa61ffcf, the new
 text's); checklist-ticks.txt untouched.
 
+## Third review and its fixes (22 October 2026)
+
+A fresh session reviewed 2026-10-21 (2) (the review, as given, is in
+docs/review/REVIEW-FINDINGS.md, "Third review"). The user: "make fixes 2 and
+3 plus the checklist wording in one new build, and add this review to the
+project's review notes so later sessions can find it. Do whatever fixes you
+think are necessary." Version "2026-10-22 (1)".
+
+- **image.rs, weak spots (fix 2).** The reader thread reads 8 MiB pieces; a
+  piece that fails (while the disk still answers at byte 0) goes to
+  `careful_read`: 4 KiB at a time, giving up on the rest of the piece after
+  `GIVE_UP_IN_A_ROW` (16) failures in a row, `GIVE_UP_IN_PIECE` (64), or
+  `GIVE_UP_AFTER` (300 s); what it gives up on is `STEPPED_OVER` ('?'),
+  what failed is `UNREADABLE` ('-'): both zeros, both in the
+  `.ssd-read-errors.log` mapfile beside the image (so both count as never
+  read in the map check), both in `Outcome`, `check_existing`, `summary`,
+  the page's data (`stepped_over`, `stepped_over_bytes`, `lost_at`). The
+  reader checks `quit` before every 4 KiB read and the main loop waits with
+  `recv_timeout` (200 ms), so Stop works at once; every 5 s it reports the
+  careful reading's progress (`TELL_EVERY`). `TOO_MUCH_UNREADABLE` (64 MiB)
+  counts both kinds. The safe note (`.partial-safe.txt`) now holds the
+  position, `sha256 <state>` (`Sha256::export`/`import`: the 8 words and
+  the length, only at a 64-byte boundary) and `lost <pos> whole|careful`:
+  where the SSD stopped answering. The next run reads that piece 4 KiB at a
+  time (`careful_read(.., None)`); if it is lost again while doing that, the
+  run after reads up to that place and steps over the rest of the piece
+  (`careful_read(.., Some(p))`). Carrying on resumes the checksum from the
+  note's state (the old way, hashing the part made so far, only for an
+  older note), so the read-back compares the whole file with the SSD's
+  bytes. The verified image is set read-only (`make_read_only`; also for an
+  existing image that checks out); the tests clear it before removing.
+  Tests: a 1 MiB weak stretch (17 failed reads, then stepped over), Stop
+  during slow failing reads (< 3 s, < 45 failed reads; nothing of that
+  piece kept), a place that resets the case (three runs: 16 MiB whole, the
+  place itself, then past it), a stopped image whose first part is changed
+  on the PC's drive (caught), plus the five earlier tests (the crash test
+  also with a note carrying the checksum state).
+- **The map check checks itself (fix 3).** `exfat::Entry::hidden_by_blank`:
+  the slot of the blank record that ends the folder for Windows (for a
+  blank inside a record, its first blank part), inherited down a hidden
+  folder; empty for the other reasons. `WHY_AFTER_BLANK` no longer says
+  "never-read". `Report::leftover(e)`: hidden by a blank record outside
+  every never-read area. Leftovers: `hidden_why` explains, the hidden-files
+  CSV has `the_damage_hid_it`, the summary and page report them apart (the
+  page's "files Windows cannot list" leaves them out), the join TSV leaves
+  them out (whether the copies have them is no matter), JSON `leftover`.
+  Clusters: `mark` records every claimant's runs (`claim_runs`, ids in walk
+  order after bitmap/up-case/root) and an `again` bitset; after the walk,
+  `claimed_twice` (first claimant, later one, clusters; a == b: a chain that
+  loops) and `claimed_free` (owned & !allocated, only where that bitmap byte
+  is outside the never-read areas). `Compare::Auto` (drive by serial,
+  `sys::drive_for_serial`, looked up before the walk) or
+  `Compare::With(folder)` (`map-check --compare-with`): `windows_view`
+  lists the tree (`\\?\` paths on Windows), compares with every walked
+  entry not hidden (names kept up to `KEEP_NAMES_UP_TO`, 3 million), reports
+  only-Windows, only-here, other size, unlistable folders (left out), and
+  `sys::volume_read_only` (FILE_READ_ONLY_VOLUME). Output: summary
+  (`windows_lines`), `map-check-windows-compare.csv`,
+  `map-check-consistency.csv`, JSON (`claimed_twice`, `claimed_free`,
+  `windows_compare`, totals `hidden_leftovers`), page_json (`windows`,
+  `windows_lines`, `leftover_*`, `claimed_*`, `consistency_examples`).
+  Tests: `tools/exfat_image.py` can now leave records after a folder's end
+  (`Volume.add_leftover`, `LEFTOVER_GAP`; truth nodes say `leftover`);
+  `tools/test_mapcheck.py`: the oracle works out leftovers, clusters
+  claimed twice and claimed though free, and checks them; a new case
+  `leftover-records` (one leftover on another file's clusters, one on free
+  clusters, and a file hidden by real damage for contrast; fsck.exfat is
+  not asked about it: exfatprogs calls a record after a folder's end an
+  error, and dissect.fat lists such records, so they are left out of its
+  comparison); `check_compare` (POSIX only) builds a folder holding what
+  Windows should list and runs `--compare-with` on it: it must agree, then
+  name exactly a file taken away, one added and one a byte longer (every
+  hand-made case, every fifth random one); `tools/windows_check.py`: part 1
+  also attaches `leftover_case`, requires the map check's own comparison
+  (by serial) to agree with Windows and to see the volume read-only, and
+  the folder experiments require it too; a Rust unit test of
+  `windows_view` (names ending in a space, a folder where a file was).
+- **Smaller points.** `cli::home_dir` found once (`OnceLock`); `guard.rs`
+  refuses any change to the disk holding Windows (`win::disks()`, `system`)
+  in `set`, so for every caller (`tools/guard_check.py` part E tries
+  protect, offline and protect --online on it); `exfat` FAT cache keeps
+  `FAT_BLOCKS_KEPT` (128) 1 MiB blocks and drops the oldest (it emptied
+  itself whole at 64); version "2026-10-22 (1)".
+- **Checklist and manifest** (both dated 2026-10-22 (1)): the wording above;
+  OSFMount (osforensics.com, 3.3, free, read-only by default; opens image
+  files with share permissions since 3.0.1005, so the program can read the
+  image while it is mounted). No ticked line changed: all 31 ticks carry
+  over. `KNOWN_CHECKLISTS` / `KNOWN_MANIFESTS` have 8d0eb83's hashes
+  (0x49bf8839aa61ffcf, 0xf73b22a601bcfcfb), so the copies in Obsidian are
+  upgraded in place.
+
+Here (Linux): unit tests 75, self-test, map check tests 73/73 (60 random,
+24 comparisons with a folder), page 63/63. Not checked here: the
+Windows-only code (no Windows target in this workspace).
+
 ## Next
 
 1. Phase 1 (rehearsal with SPARE, then the image onto the PC's 2 TB drive).
-   In the rehearsal, SPARE must not be marked "the copy ddrescue made" (if
-   it is a 1 TB GPT drive, 2026-10-21 (1) would have marked it). Help read
-   step 5's results; check the files fit on SPARE.
+   In the rehearsal, SPARE must not be marked "the copy ddrescue made", and
+   should arrive switched off; if it gets a drive letter, ask which name
+   step 3 shows for it (SPARE's own: Windows remembers SPARE, the SSD should
+   still arrive switched off; the adapter's: use an adapter this PC has
+   never seen). Then OSFMount (Phase 1 step 19) and step 5's comparison
+   with Windows. Help read step 5's results; check the files fit on SPARE.
 2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.

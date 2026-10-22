@@ -1211,6 +1211,7 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
         earlier_maps: if earlier.is_empty() { Vec::new() } else { vec![earlier.to_string()] },
         disk: disk.to_string(),
         out_dir: out.display().to_string(),
+        compare_with: None,
     };
     let app2 = app.clone();
     let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
@@ -1610,9 +1611,15 @@ fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, Stri
             .b("reused", o.reused)
             .n("unreadable", o.unreadable.len() as u64)
             .n("unreadable_bytes", o.unreadable.iter().map(|r| r.1).sum())
+            .n("stepped_over", o.stepped_over.len() as u64)
+            .n("stepped_over_bytes", o.stepped_over.iter().map(|r| r.1).sum())
             .b("stopped", o.stopped)
-            .b("disk_lost", o.disk_lost.is_some())
-            .end();
+            .b("disk_lost", o.disk_lost.is_some());
+        let data = match o.lost_at {
+            Some(p) => data.n("lost_at", p),
+            None => data,
+        }
+        .end();
         Ok(Outcome {
             summary: crate::image::summary(&o),
             outputs: vec![o.path.clone()],

@@ -79,7 +79,9 @@ pub struct Volume<'a> {
     pub bitmap_clusters: ClusterList,
     pub upcase_clusters: ClusterList,
     pub root_clusters: ClusterList,
-    fat_cache: Mutex<HashMap<u64, Vec<u32>>>,
+    /// FAT blocks read so far, and the order they were read in (the oldest
+    /// goes first when there are FAT_BLOCKS_KEPT).
+    fat_cache: Mutex<(HashMap<u64, Vec<u32>>, std::collections::VecDeque<u64>)>,
     /// What each round of the search for folders whose own record is lost
     /// found (the copying walks the folders twice: to count, then to copy).
     orphan_rounds: Mutex<Vec<Vec<(u32, ClusterList)>>>,
@@ -109,6 +111,11 @@ impl ClusterList {
 }
 
 const FAT_BLOCK_ENTRIES: u64 = 1 << 18; // 1 MiB of FAT per cache block
+/// FAT blocks kept: 128 MB, the whole FAT of a 1 TB volume with clusters of
+/// 32 KB or more (one with 128 KB clusters, as Windows makes them, has a FAT
+/// of 30 MB). Past that the oldest block goes, one at a time: a walk that
+/// jumps about the FAT then reads again only what it has to.
+const FAT_BLOCKS_KEPT: usize = 128;
 
 impl<'a> Volume<'a> {
     /// Open the volume whose boot sector is at `offset`.
@@ -161,7 +168,7 @@ impl<'a> Volume<'a> {
             bitmap_clusters: ClusterList::default(),
             upcase_clusters: ClusterList::default(),
             root_clusters: ClusterList::default(),
-            fat_cache: Mutex::new(HashMap::new()),
+            fat_cache: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
             orphan_rounds: Mutex::new(Vec::new()),
         };
         if v.cluster_count == 0 || !v.valid_cluster(v.root_cluster) {
@@ -239,10 +246,13 @@ impl<'a> Volume<'a> {
     pub fn fat_entry(&self, c: u32) -> Option<u32> {
         let block = c as u64 / FAT_BLOCK_ENTRIES;
         let idx = (c as u64 % FAT_BLOCK_ENTRIES) as usize;
-        let mut cache = self.fat_cache.lock().unwrap();
+        let mut guard = self.fat_cache.lock().unwrap();
+        let (cache, order) = &mut *guard;
         if !cache.contains_key(&block) {
-            if cache.len() > 64 {
-                cache.clear();
+            if cache.len() >= FAT_BLOCKS_KEPT {
+                if let Some(oldest) = order.pop_front() {
+                    cache.remove(&oldest);
+                }
             }
             let base = self.offset + self.fat_offset + self.active_fat * self.fat_length;
             let start = block * FAT_BLOCK_ENTRIES * 4;
@@ -250,6 +260,7 @@ impl<'a> Volume<'a> {
             let raw = self.src.read_at(base + start, len as usize).ok()?;
             let entries: Vec<u32> = raw.chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
             cache.insert(block, entries);
+            order.push_back(block);
         }
         cache.get(&block).and_then(|e| e.get(idx).copied())
     }
@@ -394,6 +405,14 @@ pub struct Entry {
     /// until it finds it, so it never reaches the damage.)
     pub hidden_maybe: bool,
     pub why_hidden: String,
+    /// When it is listed after a blank record in its folder (or is inside a
+    /// folder that is), where that blank record is on the disk: (start, end)
+    /// pieces. Empty for any other reason. A blank record in a place ddrescue
+    /// never read is the damage; one in a place it did read was blank on the
+    /// old drive too, so Windows never listed what follows there either (it
+    /// is most likely a leftover of something deleted or replaced long ago).
+    /// The map check, which knows the never-read places, tells the two apart.
+    pub hidden_by_blank: Vec<(u64, u64)>,
 }
 
 /// Something wrong in a folder's records.
@@ -404,8 +423,7 @@ pub struct FolderIssue {
     pub what: String,
 }
 
-const WHY_AFTER_BLANK: &str =
-    "listed after a blank (never-read) record in its folder, so Windows stops before reaching it";
+const WHY_AFTER_BLANK: &str = "listed after a blank record in its folder, so Windows stops before reaching it";
 const WHY_AFTER_DAMAGE: &str =
     "listed after a damaged record in its folder: Windows reports that folder as corrupted and stops there";
 const WHY_BEFORE_DAMAGE: &str = "its folder holds a damaged record further on, so Windows reports the whole \
@@ -473,7 +491,10 @@ impl Claimed {
     }
 }
 
-type Start = (String, ClusterList, bool, bool, String);
+/// A folder to walk: its path, its clusters, whether Windows cannot list
+/// it (and still opens it by its full path), why, and where the blank
+/// record that hides it is (see Entry::hidden_by_blank).
+type Start = (String, ClusterList, bool, bool, String, Vec<(u64, u64)>);
 
 /// `walk`, giving up (before reading the next folder) once `stop` says so;
 /// `note` hears how a long search for lost folders is getting on.
@@ -496,7 +517,7 @@ pub fn walk_until(
     claimed.mark(&vol.bitmap_clusters);
     claimed.mark(&vol.upcase_clusters);
     claimed.mark(&vol.root_clusters);
-    let root: Start = (String::new(), vol.root_clusters.clone(), false, false, String::new());
+    let root: Start = (String::new(), vol.root_clusters.clone(), false, false, String::new(), Vec::new());
     walk_stack(vol, vec![root], visit, stop, &mut issues, &mut visited, &mut claimed);
     for round in 0..3 {
         if stop() || vol.bitmap.is_empty() {
@@ -544,6 +565,7 @@ pub fn walk_until(
                 hidden_from_windows: true,
                 hidden_maybe: false,
                 why_hidden: WHY_ORPHAN.to_string(),
+                hidden_by_blank: Vec::new(),
             };
             claimed.mark(&list);
             visit(&entry, &list);
@@ -552,7 +574,7 @@ pub fn walk_until(
                 "inside the folder {path}, which the program found by its contents: the folder's own record \
                  (with its name) was in a place ddrescue never read or is damaged, so Windows cannot reach it"
             );
-            starts.push((path, list, true, false, why));
+            starts.push((path, list, true, false, why, Vec::new()));
         }
         // Walked in cluster order.
         starts.reverse();
@@ -880,7 +902,7 @@ fn walk_stack(
     claimed: &mut Claimed,
 ) {
     let mut stack: Vec<Start> = starts;
-    while let Some((dir, clusters, dir_hidden, dir_maybe, dir_why)) = stack.pop() {
+    while let Some((dir, clusters, dir_hidden, dir_maybe, dir_why, dir_by)) = stack.pop() {
         if stop() {
             break;
         }
@@ -907,6 +929,9 @@ fn walk_stack(
         let slots = buf.len() / 32;
         let rec_off = |i: usize| vol.disk_offset_in(&clusters, (i * 32) as u64).unwrap_or(0);
         let mut stop = Stop::None;
+        // Where the blank record that ends the folder for Windows is.
+        let mut blank_at: Vec<(u64, u64)> = Vec::new();
+        let slot_at = |i: usize| vol.disk_offset_in(&clusters, (i * 32) as u64).map(|d| vec![(d, d + 32)]).unwrap_or_default();
         // Every intact file record, with its slot, in folder order.
         let mut found: Vec<(usize, Entry, ClusterList)> = Vec::new();
         let mut i = 0usize;
@@ -917,6 +942,7 @@ fn walk_stack(
             if t == 0x00 {
                 if reading {
                     stop = Stop::Blank(i);
+                    blank_at = slot_at(i);
                 }
                 i += 1;
                 continue;
@@ -948,6 +974,8 @@ fn walk_stack(
                     // The rest of the record is blank: to Windows that is the end of the folder.
                     if reading {
                         stop = Stop::Blank(i);
+                        let sc = buf[o + 1] as usize;
+                        blank_at = (1..=sc).find(|&k| buf[o + 32 * k] == 0x00).map(|k| slot_at(i + k)).unwrap_or_default();
                     }
                     issue(
                         "a damaged file record (parts missing) - the file it described cannot be identified; \
@@ -1042,6 +1070,7 @@ fn walk_stack(
                 hidden_from_windows: false,
                 hidden_maybe: false,
                 why_hidden: String::new(),
+                hidden_by_blank: Vec::new(),
             };
             let clist = if stream[1] & 1 != 0 {
                 vol.clusters_of(entry.first_cluster, entry.no_fat_chain, entry.data_length)
@@ -1052,39 +1081,45 @@ fn walk_stack(
             i += sc + 1;
         }
         // What Windows makes of each file, now the whole folder has been read.
-        let mut subdirs: Vec<(String, ClusterList, bool, bool, String)> = Vec::new();
+        let mut subdirs: Vec<Start> = Vec::new();
         for (slot, mut entry, clist) in found {
-            let (hidden, maybe, why) = if dir_hidden && !dir_maybe {
-                (true, false, dir_why.clone())
+            let (hidden, maybe, why, by) = if dir_hidden && !dir_maybe {
+                (true, false, dir_why.clone(), dir_by.clone())
             } else {
                 match stop {
-                    Stop::Damaged(d) if slot > d => (true, false, WHY_AFTER_DAMAGE.to_string()),
-                    Stop::Blank(b) if slot > b => (true, false, WHY_AFTER_BLANK.to_string()),
-                    Stop::Damaged(_) => (true, true, WHY_BEFORE_DAMAGE.to_string()),
-                    _ if dir_hidden => (true, true, dir_why.clone()),
-                    _ => (false, false, String::new()),
+                    Stop::Damaged(d) if slot > d => (true, false, WHY_AFTER_DAMAGE.to_string(), Vec::new()),
+                    Stop::Blank(b) if slot > b => (true, false, WHY_AFTER_BLANK.to_string(), blank_at.clone()),
+                    Stop::Damaged(_) => (true, true, WHY_BEFORE_DAMAGE.to_string(), Vec::new()),
+                    _ if dir_hidden => (true, true, dir_why.clone(), dir_by.clone()),
+                    _ => (false, false, String::new(), Vec::new()),
                 }
             };
             entry.hidden_from_windows = hidden;
             entry.hidden_maybe = maybe;
             entry.why_hidden = why;
+            entry.hidden_by_blank = by;
             claimed.mark(&clist);
             visit(&entry, &clist);
             if entry.is_dir {
                 // Name the outermost folder Windows cannot (or may not) list.
-                let (sub_hidden, sub_maybe, sub_why) = if dir_hidden && (!dir_maybe || entry.hidden_maybe) {
-                    (true, dir_maybe, dir_why.clone())
+                let (sub_hidden, sub_maybe, sub_why, sub_by) = if dir_hidden && (!dir_maybe || entry.hidden_maybe) {
+                    (true, dir_maybe, dir_why.clone(), dir_by.clone())
                 } else if entry.hidden_from_windows {
                     let how = if entry.hidden_maybe {
                         "cannot list (typing the full path still opens it)"
                     } else {
                         "cannot list"
                     };
-                    (true, entry.hidden_maybe, format!("inside the folder {}, which Windows {how}", shown(&entry.path)))
+                    (
+                        true,
+                        entry.hidden_maybe,
+                        format!("inside the folder {}, which Windows {how}", shown(&entry.path)),
+                        entry.hidden_by_blank.clone(),
+                    )
                 } else {
-                    (false, false, String::new())
+                    (false, false, String::new(), Vec::new())
                 };
-                subdirs.push((entry.path.clone(), clist, sub_hidden, sub_maybe, sub_why));
+                subdirs.push((entry.path.clone(), clist, sub_hidden, sub_maybe, sub_why, sub_by));
             }
         }
         // Depth-first, in the order the folder lists them.

@@ -216,6 +216,48 @@ pub fn drive_for_serial(_serial: u32) -> Option<String> {
     None
 }
 
+/// Is the volume at this drive letter ("R:") read-only? None: cannot tell.
+#[cfg(windows)]
+pub fn volume_read_only(letter: &str) -> Option<bool> {
+    extern "system" {
+        fn GetVolumeInformationW(
+            root: *const u16,
+            name: *mut u16,
+            name_len: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            fs_name: *mut u16,
+            fs_name_len: u32,
+        ) -> i32;
+    }
+    const FILE_READ_ONLY_VOLUME: u32 = 0x0008_0000;
+    let l = letter.trim_end_matches(['\\', '/']);
+    if l.len() != 2 || !l.ends_with(':') {
+        return None;
+    }
+    let root: Vec<u16> = format!("{l}\\").encode_utf16().chain(std::iter::once(0)).collect();
+    let mut flags = 0u32;
+    let ok = unsafe {
+        GetVolumeInformationW(
+            root.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut flags,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (ok != 0).then_some(flags & FILE_READ_ONLY_VOLUME != 0)
+}
+
+#[cfg(not(windows))]
+pub fn volume_read_only(_letter: &str) -> Option<bool> {
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Files that must survive a power cut whole.
 // ---------------------------------------------------------------------------

@@ -248,12 +248,20 @@ impl Status {
 }
 
 /// The console map check.
-pub fn run_map_check(map_path: &str, earlier: &[String], disk: &str, out_dir: &str, status: &Status) -> i32 {
+pub fn run_map_check(
+    map_path: &str,
+    earlier: &[String],
+    disk: &str,
+    out_dir: &str,
+    compare_with: Option<&str>,
+    status: &Status,
+) -> i32 {
     let opts = crate::mapcheck::Options {
         map_path: map_path.to_string(),
         earlier_maps: earlier.to_vec(),
         disk: disk.to_string(),
         out_dir: out_dir.to_string(),
+        compare_with: compare_with.map(|s| s.to_string()),
     };
     let mut progress = |s: &str| {
         println!("  {s}");
@@ -553,20 +561,26 @@ pub fn run_verify(folder: &str, map_check: Option<&str>) -> i32 {
 }
 
 /// The folder this program is in (where its notes and results go), or the
-/// temporary folder if that cannot be written to.
+/// temporary folder if that cannot be written to. Found once: the page asks
+/// for it every few seconds, and a test file written and deleted that often
+/// is needless work for the drive (and noise for anything watching it).
 pub fn home_dir() -> std::path::PathBuf {
-    let dir = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(std::env::temp_dir);
-    let probe = dir.join(".recovery-probe-write-test");
-    match std::fs::write(&probe, b"") {
-        Ok(()) => {
-            let _ = std::fs::remove_file(&probe);
-            dir
+    static HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| {
+        let dir = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(std::env::temp_dir);
+        let probe = dir.join(".recovery-probe-write-test");
+        match std::fs::write(&probe, b"") {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&probe);
+                dir
+            }
+            Err(_) => std::env::temp_dir(),
         }
-        Err(_) => std::env::temp_dir(),
-    }
+    })
+    .clone()
 }
 
 /// Where the program notes a Windows setting it changed, so it can always

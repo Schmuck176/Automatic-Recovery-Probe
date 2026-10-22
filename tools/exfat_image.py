@@ -30,6 +30,7 @@ SECTOR = 512
 KiB = 1 << 10
 MiB = 1 << 20
 EOC = 0xFFFFFFFF
+LEFTOVER_GAP = 4  # blank records between a folder's end and the records left after it
 
 EFI_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
 BASIC_DATA = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
@@ -172,6 +173,8 @@ class Node:
         self.slot = None  # first slot in the parent folder
         self.mtime = exfat_timestamp(2023, 7, 14, 10, 30, 0)
         self.record_offsets = []  # disk... volume offsets of each slot of the set
+        self.leftover = False  # a record left after its folder's end (Volume.add_leftover)
+        self.points_at = None  # ...claiming this file's clusters
 
     @property
     def path(self):
@@ -261,6 +264,35 @@ class Volume:
         self.events.append(n)
         return n
 
+    def add_leftover(self, path, data=None, points_at=None, size=None):
+        """A file record left behind after its folder's end: a blank record
+        (the end of the folder), and after it records that were never
+        cleared, as a folder's clusters hold when they were used before. The
+        exFAT rules say nothing but blank records may follow the end;
+        Windows stops reading there and never lists them; fsck.exfat calls
+        them an error; dissect.fat lists them. `points_at`: the path of a
+        file whose clusters it claims, the first `size` bytes' worth (as if
+        they were used again since); otherwise it claims free clusters
+        holding `data` (as a deleted file's data stays behind)."""
+        parent, name = self._parent(path)
+        n = Node(self, name, parent, False)
+        n.leftover = True
+        if points_at is not None:
+            n.points_at = points_at.replace("/", "\\")
+            n.data_length = n.vdl = size
+        else:
+            n.data = data
+            n.data_length = n.vdl = len(data)
+        parent.children.append(n)
+        self.events.append(n)
+        return n
+
+    def _by_path(self, path):
+        for n in self.events:
+            if n.path == path and not n.deleted and not n.leftover:
+                return n
+        raise ValueError("no file %r" % path)
+
     # -- allocation ------------------------------------------------------------
     def _take(self, count):
         out = []
@@ -286,9 +318,12 @@ class Volume:
         return self._take(count)
 
     def _dir_slots(self, d):
-        n = sum(c.slots() for c in d.children)
+        n = sum(c.slots() for c in d.children if not c.leftover)
         if d is self.root:
             n += 3  # label, allocation bitmap, up-case table
+        left = [c for c in d.children if c.leftover]
+        if left:
+            n += LEFTOVER_GAP + sum(c.slots() for c in left)
         return n
 
     def layout(self):
@@ -305,6 +340,8 @@ class Volume:
         for chain in (self.bitmap_clusters, self.upcase_clusters, self.root.clusters):
             self._chain(chain)
         for n in self.events:
+            if n.leftover:
+                continue  # its clusters are someone else's, or free (below)
             if n.is_dir:
                 count = max(1, -(-self._dir_slots(n) * 32 // self.cs)) + n.extra_clusters
                 n.data_length = n.vdl = count * self.cs
@@ -320,6 +357,22 @@ class Volume:
                 self.allocated.add(c)
             if not n.no_fat_chain:
                 self._chain(n.clusters)
+        free_end = self.cluster_count + 1
+        for n in self.events:
+            if not n.leftover:
+                continue
+            count = -(-n.data_length // self.cs)
+            if n.points_at is not None:
+                n.clusters = self._by_path(n.points_at).clusters[:count]
+            else:
+                n.clusters = []
+                while len(n.clusters) < count:
+                    if free_end in self.allocated or free_end < self.cursor:
+                        raise ValueError("no free clusters left for a leftover record")
+                    n.clusters.insert(0, free_end)
+                    free_end -= 1
+            # (A chain a leftover follows is the FAT's: its file's, if any.)
+            n.no_fat_chain = all(b == a + 1 for a, b in zip(n.clusters, n.clusters[1:]))
         self.laid_out = True
 
     def _chain(self, clusters):
@@ -395,8 +448,16 @@ class Volume:
             struct.pack_into("<IQ", e, 20, self.upcase_clusters[0], len(UPCASE_TABLE))
             out += e
         for c in d.children:
+            if c.leftover:
+                continue
             c.slot = len(out) // 32
             out += self._entry_set(c)
+        left = [c for c in d.children if c.leftover]
+        if left:
+            out += bytes(32 * LEFTOVER_GAP)  # the end of the folder
+            for c in left:
+                c.slot = len(out) // 32
+                out += self._entry_set(c)
         size = len(d.clusters) * self.cs
         assert len(out) <= size
         out += bytes(size - len(out))
@@ -619,6 +680,7 @@ class Disk:
                 "slot": n.slot,
                 "slots": n.slots(),
                 "record_offsets": [vo + o for o in n.record_offsets],
+                "leftover": n.leftover,
             })
         return {
             "disk_size": self.disk_size,

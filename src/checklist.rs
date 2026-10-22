@@ -55,16 +55,23 @@ const RENAMED: &[(&str, &str)] = &[
 /// one of these, or the program's own, holds nothing the person wrote.
 /// (05717a4, 4c10e41, 3f05f2a and 7d47903 on GitHub: the copies delivered on
 /// 18 and 19 October 2026; a728da4: the checklist versions 2026-10-20 (1)
-/// and 2026-10-21 (1) wrote.)
+/// and 2026-10-21 (1) wrote; 8d0eb83: the checklist and manifest versions
+/// 2026-10-21 (2) wrote, dated 2026-10-20 (1).)
 const KNOWN_CHECKLISTS: &[u64] = &[
     0x24da_6933_47ce_9b4f,
     0x5ddc_ea71_7c5f_2c5e,
     0xdffc_617f_3ec9_451d,
     0x38e5_54dd_8e58_09a2,
     0x6609_d73a_ff3b_fc6f,
+    0x49bf_8839_aa61_ffcf,
 ];
-const KNOWN_MANIFESTS: &[u64] =
-    &[0x30b6_259f_c56e_9c88, 0x960c_4dee_e8fe_0806, 0x62d1_c34d_9ee8_a40a, 0x75e3_7858_aab8_1df9];
+const KNOWN_MANIFESTS: &[u64] = &[
+    0x30b6_259f_c56e_9c88,
+    0x960c_4dee_e8fe_0806,
+    0x62d1_c34d_9ee8_a40a,
+    0x75e3_7858_aab8_1df9,
+    0xf73b_22a6_01bc_fcfb,
+];
 
 /// One tick box.
 #[derive(Debug, Clone, PartialEq)]

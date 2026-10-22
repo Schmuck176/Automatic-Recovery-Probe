@@ -16,7 +16,7 @@ use crate::mapfile::{self, Mapfile};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const SECTOR: u64 = 512;
 
@@ -27,7 +27,94 @@ pub struct Options {
     pub earlier_maps: Vec<String>,
     pub disk: String,
     pub out_dir: String,
+    /// Where Windows shows the volume's files, to check this check against
+    /// (see Compare); None: wherever the volume has a drive letter here.
+    pub compare_with: Option<String>,
 }
+
+/// Checking this check against Windows' own reading of the volume: what
+/// Windows lists against what this check says it can list. Windows reads
+/// the volume with its own exFAT driver, so the two can only agree if this
+/// check reads the volume right (it is the one independent check there is
+/// on the recovered SSD itself; on test disks the oracle in
+/// tools/test_mapcheck.py is another).
+#[derive(Clone, Debug)]
+pub enum Compare {
+    /// Wherever the volume has a drive letter on this PC (found by its serial
+    /// number): the image mounted read-only, or the recovered SSD switched on
+    /// read-only. Not compared when it has none.
+    Auto,
+    /// This folder shows the volume's files: a drive letter (R:) or, for the
+    /// tests, any folder.
+    With(String),
+}
+
+/// One thing that claims clusters: the volume's own structures, or a file
+/// or folder found.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Claim {
+    pub kind: Kind,
+    pub path: String,
+    /// Listed after a blank record ddrescue did read (Report::leftover).
+    pub leftover: bool,
+}
+
+impl Claim {
+    pub fn describe(&self) -> String {
+        let p = match self.kind {
+            Kind::File => format!("the file {}", self.path),
+            Kind::Folder => format!("the folder {}", self.path),
+            Kind::Root => "the top folder".to_string(),
+            k => k.describe(&self.path),
+        };
+        if self.leftover {
+            format!("{p} (listed after a blank record ddrescue read: most likely a leftover)")
+        } else {
+            p
+        }
+    }
+}
+
+/// Windows' own reading of the volume against this check's (see Compare).
+#[derive(Clone, Debug, Default)]
+pub struct WindowsView {
+    /// Where Windows' reading was taken: a drive (R:) or a folder.
+    pub root: String,
+    /// Whether that volume is read-only (None: cannot tell, or a folder).
+    pub read_only: Option<bool>,
+    /// Files and folders Windows lists there.
+    pub listed: u64,
+    /// Files and folders this check expects Windows to list.
+    pub expected: u64,
+    /// Listed by Windows, though this check says it cannot list them (or
+    /// never found them). At most LIST_MAX kept; the count is of all.
+    pub only_windows: Vec<String>,
+    pub only_windows_count: u64,
+    /// Expected, but Windows does not list them.
+    pub only_here: Vec<String>,
+    pub only_here_count: u64,
+    /// Files Windows gives another size (or kind): (path, size here, size
+    /// Windows gives; u64::MAX for a folder).
+    pub other_size: Vec<(String, u64, u64)>,
+    pub other_size_count: u64,
+    /// Folders Windows would not let the program look into: left out of the
+    /// comparison.
+    pub unlistable: Vec<String>,
+    /// Why there is no comparison after all.
+    pub failed: Option<String>,
+}
+
+impl WindowsView {
+    pub fn agrees(&self) -> bool {
+        self.failed.is_none() && self.only_windows_count == 0 && self.only_here_count == 0 && self.other_size_count == 0
+    }
+}
+
+/// How many paths a list in the report keeps (the counts are of all).
+const LIST_MAX: usize = 1000;
+/// Up to how many files and folders their names are kept for the checks
+/// that need them (Windows' reading, clusters claimed twice): about 100 MB.
+const KEEP_NAMES_UP_TO: usize = 3_000_000;
 
 /// An earlier attempt's mapfile, and how much of the final attempt's
 /// never-read places it did read.
@@ -292,6 +379,17 @@ pub struct Report {
     /// The newest date (created or modified) of any file or folder found,
     /// as an exFAT timestamp, with its path.
     pub newest: Option<(u32, String)>,
+    /// Clusters two things found here both claim (or one claims twice: its
+    /// cluster chain loops): who claimed them first, who again, how many.
+    /// The volume's own records never do that; a record that does is
+    /// damaged, or a leftover of something deleted or replaced long ago.
+    pub claimed_twice: Vec<(Claim, Claim, u64)>,
+    /// Clusters a file or folder claims that the volume marks as free (and
+    /// how many), where that mark was read. Again only a damaged record or
+    /// a leftover does that.
+    pub claimed_free: Vec<(Claim, u64)>,
+    /// Windows' own reading of the volume against this check's.
+    pub windows: Option<WindowsView>,
     pub written: Vec<String>,
 }
 
@@ -314,6 +412,39 @@ impl Report {
     /// Of the hidden files and folders, how many Windows still opens by full path.
     pub fn hidden_maybe(&self) -> usize {
         self.hidden.iter().filter(|(e, _)| e.hidden_maybe).count()
+    }
+    /// Does [s, e) touch a place that was never read?
+    pub fn in_unread(&self, s: u64, e: u64) -> bool {
+        let i = self.areas.partition_point(|a| a.end <= s);
+        i < self.areas.len() && self.areas[i].start < e
+    }
+    /// Is this file or folder hidden by a blank record that ddrescue did
+    /// read? Then the old drive had that record blank too, and Windows never
+    /// listed it there either: most likely a leftover of something deleted
+    /// or replaced long ago (a folder's records past its end are not
+    /// cleared), not something the damage hid.
+    pub fn leftover(&self, e: &Entry) -> bool {
+        !e.hidden_by_blank.is_empty() && !e.hidden_by_blank.iter().any(|&(s, x)| self.in_unread(s, x))
+    }
+    /// (files, folders) that are leftovers.
+    pub fn leftovers(&self) -> (usize, usize) {
+        let l: Vec<&Entry> = self.hidden.iter().map(|(e, _)| e).filter(|e| self.leftover(e)).collect();
+        (l.iter().filter(|e| !e.is_dir).count(), l.iter().filter(|e| e.is_dir).count())
+    }
+    /// Why Windows cannot list it, with whether the damage is the reason.
+    pub fn hidden_why(&self, e: &Entry) -> String {
+        if self.leftover(e) {
+            format!(
+                "{}; that blank record is in a place ddrescue did read, so the old drive had it blank too and Windows \
+                 never listed this there either: most likely a leftover of something deleted or replaced long ago, not \
+                 something the damage hid",
+                e.why_hidden
+            )
+        } else if !e.hidden_by_blank.is_empty() {
+            format!("{} (the blank record is in a place ddrescue never read)", e.why_hidden)
+        } else {
+            e.why_hidden.clone()
+        }
     }
     /// (Folders found by their contents, the files inside them.)
     pub fn rebuilt(&self) -> (u64, u64) {
@@ -415,7 +546,11 @@ pub fn run(opts: &Options, progress: &mut dyn FnMut(&str)) -> Result<Report, Str
             commas(ssd_errors.len() as u64)
         ));
     }
-    let mut report = analyse_with(&watched, &map, &earlier, &ssd_errors, &opts.map_path, progress)?;
+    let compare = match &opts.compare_with {
+        Some(w) => Compare::With(w.clone()),
+        None => Compare::Auto,
+    };
+    let mut report = analyse_with(&watched, &map, &earlier, &ssd_errors, &opts.map_path, &compare, progress)?;
     if watched.errors() > 0 {
         if !watched.answers(report.vol_offset) {
             return Err(disk_lost_text(&watched.last_error()));
@@ -578,7 +713,7 @@ pub fn analyse(
     map_path: &str,
     progress: &mut dyn FnMut(&str),
 ) -> Result<Report, String> {
-    analyse_with(src, map, earlier, &[], map_path, progress)
+    analyse_with(src, map, earlier, &[], map_path, &Compare::Auto, progress)
 }
 
 /// `bad` and `more` (both sorted lists of (start, end, status)) together:
@@ -604,6 +739,7 @@ pub fn analyse_with(
     earlier: &[(String, Mapfile)],
     ssd_errors: &[(u64, u64, char)],
     map_path: &str,
+    compare: &Compare,
     progress: &mut dyn FnMut(&str),
 ) -> Result<Report, String> {
     let table = gpt::read(src, &[map.domain_end]);
@@ -724,12 +860,25 @@ pub fn analyse_with(
     let mut owner_of: HashMap<u32, usize> = HashMap::new();
     // Bit i = cluster i + 2, like exFAT's own allocation bitmap.
     let mut owned: Vec<u64> = vec![0; (vol.cluster_count as usize).div_ceil(64)];
-    fn mark(owned: &mut [u64], list: &ClusterList) {
+    // Clusters claimed again by something found later (the same bits).
+    let mut again: Vec<u64> = vec![0; owned.len()];
+    let mut any_again = false;
+    // Everything that claims clusters, in the order found (its number in
+    // this list), and the runs of clusters each claims.
+    let mut claimants: Vec<Claimant> = Vec::new();
+    let mut claim_runs: Vec<(u32, u32, u32)> = Vec::new();
+    fn mark(owned: &mut [u64], again: &mut [u64], any_again: &mut bool, runs: &mut Vec<(u32, u32, u32)>, id: u32, list: &ClusterList) {
         for &(first, count) in &list.runs {
+            runs.push((first, count, id));
             for c in first..first.saturating_add(count) {
                 let i = c as usize - 2;
                 if i / 64 < owned.len() {
-                    owned[i / 64] |= 1 << (i % 64);
+                    let bit = 1u64 << (i % 64);
+                    if owned[i / 64] & bit != 0 {
+                        again[i / 64] |= bit;
+                        *any_again = true;
+                    }
+                    owned[i / 64] |= bit;
                 }
             }
         }
@@ -806,10 +955,17 @@ pub fn analyse_with(
         (Kind::Upcase, vol.upcase_clusters.clone()),
         (Kind::Root, vol.root_clusters.clone()),
     ] {
-        mark(&mut owned, &list);
+        mark(&mut owned, &mut again, &mut any_again, &mut claim_runs, claimants.len() as u32, &list);
+        claimants.push(Claimant { kind, path: "".into(), size: 0, listed: false, leftover: false });
         let len = list.total() * vol.cluster_size;
         claim(&mut owners, &mut owner_of, &mut items, kind, "", &list, None, len);
     }
+    // Where Windows shows the volume's files, to compare with (see Compare).
+    let drive = crate::sys::drive_for_serial(vol.serial);
+    let compare_root = match compare {
+        Compare::With(w) => Some(w.clone()),
+        Compare::Auto => drive.clone(),
+    };
 
     let mut hidden: Vec<(Entry, Option<bool>)> = Vec::new();
     let mut unread_records: Vec<Entry> = Vec::new();
@@ -819,6 +975,9 @@ pub fn analyse_with(
         let i = area_spans.partition_point(|&(_, ae)| ae <= s);
         i < area_spans.len() && area_spans[i].0 < e
     };
+    // (The same as Report::leftover, before there is a report.)
+    let leftover =
+        |e: &Entry| !e.hidden_by_blank.is_empty() && !e.hidden_by_blank.iter().any(|&(s, x)| in_unread(s, x));
     let mut seen = (0u64, 0u64);
     let mut bytes_seen = 0u64;
     let mut newest: Option<(u32, String)> = None;
@@ -849,8 +1008,16 @@ pub fn analyse_with(
                     newest = Some((ts, e.path.clone()));
                 }
             }
-            mark(&mut owned, list);
+            let id = claimants.len() as u32;
+            mark(&mut owned, &mut again, &mut any_again, &mut claim_runs, id, list);
             let kind = if e.is_dir { Kind::Folder } else { Kind::File };
+            claimants.push(Claimant {
+                kind,
+                path: if claimants.len() < KEEP_NAMES_UP_TO { e.path.as_str().into() } else { "".into() },
+                size: e.data_length,
+                listed: !e.hidden_from_windows,
+                leftover: leftover(e),
+            });
             let before = items.len();
             claim(&mut owners, &mut owner_of, &mut items, kind, &e.path, list, Some(e), e.data_length);
             if e.record_extents.iter().any(|&(s, x)| in_unread(s, x)) {
@@ -940,6 +1107,90 @@ pub fn analyse_with(
         }
     }
 
+    // Clusters claimed twice, and clusters claimed that the volume marks as
+    // free (where that mark was read).
+    let claim_of = |id: u32| {
+        let c = &claimants[id as usize];
+        Claim { kind: c.kind, path: c.path.to_string(), leftover: c.leftover }
+    };
+    let mut claimed_twice: Vec<(Claim, Claim, u64)> = Vec::new();
+    if any_again {
+        // Who claims each of those clusters, in the order claimed.
+        let mut by: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &(first, count, id) in &claim_runs {
+            for c in first..first.saturating_add(count) {
+                let i = c as usize - 2;
+                if i / 64 < again.len() && again[i / 64] & (1 << (i % 64)) != 0 {
+                    by.entry(c).or_default().push(id);
+                }
+            }
+        }
+        let mut pairs: BTreeMap<(u32, u32), u64> = BTreeMap::new();
+        for ids in by.values() {
+            for &other in &ids[1..] {
+                *pairs.entry((ids[0], other)).or_default() += 1;
+            }
+        }
+        claimed_twice = pairs.into_iter().map(|((a, b), n)| (claim_of(a), claim_of(b), n)).collect();
+        claimed_twice.sort();
+        progress(&format!("{} clusters are claimed by more than one file or folder", commas(by.len() as u64)));
+    }
+    let mut claimed_free: Vec<(Claim, u64)> = Vec::new();
+    if !vol.bitmap.is_empty() {
+        let mut free: Vec<u64> = vec![0; owned.len()];
+        let mut any_free = false;
+        for (w, &own) in owned.iter().enumerate() {
+            let mut alloc = 0u64;
+            for b in 0..8 {
+                if let Some(&byte) = vol.bitmap.get(w * 8 + b) {
+                    alloc |= (byte as u64) << (8 * b);
+                }
+            }
+            let mut bits = own & !alloc;
+            let valid = (vol.cluster_count as u64).saturating_sub(w as u64 * 64);
+            if valid < 64 {
+                bits &= (1u64 << valid) - 1;
+            }
+            // Only where the mark was read: a never-read place in the
+            // bitmap reads as "free".
+            let mut k = bits;
+            while k != 0 {
+                let bit = k.trailing_zeros() as u64;
+                k &= k - 1;
+                let byte = (w as u64 * 64 + bit) / 8;
+                if vol.disk_offset_in(&vol.bitmap_clusters, byte).is_none_or(|d| in_unread(d, d + 1)) {
+                    bits &= !(1u64 << bit);
+                }
+            }
+            if bits != 0 {
+                free[w] = bits;
+                any_free = true;
+            }
+        }
+        if any_free {
+            let mut count: BTreeMap<u32, u64> = BTreeMap::new();
+            for &(first, n, id) in &claim_runs {
+                for c in first..first.saturating_add(n) {
+                    let i = c as usize - 2;
+                    if i / 64 < free.len() && free[i / 64] & (1 << (i % 64)) != 0 {
+                        *count.entry(id).or_default() += 1;
+                    }
+                }
+            }
+            claimed_free = count.into_iter().map(|(id, n)| (claim_of(id), n)).collect();
+            claimed_free.sort();
+        }
+    }
+
+    // Windows' own reading of the volume, against this check's.
+    let windows = compare_root.map(|root| {
+        progress(&format!("Comparing with what Windows lists on {root}..."));
+        let kept = claimants.len() <= KEEP_NAMES_UP_TO;
+        let mut v = windows_view(&root, &claimants[3..], kept, progress);
+        v.read_only = crate::sys::volume_read_only(&root);
+        v
+    });
+
     // Pieces of lost data on never-read places: named as the copying names
     // them, so that the check of the copies marks them NEVER_READ too.
     let mut lost_items: Vec<Item> = Vec::new();
@@ -985,7 +1236,6 @@ pub fn analyse_with(
     }
 
     // Can Windows see these paths? Only when the volume has a drive letter here.
-    let drive = crate::sys::drive_for_serial(vol.serial);
     if let Some(d) = &drive {
         // Taken literally (\\?\\), so a name ending in a space or a dot is not trimmed.
         let see = |p: &str| std::fs::metadata(format!(r"\\?\{d}\{p}")).is_ok();
@@ -1035,8 +1285,129 @@ pub fn analyse_with(
         lost_runs,
         lost_items,
         newest,
+        claimed_twice,
+        claimed_free,
+        windows,
         written: Vec::new(),
     })
+}
+
+/// A file or folder found, as the checks after the walk need it.
+struct Claimant {
+    kind: Kind,
+    /// Empty past KEEP_NAMES_UP_TO.
+    path: Box<str>,
+    size: u64,
+    /// Windows lists it (this check says).
+    listed: bool,
+    leftover: bool,
+}
+
+/// Every file and folder under `root`, as Windows lists them: path (folders
+/// separated by '\') -> (is a folder, size). Folders it may not look into
+/// are listed apart.
+fn list_tree(root: &Path, say: &mut dyn FnMut(&str)) -> Result<(HashMap<String, (bool, u64)>, Vec<String>), String> {
+    let mut out: HashMap<String, (bool, u64)> = HashMap::new();
+    let mut unlistable = Vec::new();
+    let mut stack = vec![String::new()];
+    let mut last = std::time::Instant::now();
+    while let Some(rel) = stack.pop() {
+        let dir = if rel.is_empty() { root.to_path_buf() } else { root.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR)) };
+        let rd = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) if rel.is_empty() => return Err(format!("could not list {}: {e}", root.display())),
+            Err(_) => {
+                unlistable.push(rel);
+                continue;
+            }
+        };
+        for ent in rd {
+            let Ok(ent) = ent else {
+                unlistable.push(rel.clone());
+                break;
+            };
+            let name = ent.file_name().to_string_lossy().into_owned();
+            let path = if rel.is_empty() { name } else { format!("{rel}\\{name}") };
+            let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let len = if is_dir { 0 } else { ent.metadata().map(|m| m.len()).unwrap_or(0) };
+            if is_dir {
+                stack.push(path.clone());
+            }
+            out.insert(path, (is_dir, len));
+            if last.elapsed().as_millis() > 500 {
+                say(&format!("Listing what Windows shows: {} files and folders so far", commas(out.len() as u64)));
+                last = std::time::Instant::now();
+            }
+        }
+    }
+    unlistable.sort();
+    Ok((out, unlistable))
+}
+
+/// What Windows lists under `root` against what this check says it can
+/// list (`found`: every file and folder found, in the order found).
+fn windows_view(root: &str, found: &[Claimant], names_kept: bool, say: &mut dyn FnMut(&str)) -> WindowsView {
+    let mut v = WindowsView { root: root.to_string(), ..Default::default() };
+    if !names_kept {
+        v.failed = Some(format!("the volume holds more than {} files and folders: too many to compare", commas(KEEP_NAMES_UP_TO as u64)));
+        return v;
+    }
+    // A drive letter is read literally, so names ending in a space or a dot
+    // are not trimmed on the way (exFAT allows them; Windows' usual paths do not).
+    let r = root.trim_end_matches(['\\', '/']);
+    let path = if cfg!(windows) && r.len() == 2 && r.ends_with(':') {
+        PathBuf::from(format!(r"\\?\{r}\"))
+    } else if cfg!(windows) && !root.starts_with(r"\\") {
+        // A folder: taken literally too (a full path, with \\?\ before it).
+        match std::path::absolute(root) {
+            Ok(a) => PathBuf::from(format!(r"\\?\{}", a.display())),
+            Err(_) => PathBuf::from(root),
+        }
+    } else {
+        PathBuf::from(root)
+    };
+    let (mut listed, unlistable) = match list_tree(&path, say) {
+        Ok(x) => x,
+        Err(e) => {
+            v.failed = Some(e);
+            return v;
+        }
+    };
+    v.listed = listed.len() as u64;
+    let shut: std::collections::HashSet<&str> = unlistable.iter().map(|s| s.as_str()).collect();
+    let inside_shut = |p: &str| !shut.is_empty() && p.match_indices('\\').any(|(i, _)| shut.contains(&p[..i]));
+    let mut only_here = Vec::new();
+    let mut other = Vec::new();
+    for c in found.iter().filter(|c| c.listed) {
+        if inside_shut(&c.path) {
+            continue;
+        }
+        v.expected += 1;
+        match listed.remove(&*c.path) {
+            None => only_here.push(c.path.to_string()),
+            Some((is_dir, len)) => {
+                let here_dir = c.kind != Kind::File;
+                if is_dir != here_dir || (!is_dir && len != c.size) {
+                    other.push((c.path.to_string(), if here_dir { u64::MAX } else { c.size }, if is_dir { u64::MAX } else { len }));
+                }
+            }
+        }
+    }
+    let mut only_windows: Vec<String> = listed.into_keys().collect();
+    only_windows.sort();
+    only_here.sort();
+    other.sort();
+    v.only_windows_count = only_windows.len() as u64;
+    v.only_here_count = only_here.len() as u64;
+    v.other_size_count = other.len() as u64;
+    only_windows.truncate(LIST_MAX);
+    only_here.truncate(LIST_MAX);
+    other.truncate(LIST_MAX);
+    v.only_windows = only_windows;
+    v.only_here = only_here;
+    v.other_size = other;
+    v.unlistable = unlistable;
+    v
 }
 
 fn shown(path: &str) -> String {
@@ -1163,12 +1534,13 @@ pub fn summary(r: &Report) -> Vec<String> {
             String::new()
         }
     ));
+    let (left_files, left_folders) = r.leftovers();
     t.push(format!(
         "  inside folder records      {:>6}  -> {} folders affected; {} files and {} folders Windows cannot list{}",
         commas(in_folders as u64),
         commas(r.folders().count() as u64),
-        commas(r.hidden_files() as u64),
-        commas((r.hidden.len() - r.hidden_files()) as u64),
+        commas((r.hidden_files() - left_files) as u64),
+        commas((r.hidden.len() - r.hidden_files() - left_folders) as u64),
         if r.hidden_maybe() > 0 {
             format!(" ({} of them still open if you type their full path)", commas(r.hidden_maybe() as u64))
         } else {
@@ -1229,6 +1601,41 @@ pub fn summary(r: &Report) -> Vec<String> {
         t.push("records are valid, so an earlier attempt may have read them - or they are left over from".to_string());
         t.push("what the SSD held before the copy (map-check-unsure-records.csv).".to_string());
     }
+    if left_files + left_folders > 0 {
+        t.push(String::new());
+        t.push(format!(
+            "{} files and {} folders are listed after a blank record that ddrescue DID read: the old drive had",
+            commas(left_files as u64),
+            commas(left_folders as u64)
+        ));
+        t.push("that record blank too, so Windows never listed them there either. They are most likely leftovers".to_string());
+        t.push("of files deleted or replaced long ago (a folder's records past its end are not cleared), not".to_string());
+        t.push("files the damage hid. The copying still copies them; treat those copies as doubtful (they are".to_string());
+        t.push("marked in map-check-hidden-files.csv).".to_string());
+    }
+    if !r.claimed_twice.is_empty() || !r.claimed_free.is_empty() {
+        t.push(String::new());
+        t.push("CHECK OF THE VOLUME'S RECORDS: some records point at space that is not theirs:".to_string());
+        for (a, b, n) in r.claimed_twice.iter().take(10) {
+            if a == b {
+                t.push(format!("  {} claims {} clusters twice (its cluster chain loops)", a.describe(), commas(*n)));
+            } else {
+                t.push(format!("  {} and {} claim the same {} clusters", a.describe(), b.describe(), commas(*n)));
+            }
+        }
+        if r.claimed_twice.len() > 10 {
+            t.push(format!("  ...and {} more pairs", r.claimed_twice.len() - 10));
+        }
+        for (a, n) in r.claimed_free.iter().take(10) {
+            t.push(format!("  {} claims {} clusters the volume marks as free", a.describe(), commas(*n)));
+        }
+        if r.claimed_free.len() > 10 {
+            t.push(format!("  ...and {} more", r.claimed_free.len() - 10));
+        }
+        t.push("The volume's own records never do that: such a record is damaged, or a leftover of something".to_string());
+        t.push("deleted or replaced long ago, and what it points at may belong to another file. Tell Claude".to_string());
+        t.push("before relying on those files (map-check-consistency.csv lists them all).".to_string());
+    }
     let (rebuilt_folders, rebuilt_files) = r.rebuilt();
     if rebuilt_folders > 0 {
         t.push(String::new());
@@ -1272,6 +1679,58 @@ pub fn summary(r: &Report) -> Vec<String> {
     match &r.drive {
         Some(d) => t.push(format!("The volume is drive {d} on this PC; the CSV files say whether Windows can see each file.")),
         None => t.push("The volume has no drive letter here, so whether Windows can see each file was not checked.".to_string()),
+    }
+    t.extend(windows_lines(r));
+    t
+}
+
+/// What Windows' own reading of the volume says (see Compare).
+pub fn windows_lines(r: &Report) -> Vec<String> {
+    let mut t = Vec::new();
+    let Some(w) = &r.windows else {
+        t.push("Not checked against Windows' own reading of the volume: it has no drive letter here. To check,".to_string());
+        t.push("mount the image read-only (OSFMount: Read-only drive) and run this check again.".to_string());
+        return t;
+    };
+    if w.read_only == Some(false) {
+        t.push(format!("WARNING: {} is NOT read-only: Windows can write to it. If it is the image, unmount it and", w.root));
+        t.push("mount it again read-only (in OSFMount, tick \"Read-only drive\"). If it is the recovered SSD, switch it off".to_string());
+        t.push("in step 3 and protect it again.".to_string());
+    }
+    if let Some(e) = &w.failed {
+        t.push(format!("Could not check against what Windows lists on {}: {e}.", w.root));
+        return t;
+    }
+    if w.agrees() {
+        t.push(format!(
+            "Checked against Windows' own reading of the volume (drive {}): Windows lists {} files and folders,",
+            w.root,
+            commas(w.listed)
+        ));
+        t.push("exactly the ones this check says it can list, with the same sizes. (Windows and this check read".to_string());
+        t.push("the volume independently, so this is a check of the check.)".to_string());
+    } else {
+        t.push(format!("Checked against Windows' own reading of the volume (drive {}): they DIFFER.", w.root));
+        t.push(format!(
+            "  Windows lists {} files and folders this check says it cannot list (or never found){}",
+            commas(w.only_windows_count),
+            w.only_windows.first().map(|p| format!(", such as {p}")).unwrap_or_default()
+        ));
+        t.push(format!(
+            "  and does not list {} that this check says it can{}; {} have another size there.",
+            commas(w.only_here_count),
+            w.only_here.first().map(|p| format!(", such as {p}")).unwrap_or_default(),
+            commas(w.other_size_count)
+        ));
+        t.push("Tell Claude before going on: this check may read part of the volume wrongly".to_string());
+        t.push("(map-check-windows-compare.csv lists every difference).".to_string());
+    }
+    if !w.unlistable.is_empty() {
+        t.push(format!(
+            "(Windows would not let the program look into {} folders, such as {}: left out of the comparison.)",
+            commas(w.unlistable.len() as u64),
+            w.unlistable[0]
+        ));
     }
     t
 }
@@ -1375,7 +1834,8 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
 
     if !r.hidden.is_empty() {
         let p = out_dir.join("map-check-hidden-files.csv");
-        let mut body = csv_row(&["kind", "path", "size_bytes", "windows_lists_it", "windows_can_see", "why"]);
+        let mut body =
+            csv_row(&["kind", "path", "size_bytes", "windows_lists_it", "windows_can_see", "the_damage_hid_it", "why"]);
         for (e, see) in &r.hidden {
             body.push_str(&csv_row(&[
                 if e.is_dir { "FOLDER" } else { "FILE" }.to_string(),
@@ -1383,7 +1843,8 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
                 e.data_length.to_string(),
                 "no".to_string(),
                 yes_no(*see).to_string(),
-                e.why_hidden.clone(),
+                if r.leftover(e) { "no - most likely a leftover" } else { "yes" }.to_string(),
+                r.hidden_why(e),
             ]));
         }
         write_bom(&p, &body)?;
@@ -1394,6 +1855,45 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
         let mut body = csv_row(&["folder", "disk_offset", "problem"]);
         for i in &r.folder_problems {
             body.push_str(&csv_row(&[i.folder.clone(), i.disk_offset.to_string(), i.what.clone()]));
+        }
+        write_bom(&p, &body)?;
+        written.push(p.display().to_string());
+    }
+
+    if !r.claimed_twice.is_empty() || !r.claimed_free.is_empty() {
+        let p = out_dir.join("map-check-consistency.csv");
+        let mut body = csv_row(&["problem", "claimed_by", "also_claimed_by", "clusters"]);
+        for (a, b, n) in &r.claimed_twice {
+            body.push_str(&csv_row(&[
+                if a == b { "claims clusters twice (its cluster chain loops)" } else { "two claim the same clusters" }.to_string(),
+                a.describe(),
+                if a == b { String::new() } else { b.describe() },
+                n.to_string(),
+            ]));
+        }
+        for (a, n) in &r.claimed_free {
+            body.push_str(&csv_row(&[
+                "claims clusters the volume marks as free".to_string(),
+                a.describe(),
+                String::new(),
+                n.to_string(),
+            ]));
+        }
+        write_bom(&p, &body)?;
+        written.push(p.display().to_string());
+    }
+    if let Some(w) = r.windows.as_ref().filter(|w| !w.agrees() && w.failed.is_none()) {
+        let p = out_dir.join("map-check-windows-compare.csv");
+        let mut body = csv_row(&["difference", "path", "size_here", "size_windows_gives"]);
+        let sz = |n: u64| if n == u64::MAX { "folder".to_string() } else { n.to_string() };
+        for x in &w.only_windows {
+            body.push_str(&csv_row(&["Windows lists it; this check says it cannot".to_string(), x.clone(), String::new(), String::new()]));
+        }
+        for x in &w.only_here {
+            body.push_str(&csv_row(&["this check says Windows lists it; it does not".to_string(), x.clone(), String::new(), String::new()]));
+        }
+        for (x, a, b) in &w.other_size {
+            body.push_str(&csv_row(&["another size".to_string(), x.clone(), sz(*a), sz(*b)]));
         }
         write_bom(&p, &body)?;
         written.push(p.display().to_string());
@@ -1448,7 +1948,8 @@ pub fn write_outputs(r: &mut Report, out_dir: &Path) -> Result<(), String> {
         }));
     }
     for (e, _) in &r.hidden {
-        if e.is_dir {
+        // (Leftovers were never files Windows listed: whether a copy has them is no matter.)
+        if e.is_dir || r.leftover(e) {
             continue;
         }
         tsv.push_str(&crate::join::tsv_line(&crate::join::MapItem {
@@ -1543,7 +2044,7 @@ pub fn to_json(r: &Report) -> String {
     );
     let _ = write!(
         s,
-        "\"totals\":{{\"bad_bytes\":{},\"bad_areas\":{},\"files_damaged\":{},\"folders_damaged\":{},\"hidden_files\":{},\"hidden_folders\":{},\"hidden_maybe\":{},\"lost_clusters\":{},\"lost_bytes\":{},\"folder_problems\":{}}},\n",
+        "\"totals\":{{\"bad_bytes\":{},\"bad_areas\":{},\"files_damaged\":{},\"folders_damaged\":{},\"hidden_files\":{},\"hidden_folders\":{},\"hidden_maybe\":{},\"hidden_leftovers\":{},\"lost_clusters\":{},\"lost_bytes\":{},\"folder_problems\":{}}},\n",
         r.bad_bytes(),
         r.areas.len(),
         r.files().count(),
@@ -1551,6 +2052,7 @@ pub fn to_json(r: &Report) -> String {
         r.hidden_files(),
         r.hidden.len() - r.hidden_files(),
         r.hidden_maybe(),
+        r.leftovers().0 + r.leftovers().1,
         r.lost_clusters,
         r.lost_bytes(),
         r.folder_problems.len()
@@ -1617,12 +2119,13 @@ pub fn to_json(r: &Report) -> String {
         }
         let _ = write!(
             s,
-            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"maybe\":{},\"why\":{},\"windows_can_see\":{}}}",
+            "\n{{\"path\":{},\"is_dir\":{},\"size\":{},\"maybe\":{},\"leftover\":{},\"why\":{},\"windows_can_see\":{}}}",
             json_str(&e.path),
             e.is_dir,
             e.data_length,
             e.hidden_maybe,
-            json_str(&e.why_hidden),
+            r.leftover(e),
+            json_str(&r.hidden_why(e)),
             opt_bool(*see)
         );
     }
@@ -1652,11 +2155,48 @@ pub fn to_json(r: &Report) -> String {
             json_str(&p.what)
         );
     }
-    s.push_str("],\n\"lost_runs\":[");
+    s.push_str("],\n\"claimed_twice\":[");
+    let claim = |c: &Claim| format!("{{\"kind\":{},\"path\":{},\"leftover\":{}}}", json_str(c.kind.code()), json_str(&c.path), c.leftover);
+    let twice: Vec<String> =
+        r.claimed_twice.iter().map(|(a, b, n)| format!("{{\"first\":{},\"again\":{},\"clusters\":{n}}}", claim(a), claim(b))).collect();
+    s.push_str(&twice.join(","));
+    s.push_str("],\n\"claimed_free\":[");
+    let free: Vec<String> = r.claimed_free.iter().map(|(a, n)| format!("{{\"by\":{},\"clusters\":{n}}}", claim(a))).collect();
+    s.push_str(&free.join(","));
+    s.push_str("],\n\"windows_compare\":");
+    s.push_str(&windows_json(r.windows.as_ref(), usize::MAX));
+    s.push_str(",\n\"lost_runs\":[");
     let runs: Vec<String> = r.lost_runs.iter().map(|(c, n)| format!("[{c},{n}]")).collect();
     s.push_str(&runs.join(","));
     s.push_str("]}\n");
     s
+}
+
+/// Windows' reading of the volume against this check's, as JSON (null when
+/// not compared), with at most `most` paths in each list.
+fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
+    let Some(w) = w else { return "null".to_string() };
+    let list = |v: &[String]| v.iter().take(most).map(|p| json_str(p)).collect::<Vec<_>>().join(",");
+    let sizes: Vec<String> = w.other_size.iter().take(most).map(|(p, a, b)| {
+        let n = |x: &u64| if *x == u64::MAX { "null".to_string() } else { x.to_string() };
+        format!("[{},{},{}]", json_str(p), n(a), n(b))
+    }).collect();
+    format!(
+        "{{\"root\":{},\"read_only\":{},\"agrees\":{},\"failed\":{},\"listed\":{},\"expected\":{},\"only_windows\":[{}],\"only_windows_count\":{},\"only_here\":[{}],\"only_here_count\":{},\"other_size\":[{}],\"other_size_count\":{},\"unlistable\":[{}]}}",
+        json_str(&w.root),
+        opt_bool(w.read_only),
+        w.agrees(),
+        w.failed.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
+        w.listed,
+        w.expected,
+        list(&w.only_windows),
+        w.only_windows_count,
+        list(&w.only_here),
+        w.only_here_count,
+        sizes.join(","),
+        w.other_size_count,
+        list(&w.unlistable)
+    )
 }
 
 /// What the front end shows of a map check (JSON): the totals, the files
@@ -1693,22 +2233,24 @@ pub fn page_json(r: &Report) -> String {
         .take(500)
         .map(|(e, _)| {
             format!(
-                "{{\"path\":{},\"is_dir\":{},\"size\":{},\"by_path\":{},\"why\":{}}}",
+                "{{\"path\":{},\"is_dir\":{},\"size\":{},\"by_path\":{},\"leftover\":{},\"why\":{}}}",
                 json_str(&e.path),
                 e.is_dir,
                 e.data_length,
                 e.hidden_maybe,
-                json_str(&e.why_hidden)
+                r.leftover(e),
+                json_str(&r.hidden_why(e))
             )
         })
         .collect();
     // The same, grouped: one line per folder and reason (a damaged folder
     // can hide thousands of files, all for the one reason).
-    let mut groups: BTreeMap<(String, String, bool), (u64, u64, Vec<String>)> = BTreeMap::new();
+    let mut groups: BTreeMap<(bool, String, String, bool), (u64, u64, Vec<String>)> = BTreeMap::new();
     for (e, _) in &r.hidden {
         let parent = e.path.rsplit_once('\\').map(|(p, _)| p.to_string()).unwrap_or_default();
         let place = if e.why_hidden.starts_with("inside the folder") { String::new() } else { parent };
-        let g = groups.entry((place, e.why_hidden.clone(), e.hidden_maybe)).or_default();
+        // (Leftovers last.)
+        let g = groups.entry((r.leftover(e), place, r.hidden_why(e), e.hidden_maybe)).or_default();
         if e.is_dir {
             g.1 += 1;
         } else {
@@ -1720,12 +2262,13 @@ pub fn page_json(r: &Report) -> String {
     }
     let hidden_groups: Vec<String> = groups
         .iter()
-        .map(|((place, why, by_path), (files, folders, examples))| {
+        .map(|((leftover, place, why, by_path), (files, folders, examples))| {
             format!(
-                "{{\"where\":{},\"why\":{},\"by_path\":{},\"files\":{},\"folders\":{},\"examples\":[{}]}}",
+                "{{\"where\":{},\"why\":{},\"by_path\":{},\"leftover\":{},\"files\":{},\"folders\":{},\"examples\":[{}]}}",
                 json_str(place),
                 json_str(why),
                 by_path,
+                leftover,
                 files,
                 folders,
                 examples.iter().map(|x| json_str(x)).collect::<Vec<_>>().join(",")
@@ -1748,6 +2291,20 @@ pub fn page_json(r: &Report) -> String {
         })
         .collect();
     let opt = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
+    let consistency: Vec<String> = r
+        .claimed_twice
+        .iter()
+        .map(|(a, b, n)| {
+            if a == b {
+                format!("{} claims {} clusters twice (its cluster chain loops)", a.describe(), commas(*n))
+            } else {
+                format!("{} and {} claim the same {} clusters", a.describe(), b.describe(), commas(*n))
+            }
+        })
+        .chain(r.claimed_free.iter().map(|(a, n)| format!("{} claims {} clusters the volume marks as free", a.describe(), commas(*n))))
+        .take(6)
+        .map(|x| json_str(&x))
+        .collect();
     let newest = match &r.newest {
         Some((ts, path)) => format!(
             "{{\"date\":{},\"path\":{},\"after_copy\":{},\"copy_finished\":{}}}",
@@ -1764,7 +2321,8 @@ pub fn page_json(r: &Report) -> String {
          \"files_seen\":{},\"folders_seen\":{},\"bytes_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
          \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
          \"newest\":{},\"rebuilt_folders\":{},\"rebuilt_files\":{},\"files\":[{}],\"hidden\":[{}],\
-         \"hidden_groups\":[{}],\"areas\":[{}]}}",
+         \"hidden_groups\":[{}],\"leftover_files\":{},\"leftover_folders\":{},\"claimed_twice\":{},\"claimed_free\":{},\
+         \"consistency_examples\":[{}],\"windows\":{},\"windows_lines\":[{}],\"areas\":[{}]}}",
         r.bad_bytes(),
         r.areas.len(),
         files.len(),
@@ -1792,6 +2350,13 @@ pub fn page_json(r: &Report) -> String {
         file_list.join(","),
         hidden.join(","),
         hidden_groups.join(","),
+        r.leftovers().0,
+        r.leftovers().1,
+        r.claimed_twice.len(),
+        r.claimed_free.len(),
+        consistency.join(","),
+        windows_json(r.windows.as_ref(), 20),
+        windows_lines(r).iter().map(|l| json_str(l)).collect::<Vec<_>>().join(","),
         areas.join(",")
     )
 }
@@ -1869,6 +2434,64 @@ mod tests {
         ntfs[510..512].copy_from_slice(&[0x55, 0xAA]);
         let (main, backup) = (header(1, last, 2), header(last, 1, last - 32));
         vec![(512, main), (1024, entries.clone()), (2048 * 512, ntfs), ((last - 32) * 512, entries), (last * 512, backup)]
+    }
+
+    #[test]
+    fn what_windows_lists_is_compared_name_by_name() {
+        let dir = std::env::temp_dir().join(format!("rp-compare-{}", std::process::id()));
+        // Taken literally on Windows, so a name ending in a space can be made.
+        let lit = |p: &Path| {
+            if cfg!(windows) {
+                PathBuf::from(format!(r"\\?\{}", std::path::absolute(p).unwrap().display()))
+            } else {
+                p.to_path_buf()
+            }
+        };
+        let _ = std::fs::remove_dir_all(lit(&dir));
+        let file = |rel: &str, n: usize| {
+            let p = lit(&dir.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR)));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![7u8; n]).unwrap();
+        };
+        file(r"Photos\IMG_0001.JPG", 100);
+        file(r"Photos\name ending in a space ", 7);
+        file(r"Docs\a.txt", 5);
+        std::fs::create_dir_all(lit(&dir.join("Empty"))).unwrap();
+        let c = |kind: Kind, path: &str, size: u64, listed: bool| Claimant { kind, path: path.into(), size, listed, leftover: false };
+        let found = vec![
+            c(Kind::Folder, "Photos", 4096, true),
+            c(Kind::File, r"Photos\IMG_0001.JPG", 100, true),
+            c(Kind::File, r"Photos\name ending in a space ", 7, true),
+            c(Kind::Folder, "Docs", 4096, true),
+            c(Kind::File, r"Docs\a.txt", 5, true),
+            // Hidden from Windows: not expected in its listing.
+            c(Kind::File, r"Docs\after the damage.txt", 9, false),
+            c(Kind::Folder, "Empty", 4096, true),
+        ];
+        let root = dir.display().to_string();
+        let v = windows_view(&root, &found, true, &mut |_| {});
+        assert!(v.agrees(), "{v:?}");
+        assert_eq!((v.listed, v.expected), (6, 6));
+        // One file gone, one added, one a byte longer, and a folder where a file was.
+        std::fs::remove_file(lit(&dir.join("Docs").join("a.txt"))).unwrap();
+        file("extra.bin", 1);
+        file(r"Photos\IMG_0001.JPG", 101);
+        std::fs::remove_dir(lit(&dir.join("Empty"))).unwrap();
+        file("Empty", 3);
+        let v = windows_view(&root, &found, true, &mut |_| {});
+        assert!(!v.agrees());
+        assert_eq!(v.only_here, vec![r"Docs\a.txt".to_string()]);
+        assert_eq!(v.only_windows, vec!["extra.bin".to_string()]);
+        assert_eq!(
+            v.other_size,
+            vec![("Empty".to_string(), u64::MAX, 3), (r"Photos\IMG_0001.JPG".to_string(), 100, 101)]
+        );
+        // Nothing to compare with.
+        let gone = windows_view(&dir.join("not there").display().to_string(), &found, true, &mut |_| {});
+        assert!(gone.failed.is_some() && !gone.agrees());
+        let too_many = windows_view(&root, &found, false, &mut |_| {});
+        assert!(too_many.failed.is_some());
+        let _ = std::fs::remove_dir_all(lit(&dir));
     }
 
     #[test]

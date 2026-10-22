@@ -17,9 +17,13 @@ Double-click the program to use it step by step in your web browser. Or:
   recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
         One line of JSON per file (used to compare with the Python version).
   recovery-probe map-check --map <mapfile> --disk <disk> [--earlier-map <mapfile>] [--out <folder>]
+                           [--compare-with <drive>]
         Work out which files and folders sit on the places ddrescue never read.
         <disk> is \\\\.\\PhysicalDriveN (needs administrator rights) or a disk image.
         --earlier-map: an earlier attempt's mapfile, if it copied onto the same disk.
+        Where the volume has a drive letter (the image mounted read-only, say), what
+        Windows lists there is compared with what the check says it can list;
+        --compare-with names the drive (or a folder) to compare with instead.
   recovery-probe rescue --disk <disk> --out <folder> [--everything | --path <path>...] [--lost]
         Copy files straight off the disk, past Windows: by default the ones Windows
         cannot list. --lost also saves data no folder record names any more.
@@ -136,11 +140,12 @@ struct MapOpts {
     earlier: Vec<String>,
     disk: String,
     out: String,
+    compare_with: Option<String>,
     status: Option<String>,
 }
 
 fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
-    let (mut map, mut disk, mut out, mut status) = (None, None, None, None);
+    let (mut map, mut disk, mut out, mut status, mut compare_with) = (None, None, None, None, None);
     let mut earlier = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -150,6 +155,7 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
             "--earlier-map" => earlier.push(val()?),
             "--disk" => disk = Some(val()?),
             "--out" => out = Some(val()?),
+            "--compare-with" => compare_with = Some(val()?),
             "--status" => status = Some(val()?),
             s => return Err(format!("unexpected argument {s}")),
         }
@@ -160,6 +166,7 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
         earlier,
         disk: disk.ok_or("--disk is needed: the recovered disk, or a disk image")?,
         out: out.unwrap_or_else(|| "map-check".to_string()),
+        compare_with,
         status,
     })
 }
@@ -242,7 +249,7 @@ fn main() {
             }
         },
         Some("map-check") => match parse_map_opts(&args[1..]) {
-            Ok(o) => run_map_check(&o.map, &o.earlier, &o.disk, &o.out, &Status::new(o.status)),
+            Ok(o) => run_map_check(&o.map, &o.earlier, &o.disk, &o.out, o.compare_with.as_deref(), &Status::new(o.status)),
             Err(e) => {
                 eprintln!("{e}\n\n{USAGE}");
                 2

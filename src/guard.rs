@@ -218,6 +218,14 @@ mod imp {
     }
 
     fn set(n: u32, attributes: u64, mask: u64, persist: bool) -> Result<(), String> {
+        // Windows' own disk is never switched off or marked read-only,
+        // whatever asks (the page never offers it; this holds for the
+        // command line, and for any mistake, too).
+        if crate::win::disks().iter().any(|d| d.number == n && d.system) {
+            return Err(format!(
+                "disk {n} holds Windows itself: the program never switches it off or marks it read-only"
+            ));
+        }
         let f = open(n, true)?;
         // SET_DISK_ATTRIBUTES: Version (its size), Persist, 3 reserved bytes,
         // Attributes, AttributesMask, 4 reserved u32s: 40 bytes.

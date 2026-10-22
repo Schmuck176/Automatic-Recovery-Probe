@@ -269,7 +269,7 @@ ul.phases .warn { color: var(--unread); }
 
     <li id="s-image">
       <div class="step-head"><h2>Make an image of the SSD: a second copy</h2><span class="state" id="st-image"></span></div>
-      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code> on the PC's own second drive.</p>
+      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. If the SSD struggles at a place, the image reads around it carefully, steps over what will not read (and lists it) and goes on, rather than wearing the SSD down there; Stop works at any moment, and starting again carries on where it stopped. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code> on the PC's own second drive.</p>
       <div class="row">
         <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example D:\IMAGE">
         <button class="second" id="b-image-to">Choose…</button>
@@ -287,7 +287,7 @@ ul.phases .warn { color: var(--unread); }
 
     <li id="s-check">
       <div class="step-head"><h2>See what the damage touched</h2><span class="state" id="st-check"></span></div>
-      <p>The program reads the image (or the recovered SSD itself, if no image was made) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list. It never writes to either.</p>
+      <p>The program reads the image (or the recovered SSD itself, if no image was made) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list. It never writes to either. If the image is mounted read-only (with OSFMount), it also checks itself against what Windows lists there.</p>
       <p class="small soft" id="check-source"></p>
       <div class="row"><button id="b-check">Find what the damage touched</button></div>
       <div id="r-check"></div>
@@ -838,11 +838,21 @@ function renderCheck() {
     if (d) {
       h += `<div class="panel"><div class="figures">
         ${figure(d.files_losing_data, "files lost data", true)}
-        ${figure(d.hidden_files, "files Windows cannot list", true)}
+        ${figure(d.hidden_files - (d.leftover_files || 0), "files Windows cannot list", true)}
         ${figure(d.folders_affected, "folders damaged", true)}
         <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
         <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD${d.bytes_seen != null ? `, ${esc(size(d.bytes_seen))} in all` : ""}</span></div></div>`;
       if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
+      // Windows' own reading of the volume, against this check's.
+      const w = d.windows;
+      if (w && w.read_only === false) h += `<div class="msg err">${esc(w.root)} is not read-only: Windows can write to it. If it is the image, unmount it and mount it again read-only (in OSFMount, tick “Read-only drive”). If it is the recovered SSD, switch it off in step 3 and protect it again.</div>`;
+      if (w && w.failed) h += `<div class="msg warn">Could not check against what Windows lists on ${esc(w.root)}: ${esc(w.failed)}.</div>`;
+      else if (w && w.agrees) h += `<div class="msg ok">Checked against Windows' own reading of the volume (drive ${esc(w.root)}): Windows lists ${commas(w.listed)} files and folders, exactly the ones this check says it can list, with the same sizes. Windows and this check read the volume independently, so this is a check of the check.</div>`;
+      else if (w) h += `<div class="msg err">Checked against Windows' own reading of the volume (drive ${esc(w.root)}): they differ. Windows lists ${commas(w.only_windows_count)} files and folders this check says it cannot list${w.only_windows.length ? ` (such as ${esc(w.only_windows[0])})` : ""}, and does not list ${commas(w.only_here_count)} that it says it can${w.only_here.length ? ` (such as ${esc(w.only_here[0])})` : ""}; ${commas(w.other_size_count)} have another size there. Tell Claude before going on: this check may read part of the volume wrongly (map-check-windows-compare.csv lists every difference).</div>`;
+      else h += `<p class="small soft">Not checked against Windows' own reading of the volume: it has no drive letter here. To check, mount the image read-only (OSFMount, “Read-only drive”) and run this step again.</p>`;
+      const left = (d.leftover_files || 0) + (d.leftover_folders || 0);
+      if (left) h += `<div class="msg warn">${commas(d.leftover_files)} file${d.leftover_files === 1 ? "" : "s"} and ${commas(d.leftover_folders)} folder${d.leftover_folders === 1 ? "" : "s"} are listed after a blank record that ddrescue <b>did</b> read: the old drive had that record blank too, so Windows never listed them there either. They are most likely leftovers of files deleted or replaced long ago, not files the damage hid. Step 6 still copies them; treat those copies as doubtful, and tell Claude.</div>`;
+      if ((d.claimed_twice || 0) + (d.claimed_free || 0)) h += `<div class="msg err">Some records point at space that is not theirs: ${(d.consistency_examples || []).map(esc).join("; ")}. The volume's own records never do that: such a record is damaged or a leftover, and what it points at may belong to another file. Tell Claude before relying on those files (map-check-consistency.csv lists them all).</div>`;
       if (d.rebuilt_folders > 0) h += `<div class="msg ok">${commas(d.rebuilt_folders)} folder${d.rebuilt_folders === 1 ? "" : "s"} whose own record was lost ${d.rebuilt_folders === 1 ? "was" : "were"} found by ${d.rebuilt_folders === 1 ? "its" : "their"} contents: the ${commas(d.rebuilt_files)} file${d.rebuilt_files === 1 ? "" : "s"} inside keep their names, dates and folders. Step 6 copies them into “found folders (name lost)”, one folder each, named after where it starts on the disk.</div>`;
       if (d.newest && d.newest.after_copy) {
         h += `<div class="msg warn">The newest date on the SSD is ${esc(d.newest.date)} (${esc(d.newest.path)}): after ddrescue finished (${esc(d.newest.copy_finished)}). Something may have changed the SSD after the copy (a computer it was plugged into, say), or that file's date is simply wrong. Ask before going on.</div>`;
@@ -857,7 +867,7 @@ function renderCheck() {
       if (d.hidden_groups && d.hidden_groups.length) {
         const count = (g) => [g.files ? `${commas(g.files)} file${g.files === 1 ? "" : "s"}` : "", g.folders ? `${commas(g.folders)} folder${g.folders === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
         h += `<h3>What Windows cannot list</h3><p class="small">Copying with File Explorer or TeraCopy would leave these behind without a word. Step 6 copies them.</p><ul class="groups scroll">` +
-          d.hidden_groups.map((g) => `<li><b>${g.where ? esc(g.where) + ": " : ""}${esc(count(g))}</b>${g.by_path ? ' <span class="tag">open if you type the full path</span>' : ""}<br>
+          d.hidden_groups.map((g) => `<li><b>${g.where ? esc(g.where) + ": " : ""}${esc(count(g))}</b>${g.by_path ? ' <span class="tag">open if you type the full path</span>' : ""}${g.leftover ? ' <span class="tag warn">most likely leftovers</span>' : ""}<br>
             <span class="small">${esc(g.why.charAt(0).toUpperCase() + g.why.slice(1))}.</span><br><span class="small soft">For example ${esc(g.examples.join(", "))}${g.files + g.folders > g.examples.length ? "…" : ""}</span></li>`).join("") + `</ul>`;
       }
       h += `</div>`;
