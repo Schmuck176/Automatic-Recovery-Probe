@@ -1609,8 +1609,8 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
             a.home.clone(),
             a.results.clone(),
             a.setting("last_map_check"),
-            a.setting("checklist_copy_mtime"),
-            a.setting("checklist_copy_hash"),
+            a.setting("auto_checklist_copy_mtime"),
+            a.setting("auto_checklist_copy_hash"),
         )
     };
     let (phases, items) = cl::parse(cl::TEXT);
@@ -1654,8 +1654,8 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
         _ => match cl::write_whole(&target, &md) {
             Ok(()) => {
                 let mut a = lock(app);
-                a.settings.insert("checklist_copy_mtime".to_string(), mtime_ms(&target).unwrap_or(0).to_string());
-                a.settings.insert("checklist_copy_hash".to_string(), cl::written_hash(&md).to_string());
+                a.settings.insert("auto_checklist_copy_mtime".to_string(), mtime_ms(&target).unwrap_or(0).to_string());
+                a.settings.insert("auto_checklist_copy_hash".to_string(), cl::written_hash(&md).to_string());
                 a.save();
             }
             Err(e) => notes.push(e),

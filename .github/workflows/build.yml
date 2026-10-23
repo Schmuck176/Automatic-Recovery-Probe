@@ -100,6 +100,36 @@ jobs:
           cp "$RUNNER_TEMP"/ui/*.png "$RUNNER_TEMP"/ui/server-output.txt "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Page::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
           exit $status
+      - name: The open-source tools (as on the person's PC)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: |
+          choco install ffmpeg qpdf -y --no-progress > "$RUNNER_TEMP/report/80-tools-install.txt" 2>&1 || true
+          {
+            echo "7z: $(ls "/c/Program Files/7-Zip/7z.exe" 2>&1)"
+            ffmpeg -hide_banner -version 2>&1 | head -1
+            qpdf --version 2>&1 | head -1
+          } 2>&1 | tee "$RUNNER_TEMP/report/80-tools.txt"
+      - name: Start, the whole automatic recovery, on a damaged test disk of real media
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: |
+          set +e -o pipefail
+          python tools/auto_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/ac" 2>&1 | tee "$RUNNER_TEMP/report/82-automatic.txt"
+          status=$?
+          cp "$RUNNER_TEMP/ac/home/server-output.txt" "$RUNNER_TEMP/report/82-automatic-server-output.txt" 2>/dev/null || true
+          echo "::notice title=Automatic::$(tail -n 1 "$RUNNER_TEMP/report/82-automatic.txt")"
+          exit $status
+      - name: The Automatic tab, in a real browser
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: |
+          set +e -o pipefail
+          node tools/auto_ui_check.js target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/aui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/84-automatic-page.txt"
+          status=$?
+          cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
+          echo "::notice title=Automatic page::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
+          exit $status
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
@@ -171,6 +201,29 @@ jobs:
           npx playwright install --with-deps chromium
           node tools/ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
           echo "::notice title=Page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
+      - name: The open-source tools (untrunc built from its own source)
+        if: ${{ !cancelled() }}
+        run: |
+          sudo apt-get install -y -qq ffmpeg p7zip-full mp3val qpdf libavformat-dev libavcodec-dev libavutil-dev > /dev/null
+          git clone -q --depth 1 https://github.com/anthwlock/untrunc "$RUNNER_TEMP/untrunc-src"
+          make -s -C "$RUNNER_TEMP/untrunc-src" > "$RUNNER_TEMP/report/80-untrunc-build.txt" 2>&1 && sudo cp "$RUNNER_TEMP/untrunc-src/untrunc" /usr/local/bin/
+          {
+            7z | head -2 | tail -1; ffmpeg -hide_banner -version | head -1; mp3val 2>&1 | head -2 | tail -1; qpdf --version | head -1
+            untrunc -V 2>&1 | head -1 || echo "untrunc did not build"
+          } 2>&1 | tee "$RUNNER_TEMP/report/80-tools.txt"
+      - name: Start, the whole automatic recovery, on a damaged test disk of real media
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          python3 tools/auto_check.py target/release/automatic-recovery-probe "$RUNNER_TEMP/ac" 2>&1 | tee "$RUNNER_TEMP/report/82-automatic.txt"
+          echo "::notice title=Automatic (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/82-automatic.txt")"
+      - name: The Automatic tab, in a real browser
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node tools/auto_ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/aui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/84-automatic-page.txt"
+          cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
+          echo "::notice title=Automatic page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
       - name: Publish the report to the ci-linux branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |

@@ -469,12 +469,14 @@ fn sleep_or_stop(ctx: &Ctx, secs: u64) -> bool {
 
 fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     let mut lines = Vec::new();
-    let (elevated, home) = {
+    let (elevated, home, testing) = {
         let a = lock(app);
-        (a.elevated, a.home.clone())
+        (a.elevated, a.home.clone(), !a.test_disks.is_empty())
     };
     let need_ssd = image_done(app).is_none();
-    if need_ssd && !elevated && cfg!(windows) {
+    // (The page's tests read a disk image: no SSD, so nothing of Windows' to set.)
+    let real_ssd = need_ssd && !testing;
+    if real_ssd && !elevated && cfg!(windows) {
         return Ok(End::Stop(
             "making the image needs administrator rights: close the program's window, double-click it again and click Yes"
                 .to_string(),
@@ -508,7 +510,7 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
         } else if cfg!(windows) {
             return Ok(End::Stop(format!("the image folder {} is not on a drive this PC has", plan.image_dir), Vec::new()));
         }
-        if crate::winset::restart_pending() == Some(true) {
+        if real_ssd && crate::winset::restart_pending() == Some(true) {
             return Ok(End::Stop(
                 "Windows is waiting to restart (an update). Restart the PC now, with the recovered SSD NOT plugged in, \
                  then click Start again"
@@ -516,7 +518,7 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
                 Vec::new(),
             ));
         }
-        if crate::winset::restarts_after_crash() == Some(true) {
+        if real_ssd && crate::winset::restarts_after_crash() == Some(true) {
             lines.push(
                 "Note: Windows is set to restart by itself after a crash (Get ready can turn that off), so a crash would \
                  restart the PC with the recovered SSD plugged in."
@@ -524,7 +526,7 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
             );
         }
         // Before the SSD is plugged in: new disks arrive switched off.
-        if cfg!(windows) && crate::cli::policy_to_restore().is_none() {
+        if real_ssd && cfg!(windows) && crate::cli::policy_to_restore().is_none() {
             match crate::cli::guard_prepare() {
                 Ok(m) => lines.push(m),
                 Err(e) => return Ok(End::Stop(format!("Windows could not be set to leave new disks switched off: {e}"), Vec::new())),

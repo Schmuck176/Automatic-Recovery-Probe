@@ -16,9 +16,12 @@ fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(home, { recursive: true });
 fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
 // The person's own copy of the checklist (in Obsidian), with its first box ticked there.
-const obsidian = path.join(home, "Obsidian MD files", "recovery-checklist.md");
+const obsidian = path.join(home, "Obsidian MD files", "automatic-recovery-checklist.md");
 fs.mkdirSync(path.dirname(obsidian), { recursive: true });
-fs.writeFileSync(obsidian, fs.readFileSync(path.join(__dirname, "..", "docs", "recovery-checklist.md"), "utf8").replace("- [ ] ", "- [x] "));
+fs.writeFileSync(obsidian, fs.readFileSync(path.join(__dirname, "..", "docs", "automatic-checklist.md"), "utf8").replace("- [ ] ", "- [x] "));
+// Recovery Probe's own checklist beside it is never touched.
+const oldList = path.join(home, "Obsidian MD files", "recovery-checklist.md");
+fs.writeFileSync(oldList, "- [x] Recovery Probe's own checklist, with the person's ticks\n");
 const copyTo = path.join(work, "copies");
 const imageTo = path.join(work, "image");
 // A drive exactly as big as the old one that Windows set up for itself, as
@@ -85,7 +88,10 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
     if (api === "api/disks") check(ms < 5000, "the program lists the disks quickly (" + ms + " ms)");
   }
   await page.goto(url);
-  // The checklist is built in, and is what the page shows first.
+  // The page opens on Automatic; the checklist is built in, in its own tab.
+  await page.waitForSelector("#view-auto:not([hidden]) #b-ready", { timeout: 10000 });
+  check(true, "the page opens on the Automatic tab");
+  await page.click("#tab-checklist");
   await page.waitForSelector("#view-checklist:not([hidden]) input.tick", { timeout: 10000 });
   await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
   const tab0 = await page.textContent("#tab-count");
@@ -94,9 +100,10 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check((await page.textContent("#where")).includes("Next on the checklist"), "the page says what is next on the checklist");
   await page.click('input.tick[data-i="1"]');
   await page.waitForFunction(() => /^\(2 of /.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
-  check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 && fs.existsSync(path.join(home, "results", "checklist-ticks.txt")),
+  check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 && fs.existsSync(path.join(home, "results", "automatic-checklist-ticks.txt")) &&
+    fs.readFileSync(oldList, "utf8") === "- [x] Recovery Probe's own checklist, with the person's ticks\n",
     "a box ticked on the page is kept, and the copy in Obsidian follows");
-  check(fs.existsSync(path.join(home, "Obsidian MD files", "download-manifest.md")), "the download manifest is put beside it");
+  check(fs.existsSync(path.join(home, "Obsidian MD files", "automatic-download-manifest.md")) && !fs.existsSync(path.join(home, "Obsidian MD files", "download-manifest.md")), "the download manifest is put beside it (and not Recovery Probe's)");
   await shotView("0-checklist");
   await page.click("#tab-steps");
   await page.waitForSelector("#map-picture svg", { timeout: 10000 });
@@ -318,6 +325,8 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
 
   // Closing the program: the page says so. (On Windows a refused connection
   // takes a couple of seconds to fail, so allow some time.)
+  await page.evaluate(() => loadChecklist());
+  const ticksBefore = await page.evaluate(() => CLS.done);
   server.kill();
   const told = await page.waitForFunction(
     () => document.getElementById("restore-banner").textContent.includes("not running any more"), null, { timeout: 15000 })
@@ -343,7 +352,7 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(true, "after closing and opening the program, step 5's results are still there");
   await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
   const ticksAfter = await page.evaluate(() => CLS.done);
-  check(ticksAfter >= 9, "the checklist's ticks are still there too (" + ticksAfter + ")");
+  check(ticksAfter === ticksBefore && ticksAfter >= 5, "the checklist's ticks are still there too (" + ticksAfter + " of " + ticksBefore + ")");
 
   // Phone-sized screen: nothing wider than the screen.
   await page.setViewportSize({ width: 390, height: 844 });

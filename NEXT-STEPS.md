@@ -86,11 +86,35 @@ The user's answers (23 Oct, 15:05):
 
 - [x] Repo set up from Recovery-Probe's whole history (main = the foundation,
       Recovery-Probe 2026-10-22 (1) plus this README); renamed; tests pass.
-- [ ] tools.rs
-- [ ] auto.rs + page tab (Get ready, Plug in, Folders, Start)
-- [ ] extra.rs
-- [ ] autorepair.rs + automatic put back
-- [ ] handoff.rs (Mac script, paid folder, Bring back)
-- [ ] finalise.rs
-- [ ] New short checklist + manifest, self-test covers the pipeline
-- [ ] CI green on Windows; deliver; the user's self-test
+- [x] tools.rs (find/run, qpdf download with pinned SHA-256 - not yet tried on
+      Windows: CI and the PC will tell).
+- [x] web/auto.rs: Start's stages, resumable, waits for the SSD / SPARE,
+      protects the SSD, AIM mount (aim.rs; syntax from Arsenal's
+      ConsoleAppImplementation.cs: --mount --readonly --online --filename=
+      --background; --dismount=NNNNNN --force), stops on the map check's red
+      flags. The Automatic tab in ui.html.
+- [x] extra.rs, autorepair.rs, handoff.rs (Mac script, Bring back),
+      web/finalise.rs (RECORDS, COPY 2, both checks, image check, settings).
+- [x] New checklist docs/automatic-checklist.md (30 boxes) and
+      docs/automatic-manifest.md, built in under their own names
+      (automatic-recovery-checklist.md, automatic-download-manifest.md,
+      results\automatic-checklist-ticks.txt, settings auto_checklist_copy_*);
+      Recovery Probe's own checklist copy in Obsidian is never touched.
+- [x] Tests here (Linux): unit 99, self-test, tools/auto_check.py 48/48 (FFmpeg
+      and qpdf here), tools/auto_ui_check.js 14/14, tools/ui_check.js 64/64.
+- [ ] CI on Windows (first run with the new code): the Windows-only parts
+      (winset.rs registry and PowerShell, tools.rs CREATE_NO_WINDOW, curl/tar
+      download, finalise set_times on folders) are only compiled there.
+- [ ] Deliver to C:\RECOVERY-TOOLS (automatic-recovery-probe.exe beside
+      recovery-probe.exe; qpdf from the Download button or delivered into
+      C:\RECOVERY-TOOLS\tools\qpdf-12.3.2), check byte for byte, the
+      user's self-test and Get ready on the PC.
+
+## Not done / ideas for later
+
+- Two damaged copies of the same file whose lost places differ could be
+  merged into one whole file (autorepair.rs twin logic, v2).
+- PNG repairs beyond re-encoding what FFmpeg decodes; GIF/TIFF/WebP.
+- HEIC salvage on Windows with FFmpeg 8.1+ (as JPEG), before the Mac.
+- A Windows scheduled reminder every six months (the checklist says to set a
+  phone reminder instead).

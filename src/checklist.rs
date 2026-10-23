@@ -1,7 +1,9 @@
 //! The recovery checklist, built into the program.
 //!
-//! `docs/recovery-checklist.md` is part of the program. The page shows it with
-//! its tick boxes, and the ticks are kept in `results\checklist-ticks.txt`,
+//! `docs/automatic-checklist.md` is part of the program (Recovery Probe's own,
+//! longer one, `docs/recovery-checklist.md`, is not: the person's copy of it in
+//! Obsidian is left exactly as it is). The page shows it with
+//! its tick boxes, and the ticks are kept in `results\automatic-checklist-ticks.txt`,
 //! each with when it was ticked (a box ticked by mistake is unticked the same
 //! way; the file keeps both).
 //!
@@ -22,56 +24,23 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The checklist and the download manifest, as built into the program.
-pub const TEXT: &str = include_str!("../docs/recovery-checklist.md");
-pub const MANIFEST: &str = include_str!("../docs/download-manifest.md");
-pub const COPY_NAME: &str = "recovery-checklist.md";
-pub const MANIFEST_NAME: &str = "download-manifest.md";
-pub const TICKS_NAME: &str = "checklist-ticks.txt";
+pub const TEXT: &str = include_str!("../docs/automatic-checklist.md");
+pub const MANIFEST: &str = include_str!("../docs/automatic-manifest.md");
+/// (Not Recovery Probe's names: its checklist, manifest and ticks are its own.)
+pub const COPY_NAME: &str = "automatic-recovery-checklist.md";
+pub const MANIFEST_NAME: &str = "automatic-download-manifest.md";
+pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 
 /// Lines whose wording changed since a checklist the person has ticked:
-/// (old, new), so a tick follows its line.
-const RENAMED: &[(&str, &str)] = &[
-    (
-        "**1.** Make sure the recovered SSD is **not** plugged in. Plug in **only the empty SSD**.",
-        "**1.** Make sure the recovered SSD and the 4 TB SSD are **not** plugged in. Plug in **only `SPARE`**.",
-    ),
-    // 2026-10-20: the Mac's repairs, archives and the second copy (REPAIR\salvaged).
-    (
-        r#"**2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it), open each in Preview or Photos on the Mac, export what opens in the same format (a HEIC stays a HEIC) with the same name and number, and bring the results back on the stick into `repaired`."#,
-        r#"**2 iPhone photos and RAW (on the Mac):** copy this folder to a USB stick (formatted exFAT, so both computers can write to it). On the Mac, open each in **Preview**; for each that opens, **File → Export** in the same format (a HEIC stays a HEIC) with the same name and number. A camera RAW can't be saved as RAW again: export it as a **TIFF** instead, for `salvaged`. Bring the results back on the stick into `repaired` and `salvaged`. (The small `._` files the Mac adds beside them on the stick can come along: the program ignores them.)"#,
-    ),
-    (
-        r#"**7 Archives and disk images:** 7-Zip: open it and take out what can still be read. (A damaged archive rarely becomes whole again: what you take out goes beside the archive later, by hand.)"#,
-        r#"**7 Archives and disk images:** 7-Zip: open it and take out what can still be read, into `salvaged`. (A damaged archive rarely becomes whole again; the archive itself stays in `WORK` as it is.)"#,
-    ),
-    (
-        r#"**2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`."#,
-        r#"**2. A second copy, on the PC's 2 TB drive**, beside the image: make a folder `D:\COPY 2`, add a Defender exclusion for it (as for `SPARE`), and copy `WORK` (with its `rescue-log.csv` and `repair-returns.csv`), `REPAIR` (with the damaged originals in `REPAIR\originals`, and `REPAIR\salvaged`) and `RECORDS` into it, with TeraCopy (**Verify** ticked; File Explorer can fail on very long paths). There's room: the image takes 932 GB of the drive's 1,863 GB, and step 5 showed your files fit on `SPARE`."#,
-    ),
-];
+/// (old, new), so a tick follows its line. (None yet.)
+const RENAMED: &[(&str, &str)] = &[];
 
-/// Checklists and manifests delivered before this program took them over
-/// (their text with ticks and Your numbers left out, hashed): a copy that is
-/// one of these, or the program's own, holds nothing the person wrote.
-/// (05717a4, 4c10e41, 3f05f2a and 7d47903 on GitHub: the copies delivered on
-/// 18 and 19 October 2026; a728da4: the checklist versions 2026-10-20 (1)
-/// and 2026-10-21 (1) wrote; 8d0eb83: the checklist and manifest versions
-/// 2026-10-21 (2) wrote, dated 2026-10-20 (1).)
-const KNOWN_CHECKLISTS: &[u64] = &[
-    0x24da_6933_47ce_9b4f,
-    0x5ddc_ea71_7c5f_2c5e,
-    0xdffc_617f_3ec9_451d,
-    0x38e5_54dd_8e58_09a2,
-    0x6609_d73a_ff3b_fc6f,
-    0x49bf_8839_aa61_ffcf,
-];
-const KNOWN_MANIFESTS: &[u64] = &[
-    0x30b6_259f_c56e_9c88,
-    0x960c_4dee_e8fe_0806,
-    0x62d1_c34d_9ee8_a40a,
-    0x75e3_7858_aab8_1df9,
-    0xf73b_22a6_01bc_fcfb,
-];
+/// Checklists and manifests delivered before (their text with ticks and Your
+/// numbers left out, hashed): a copy that is one of these, or the program's
+/// own, holds nothing the person wrote. (None yet: version 2026-10-23 (1) is
+/// the first.)
+const KNOWN_CHECKLISTS: &[u64] = &[];
+const KNOWN_MANIFESTS: &[u64] = &[];
 
 /// One tick box.
 #[derive(Debug, Clone, PartialEq)]
@@ -234,7 +203,7 @@ impl Ticks {
         use std::io::Write;
         let mut line = String::new();
         if !path.exists() {
-            line.push_str("# Recovery Probe: the checklist's tick boxes, one line each time one is ticked (T) or unticked (U).\r\n");
+            line.push_str("# Automatic Recovery Probe: the checklist's tick boxes, one line each time one is ticked (T) or unticked (U).\r\n");
         }
         line.push_str(&format!("{}\t{}\t{}\r\n", if on { "T" } else { "U" }, escape(when), escape(key)));
         if let Some(dir) = path.parent() {
@@ -341,9 +310,17 @@ pub fn statuses(items: &[Item], ticks: &Ticks, history: &[Checked]) -> Vec<Statu
         let all_done = done.len() == cov.len();
         let waiting = || {
             if all_done {
-                st(State::Due, "Due now: step 7 → Check the copies are unchanged.".to_string())
+                st(
+                    State::Due,
+                    "Due now: Start, Bring back and Finalise check the copies by themselves (or the program's steps: step 7 → \
+                     Check the copies are unchanged)."
+                        .to_string(),
+                )
             } else {
-                st(State::After, "When the boxes above are done: step 7 → Check the copies are unchanged.".to_string())
+                st(
+                    State::After,
+                    "When the boxes above are done: Start, Bring back and Finalise check the copies by themselves.".to_string(),
+                )
             }
         };
         let failed = |h: &Checked| {
@@ -936,17 +913,21 @@ mod tests {
     #[test]
     fn the_real_checklist_parses() {
         let (phases, items) = parse(TEXT);
-        assert!(phases.len() >= 10, "{}", phases.len());
-        assert!(items.len() > 100);
-        assert_eq!(items.iter().filter(|i| i.checkpoint).count(), 6);
-        assert!(items.iter().any(|i| i.checkpoint && i.covers.len() == 1));
+        assert_eq!(phases.iter().map(|p| p.number.as_str()).collect::<Vec<_>>(), vec!["", "1", "2", "3", "4", "5"]);
+        // Short: what the program does by itself is not a box.
+        assert!(items.len() >= 20 && items.len() <= 40, "{}", items.len());
+        assert_eq!(items.iter().filter(|i| i.checkpoint).count(), 3);
         assert_eq!(items.iter().filter(|i| i.both_copies).count(), 1);
+        // Every checkpoint has boxes before it in its phase, ticked before its check runs.
+        for (c, it) in items.iter().enumerate().filter(|(_, i)| i.checkpoint) {
+            assert!(covered(&items, c).count() >= 1, "{}", it.key);
+        }
         // Every box in the HTML, once.
         let h = html(TEXT, &items);
         for i in 0..items.len() {
             assert_eq!(h.matches(&format!("data-i=\"{i}\"")).count(), 1, "box {i}");
         }
-        assert!(h.contains("data-num=\"files\"") && h.contains("class=\"steplink\" data-step=\"7\""));
+        assert!(h.contains("data-num=\"files\""));
         assert_eq!(h.matches("<section").count(), h.matches("</section>").count());
         assert_eq!(h.matches("<li").count(), h.matches("</li>").count());
         assert_eq!(h.matches("<ul").count() + h.matches("<ol").count(), h.matches("</ul>").count() + h.matches("</ol>").count());
@@ -989,9 +970,12 @@ mod tests {
         t.set(&path, "one", true, "2026-10-20 10:00:00").unwrap();
         t.set(&path, "two", true, "2026-10-20 10:01:00").unwrap();
         t.set(&path, "two", false, "2026-10-20 10:02:00").unwrap();
-        t.set(&path, RENAMED[0].0, true, "2026-10-20 10:03:00").unwrap();
         let back = Ticks::load(&path);
-        assert!(back.on("one") && !back.on("two") && back.on(RENAMED[0].1));
+        assert!(back.on("one") && !back.on("two"));
+        for (old, new) in RENAMED {
+            t.set(&path, old, true, "2026-10-20 10:03:00").unwrap();
+            assert!(Ticks::load(&path).on(new));
+        }
         assert_eq!(back.when("two"), "2026-10-20 10:02:00");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1101,7 +1085,7 @@ mod tests {
         let (_, items) = parse(TEXT);
         let md = markdown(TEXT, &items, &vec![true; items.len()], Some((1, 2)));
         assert!(is_unedited(&md, None));
-        let mine = md.replacen("Note `SPARE`'s drive letter", "Note `SPARE`'s drive letter (mine is F:)", 1);
+        let mine = md.replacen("**Run the self-test.**", "**Run the self-test.** (mine passed on Monday)", 1);
         assert!(!is_unedited(&mine, None), "a note of the person's own");
         assert!(is_unedited(&mine, Some(written_hash(&mine))), "unless the program wrote exactly that");
         assert!(manifest_unedited(MANIFEST));
