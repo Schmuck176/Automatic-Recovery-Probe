@@ -1,22 +1,22 @@
-//! Recovery Probe - the program you double-click.
+//! Automatic Recovery Probe - the program you double-click.
 
-use recovery_probe::cli::{
+use automatic_recovery_probe::cli::{
     run_list_disks, run_map_check, run_map_info, run_probe_jsonl, run_rescue, run_scan, ScanOpts, Status,
 };
-use recovery_probe::{APP, VERSION};
+use automatic_recovery_probe::{APP, VERSION};
 
 const USAGE: &str = "\
-Recovery Probe - finds damage in files recovered with ddrescue.
+Automatic Recovery Probe - gets files back off a ddrescue copy, checks and repairs them.
 
 Double-click the program to use it step by step in your web browser. Or:
-  recovery-probe self-test
+  automatic-recovery-probe self-test
         Check the program works on this PC (on files and a disk built into it).
-  recovery-probe scan <folder> [--out results.csv] [--hole-kb N] [--no-holes] [--map-check <folder>]
+  automatic-recovery-probe scan <folder> [--out results.csv] [--hole-kb N] [--no-holes] [--map-check <folder>]
         Check every file in a folder and write the results CSV files. --map-check: a
         map check's results folder; the copies of files that lost data are marked NEVER_READ.
-  recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
+  automatic-recovery-probe probe-jsonl <folder> [--hole-kb N] [--no-holes]
         One line of JSON per file (used to compare with the Python version).
-  recovery-probe map-check --map <mapfile> --disk <disk> [--earlier-map <mapfile>] [--out <folder>]
+  automatic-recovery-probe map-check --map <mapfile> --disk <disk> [--earlier-map <mapfile>] [--out <folder>]
                            [--compare-with <drive>]
         Work out which files and folders sit on the places ddrescue never read.
         <disk> is \\\\.\\PhysicalDriveN (needs administrator rights) or a disk image.
@@ -24,48 +24,48 @@ Double-click the program to use it step by step in your web browser. Or:
         Where the volume has a drive letter (the image mounted read-only, say), what
         Windows lists there is compared with what the check says it can list;
         --compare-with names the drive (or a folder) to compare with instead.
-  recovery-probe rescue --disk <disk> --out <folder> [--everything | --path <path>...] [--lost]
+  automatic-recovery-probe rescue --disk <disk> --out <folder> [--everything | --path <path>...] [--lost]
         Copy files straight off the disk, past Windows: by default the ones Windows
         cannot list. --lost also saves data no folder record names any more.
-  recovery-probe image --disk <disk> --map <mapfile> --out <folder>
+  automatic-recovery-probe image --disk <disk> --map <mapfile> --out <folder>
         Read the whole disk once into one image file (recovered-ssd.img) in <folder>,
         with its SHA-256, and check it by reading it back. Stopped, it carries on.
-  recovery-probe verify <folder> [--map-check <map check results folder>]
+  automatic-recovery-probe verify <folder> [--map-check <map check results folder>]
         Check every copy in <folder> against the SHA-256 the copying wrote into
         rescue-log.csv: changed, missing and added files. Then the safety check:
         the files the map check found on the SSD, the files the list names, and
         the files here now, stage by stage.
-  recovery-probe isolate <copies folder> --scan <results .csv> [--scan <results .csv>]...
+  automatic-recovery-probe isolate <copies folder> --scan <results .csv> [--scan <results .csv>]...
         Step 1 of repairing: copy every damaged file out into REPAIR (beside the
         copies folder), sorted by what repairs it, each name tagged [R0001]...;
         REPAIR\\repair-list.csv says where each belongs. --scan: the results of
         checking the copies (scan-....csv); lists in REPAIR\\damaged-lists count too.
-  recovery-probe put-back <copies folder>
+  automatic-recovery-probe put-back <copies folder>
         Step 3: put every repaired file in REPAIR\\repaired (found by its [R....])
         back where its original is, if that is still the damaged original; the
         original moves to REPAIR\\originals. Listed in repair-returns.csv.
-  recovery-probe undo-put-back <copies folder> <R0012>
+  automatic-recovery-probe undo-put-back <copies folder> <R0012>
         Put the original back in place of a repaired version.
-  recovery-probe evaluate <copies folder> [--scan <results .csv>]...
+  automatic-recovery-probe evaluate <copies folder> [--scan <results .csv>]...
         Step 4: what is damaged inside every package (libraries, apps, documents
         kept as folders), what has been put back, what is still damaged.
-  recovery-probe sha256 <file>
+  automatic-recovery-probe sha256 <file>
         A file's SHA-256 (the same as certutil -hashfile <file> SHA256).
-  recovery-probe map-info <mapfile>
+  automatic-recovery-probe map-info <mapfile>
         What a ddrescue mapfile says: how much was read, how much never was.
-  recovery-probe list-disks
+  automatic-recovery-probe list-disks
         Show the disks this computer can see.
-  recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
+  automatic-recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
         Keep Windows from writing to the recovered disk: prepare (before plugging
         it in) makes Windows leave new disks switched off; protect marks the disk
         read-only (and --online switches it on); restore puts the setting back.
-  recovery-probe ui [--port N] [--token KEY] [--no-browser] [--test-disk IMAGE]...
+  automatic-recovery-probe ui [--port N] [--token KEY] [--no-browser] [--test-disk IMAGE]...
         The step-by-step page (what double-clicking starts).
-  recovery-probe --version
+  automatic-recovery-probe --version
 ";
 
 fn run_ui(args: &[String]) -> i32 {
-    use recovery_probe::web::{new_token, serve, Config, DEFAULT_PORT};
+    use automatic_recovery_probe::web::{new_token, serve, Config, DEFAULT_PORT};
     let mut cfg = Config { port: DEFAULT_PORT, token: new_token(), open_browser: true, test_disks: Vec::new(), home: None };
     let mut i = 0;
     while i < args.len() {
@@ -171,10 +171,10 @@ fn parse_map_opts(args: &[String]) -> Result<MapOpts, String> {
     })
 }
 
-type RescueArgs = (String, String, recovery_probe::rescue::Pick, bool, Option<String>, Option<u64>);
+type RescueArgs = (String, String, automatic_recovery_probe::rescue::Pick, bool, Option<String>, Option<u64>);
 
 fn parse_rescue_opts(args: &[String]) -> Result<RescueArgs, String> {
-    use recovery_probe::rescue::Pick;
+    use automatic_recovery_probe::rescue::Pick;
     let (mut disk, mut out, mut status) = (None, None, None);
     let mut pick = Pick::Hidden;
     let mut paths = Vec::new();
@@ -256,17 +256,17 @@ fn main() {
             }
         },
         Some("list-disks") => run_list_disks(),
-        Some("disk-guard") => recovery_probe::cli::run_disk_guard(&args[1..]),
-        Some("self-test") => recovery_probe::selftest::run_cli(),
+        Some("disk-guard") => automatic_recovery_probe::cli::run_disk_guard(&args[1..]),
+        Some("self-test") => automatic_recovery_probe::selftest::run_cli(),
         Some("ui") => run_ui(&args[1..]),
         // For the checks on GitHub: start a copy of this program the way a
         // double-click does (asking for administrator rights), and say
         // whether Windows did it.
         Some("check-start-elevated") => {
             let exe = std::env::current_exe().unwrap_or_default();
-            let mark = std::env::temp_dir().join("recovery-probe-started.txt");
+            let mark = std::env::temp_dir().join("automatic-recovery-probe-started.txt");
             let _ = std::fs::remove_file(&mark);
-            match recovery_probe::win::start_elevated(&exe, &["write-mark".to_string(), mark.display().to_string()]) {
+            match automatic_recovery_probe::win::start_elevated(&exe, &["write-mark".to_string(), mark.display().to_string()]) {
                 Ok(()) => {
                     for _ in 0..100 {
                         if mark.exists() {
@@ -286,13 +286,13 @@ fn main() {
         }
         Some("write-mark") => match args.get(1) {
             Some(p) => {
-                let elevated = recovery_probe::win::is_elevated();
+                let elevated = automatic_recovery_probe::win::is_elevated();
                 let _ = std::fs::write(p, format!("elevated {elevated}\n"));
                 0
             }
             None => 2,
         },
-        None => recovery_probe::web::launch(),
+        None => automatic_recovery_probe::web::launch(),
         Some("rescue") => match parse_rescue_opts(&args[1..]) {
             Ok((disk, out, pick, lost, status, stop_after)) => run_rescue(&disk, &out, pick, lost, stop_after, &Status::new(status)),
             Err(e) => {
@@ -303,7 +303,7 @@ fn main() {
         Some("image") => {
             let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
             match (get("--disk"), get("--map"), get("--out")) {
-                (Some(d), Some(m), Some(o)) => recovery_probe::cli::run_image(&d, &m, &o),
+                (Some(d), Some(m), Some(o)) => automatic_recovery_probe::cli::run_image(&d, &m, &o),
                 _ => {
                     eprintln!("image needs --disk, --map and --out\n\n{USAGE}");
                     2
@@ -313,7 +313,7 @@ fn main() {
         Some("verify") => match args.get(1).filter(|a| !a.starts_with("--")) {
             Some(f) => {
                 let mc = args.iter().position(|a| a == "--map-check").and_then(|i| args.get(i + 1));
-                recovery_probe::cli::run_verify(f, mc.map(|s| s.as_str()))
+                automatic_recovery_probe::cli::run_verify(f, mc.map(|s| s.as_str()))
             }
             None => {
                 eprintln!("Which folder?\n\n{USAGE}");
@@ -345,7 +345,7 @@ fn main() {
                     eprintln!("isolate needs --scan: the results of checking the copies (scan-....csv)\n\n{USAGE}");
                     2
                 }
-                (Some(f), None) => recovery_probe::cli::run_repair_step(cmd, &f, &scans, None),
+                (Some(f), None) => automatic_recovery_probe::cli::run_repair_step(cmd, &f, &scans, None),
                 (_, Some(e)) => {
                     eprintln!("{e}\n\n{USAGE}");
                     2
@@ -357,21 +357,21 @@ fn main() {
             }
         }
         Some("put-back") => match args.get(1) {
-            Some(f) => recovery_probe::cli::run_repair_step("put-back", f, &[], None),
+            Some(f) => automatic_recovery_probe::cli::run_repair_step("put-back", f, &[], None),
             None => {
                 eprintln!("Which folder?\n\n{USAGE}");
                 2
             }
         },
         Some("undo-put-back") => match (args.get(1), args.get(2)) {
-            (Some(f), Some(id)) => recovery_probe::cli::run_repair_step("undo", f, &[], Some(id)),
+            (Some(f), Some(id)) => automatic_recovery_probe::cli::run_repair_step("undo", f, &[], Some(id)),
             _ => {
                 eprintln!("undo-put-back needs the folder and the number (R0012)\n\n{USAGE}");
                 2
             }
         },
         Some("sha256") => match args.get(1) {
-            Some(f) => match recovery_probe::sha256::file_hex(std::path::Path::new(f), &|| false) {
+            Some(f) => match automatic_recovery_probe::sha256::file_hex(std::path::Path::new(f), &|| false) {
                 Ok(Some(h)) => {
                     println!("{h}  {f}");
                     0

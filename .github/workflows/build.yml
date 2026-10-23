@@ -50,37 +50,37 @@ jobs:
         timeout-minutes: 3
         run: |
           set -o pipefail
-          target/release/recovery-probe.exe check-start-elevated 2>&1 | tee "$RUNNER_TEMP/report/22-start-elevated.txt"
+          target/release/automatic-recovery-probe.exe check-start-elevated 2>&1 | tee "$RUNNER_TEMP/report/22-start-elevated.txt"
       - name: Built-in self-test (what the person runs first)
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          target/release/recovery-probe.exe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
+          target/release/automatic-recovery-probe.exe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
           echo "::notice title=Self-test::$(tail -n 1 "$RUNNER_TEMP/report/25-self-test.txt")"
       - name: Map check on test disks with known damage
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          python tools/test_mapcheck.py target/release/recovery-probe.exe "$RUNNER_TEMP/mc" --random 30 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
+          python tools/test_mapcheck.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/mc" --random 30 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
           echo "::notice title=Map check tests::$(tail -n 1 "$RUNNER_TEMP/report/40-map-check-tests.txt")"
       - name: Map check against Windows itself (virtual disks)
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          python tools/windows_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/wc" 2>&1 | tee "$RUNNER_TEMP/report/50-windows-disks.txt"
+          python tools/windows_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/wc" 2>&1 | tee "$RUNNER_TEMP/report/50-windows-disks.txt"
           echo "::notice title=Windows disks::$(tail -n 1 "$RUNNER_TEMP/report/50-windows-disks.txt")"
       - name: Keeping Windows from writing to the recovered disk (virtual disks)
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          python tools/guard_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/gc" 2>&1 | tee "$RUNNER_TEMP/report/60-disk-protection.txt"
+          python tools/guard_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/gc" 2>&1 | tee "$RUNNER_TEMP/report/60-disk-protection.txt"
           echo "::notice title=Disk protection::$(tail -n 1 "$RUNNER_TEMP/report/60-disk-protection.txt")"
       - name: The recovered disk unplugged in the middle of copying it (virtual disks, through the page)
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         run: |
           set +e -o pipefail
-          python tools/dropout_check.py target/release/recovery-probe.exe "$RUNNER_TEMP/dc" 2>&1 | tee "$RUNNER_TEMP/report/65-unplugged.txt"
+          python tools/dropout_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/dc" 2>&1 | tee "$RUNNER_TEMP/report/65-unplugged.txt"
           status=$?
           cp "$RUNNER_TEMP/dc/home/server-output.txt" "$RUNNER_TEMP/report/65-unplugged-server-output.txt" 2>/dev/null || true
           echo "::notice title=Unplugged mid-copy::$(tail -n 1 "$RUNNER_TEMP/report/65-unplugged.txt")"
@@ -94,7 +94,7 @@ jobs:
             { git diff --exit-code --stat -- src/selftest || { echo "src/selftest is not what tools/make_selftest_disk.py makes"; cp src/selftest/disk.bin "$RUNNER_TEMP/report/selftest-disk-made-on-windows.bin"; false; }; } &&
             npm install --no-save --silent playwright@1.56.1 &&
             npx playwright install chromium &&
-            node tools/ui_check.js target/release/recovery-probe.exe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map
+            node tools/ui_check.js target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map
           } 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
           status=$?
           cp "$RUNNER_TEMP"/ui/*.png "$RUNNER_TEMP"/ui/server-output.txt "$RUNNER_TEMP/report/" 2>/dev/null || true
@@ -106,7 +106,7 @@ jobs:
           out="$RUNNER_TEMP/publish"
           mkdir -p "$out"
           cp -r "$RUNNER_TEMP/report/." "$out/" 2>/dev/null || true
-          if [ -f target/release/recovery-probe.exe ]; then cp target/release/recovery-probe.exe "$out/"; fi
+          if [ -f target/release/automatic-recovery-probe.exe ]; then cp target/release/automatic-recovery-probe.exe "$out/"; fi
           printf 'commit %s\nrun %s\nresult %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "${{ job.status }}" > "$out/BUILD-INFO.txt"
           cd "$out"
           git init -q -b ci-windows
@@ -118,8 +118,8 @@ jobs:
       - name: Keep the program as a download
         uses: actions/upload-artifact@v7
         with:
-          name: recovery-probe-windows
-          path: target/release/recovery-probe.exe
+          name: automatic-recovery-probe-windows
+          path: target/release/automatic-recovery-probe.exe
           if-no-files-found: error
   linux:
     name: Linux (more checks)
@@ -138,7 +138,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          target/release/recovery-probe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
+          target/release/automatic-recovery-probe self-test 2>&1 | tee "$RUNNER_TEMP/report/25-self-test.txt"
       - name: Tools that check the test disks independently
         if: ${{ !cancelled() }}
         run: |
@@ -150,7 +150,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -o pipefail
-          python3 tools/test_mapcheck.py target/release/recovery-probe "$RUNNER_TEMP/mc" --random 80 --fsck "$(command -v fsck.exfat)" --dissect installed 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
+          python3 tools/test_mapcheck.py target/release/automatic-recovery-probe "$RUNNER_TEMP/mc" --random 80 --fsck "$(command -v fsck.exfat)" --dissect installed 2>&1 | tee "$RUNNER_TEMP/report/40-map-check-tests.txt"
           echo "::notice title=Map check tests (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/40-map-check-tests.txt")"
       - name: Test disks against the Linux kernel's exFAT driver
         if: ${{ !cancelled() }}
@@ -169,7 +169,7 @@ jobs:
           git diff --exit-code --stat -- src/selftest || { echo "src/selftest is not what tools/make_selftest_disk.py makes"; exit 1; }
           npm install --no-save --silent playwright@1.56.1
           npx playwright install --with-deps chromium
-          node tools/ui_check.js target/release/recovery-probe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
+          node tools/ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/ui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/70-page.txt"
           echo "::notice title=Page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/70-page.txt")"
       - name: Publish the report to the ci-linux branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'

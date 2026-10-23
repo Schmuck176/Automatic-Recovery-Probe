@@ -1,5 +1,5 @@
 //! The self-test anyone can run on their own PC (step 1 of the page, or
-//! `recovery-probe self-test`): the program checks itself on files and a
+//! `automatic-recovery-probe self-test`): the program checks itself on files and a
 //! disk it carries inside it, where every right answer is known, so a
 //! problem with this PC (or this copy of the program) shows up before any
 //! real file is looked at.
@@ -361,7 +361,7 @@ fn disk_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(Vec<String>, Ve
 
 /// Run every check. Err only when the self-test could not run at all.
 pub fn run_checks(say: &mut dyn FnMut(&str)) -> Result<Findings, String> {
-    let dir = std::env::temp_dir().join(format!("recovery-probe-self-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("automatic-recovery-probe-self-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     let mut summary = Vec::new();
@@ -409,7 +409,7 @@ pub fn run(say: &mut dyn FnMut(&str), _stop: &AtomicBool) -> Result<crate::web::
     })
 }
 
-/// `recovery-probe self-test`
+/// `automatic-recovery-probe self-test`
 pub fn run_cli() -> i32 {
     println!("{} {} - self-test", crate::APP, crate::VERSION);
     let r = match run_checks(&mut |s| println!("  {s}")) {

@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "recovery-probe"
+name = "automatic-recovery-probe"
 version = "2.0.0"

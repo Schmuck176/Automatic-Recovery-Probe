@@ -20,7 +20,8 @@ use std::time::{Duration, Instant};
 
 const PAGE: &str = include_str!("ui.html");
 /// The address stays the same from one run to the next where it can.
-pub const DEFAULT_PORT: u16 = 47115;
+/// (Recovery Probe itself uses 47115, so both can run.)
+pub const DEFAULT_PORT: u16 = 47116;
 
 pub struct Config {
     pub port: u16,
@@ -189,7 +190,7 @@ impl App {
     }
 
     fn save(&self) {
-        let mut t = String::from("# What Recovery Probe's steps found last time (read back when it starts).\r\n");
+        let mut t = String::from("# What Recovery Probe's steps (and Automatic Recovery Probe's) found last time (read back when it starts).\r\n");
         let mut keys: Vec<&String> = self.settings.keys().collect();
         keys.sort();
         for k in keys {
@@ -662,7 +663,7 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
             stream,
             404,
             "text/html; charset=utf-8",
-            "<p>This address is not complete. Use the address shown in Recovery Probe's window.</p>".as_bytes(),
+            format!("<p>This address is not complete. Use the address shown in {}'s window.</p>", crate::APP).as_bytes(),
         );
     };
     if req.method == "POST" {
@@ -1000,9 +1001,11 @@ fn need_admin(app: &Arc<Mutex<App>>) -> Result<(), String> {
     if lock(app).elevated {
         Ok(())
     } else {
-        Err("This step needs administrator rights. Close Recovery Probe's window, double-click the program again and \
-             click Yes when Windows asks."
-            .to_string())
+        Err(format!(
+            "This step needs administrator rights. Close {}'s window, double-click the program again and click Yes \
+             when Windows asks.",
+            crate::APP
+        ))
     }
 }
 

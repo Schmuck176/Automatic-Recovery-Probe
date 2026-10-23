@@ -893,7 +893,7 @@ pub struct Isolated {
 
 const README: &str = "This folder is for repairing the damaged files, without ever changing the copies in WORK by hand.
 
-1. ISOLATE (Recovery Probe, step 8): every damaged file is COPIED here, into to-repair, sorted
+1. ISOLATE (Automatic Recovery Probe does it by itself; or step 8): every damaged file is COPIED here, into to-repair, sorted
    into folders by what can repair it. Each copy has a number in its name, like
    \"IMG_0003 [R0012].JPG\". repair-list.csv says exactly where R0012 is in WORK.
 
@@ -907,13 +907,13 @@ const README: &str = "This folder is for repairing the damaged files, without ev
    WORK as it is. (The small \"._\" files a Mac adds beside each file on a USB stick may come
    along into \"repaired\": they are ignored.)
 
-3. PUT BACK (Recovery Probe, step 8): each repaired file goes back to exactly where its
+3. PUT BACK (Automatic Recovery Probe does it by itself; or step 8): each repaired file goes back to exactly where its
    original is in WORK, with the original's dates - but only if the file there is still
    the damaged original. The original moves into the folder \"originals\" here (the same
    folders as in WORK): nothing is deleted. WORK\\repair-returns.csv lists every file put
    back, so checking the copies later knows about it. A put-back can be undone.
 
-4. EVALUATE (Recovery Probe, step 8): what is damaged inside each package (a Photos library,
+4. EVALUATE (Automatic Recovery Probe does it by itself; or step 8): what is damaged inside each package (a Photos library,
    an app, a Pages document...), what has been put back, and what is still damaged:
    evaluation.csv.
 
@@ -949,7 +949,7 @@ pub fn isolate(
 ) -> Result<Isolated, String> {
     if !work.join(crate::rescue::LOG_NAME).is_file() {
         return Err(format!(
-            "{} has no {}: choose the folder Recovery Probe copied everything into (such as E:\\WORK)",
+            "{} has no {}: choose the folder the program copied everything into (such as E:\\WORK)",
             work.display(),
             crate::rescue::LOG_NAME
         ));

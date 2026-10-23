@@ -607,8 +607,8 @@ pub fn guard_prepare() -> Result<String, String> {
         crate::sys::write_safely(
             &settings_note(),
             format!(
-                "san-policy-before\t{}\r\nThis note is written by Recovery Probe: it changed how Windows treats newly \
-                 plugged-in disks and will put it back. Delete it only after running: recovery-probe disk-guard restore\r\n",
+                "san-policy-before\t{}\r\nThis note is written by Recovery Probe (or Automatic Recovery Probe): it changed how Windows treats \
+                 newly plugged-in disks and will put it back. Delete it only after running: recovery-probe disk-guard restore\r\n",
                 now.keyword()
             )
             .as_bytes(),

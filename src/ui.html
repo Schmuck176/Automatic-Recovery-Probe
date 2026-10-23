@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recovery Probe</title>
+<title>Automatic Recovery Probe</title>
 <style>
 :root {
   --paper: #eef1ef;
@@ -221,7 +221,7 @@ ul.phases .warn { color: var(--unread); }
 <body>
 <main>
   <header class="top">
-    <h1>Recovery Probe</h1>
+    <h1>Automatic Recovery Probe</h1>
     <span id="rights" class="rights">…</span>
   </header>
   <p class="soft small" id="version"></p>
@@ -661,7 +661,7 @@ function renderConnect() {
   const protectedDisk = disks.find((d) => d.spec === chosen && d.read_only);
   let h = "";
   if (!S.elevated) {
-    h += `<div class="msg warn">This step needs administrator rights. Close Recovery Probe's window, double-click the program again and click <b>Yes</b> when Windows asks.</div>`;
+    h += `<div class="msg warn">This step needs administrator rights. Close the program's window, double-click it again and click <b>Yes</b> when Windows asks.</div>`;
   } else {
     h += `<div class="panel"><h3 style="margin-top:0">If the recovered SSD is not plugged in yet</h3>
       <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
@@ -1240,7 +1240,7 @@ async function refresh() {
     if (!lost) {
       lost = true;
       const b = $("restore-banner");
-      b.innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Recovery Probe to start it again; what the steps found is kept.</p></div>`;
+      b.innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Automatic Recovery Probe to start it again; what the steps found is kept.</p></div>`;
       b.dataset.html = b.innerHTML;
     }
     return;

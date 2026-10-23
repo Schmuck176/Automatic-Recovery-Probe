@@ -1,10 +1,10 @@
 [package]
-name = "recovery-probe"
+name = "automatic-recovery-probe"
 version = "2.0.0"
 edition = "2021"
 rust-version = "1.82"
 publish = false
-description = "Recovery Probe: finds damage in files recovered with ddrescue, and maps a ddrescue mapfile onto the recovered disk."
+description = "Automatic Recovery Probe: Recovery Probe with the recovery automated - image, map check, copying, checks, open-source repairs and put-back from one Start button."
 
 # No dependencies, on purpose. Everything is built from Rust's own standard
 # library, so no third-party code ever runs over the recovered files, and the

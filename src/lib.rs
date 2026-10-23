@@ -1,4 +1,7 @@
-//! Recovery Probe.
+//! Automatic Recovery Probe: Recovery Probe (2026-10-22 (1)) with the
+//! recovery automated.
+//!
+//! What Recovery Probe was:
 //!
 //! Finds damage in files recovered with ddrescue - the kind that opens fine
 //! and looks normal - and sorts every file into damaged, not testable or
@@ -38,6 +41,6 @@ pub mod walk;
 pub mod web;
 pub mod win;
 
-pub const APP: &str = "Recovery Probe";
+pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-22 (1)";
+pub const VERSION: &str = "2026-10-23 (1)";
