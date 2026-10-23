@@ -130,10 +130,30 @@ The user's answers (23 Oct, 15:05):
       release "latest", the PC has untrunc_x64 with FFmpeg 3.x DLLs) and
       MP3val 0.1.8 for Windows, and tools/download_check.py downloads qpdf
       for real (0326a6e).
-- [ ] Deliver to C:\RECOVERY-TOOLS (automatic-recovery-probe.exe beside
-      recovery-probe.exe; qpdf from the Download button or delivered into
-      C:\RECOVERY-TOOLS\tools\qpdf-12.3.2), check byte for byte, the
-      user's self-test and Get ready on the PC.
+- [x] qpdf 12 (fa75606): it rebuilds a PDF whose end was lost without a
+      trailer, but leaves the trailer without /Size, so its own check still
+      warns. fix_pdf now also tries the new trailer when the plain rebuild is
+      not clean (only where no startxref is left), keeping the best. Checked
+      here with qpdf 11.9, 12.3.2 and 12.4.2 (official Linux builds, SHA-256s
+      as qpdf publishes them; 12.3.2-msvc64's matches DOWNLOADS too).
+- [x] The page tests pick a system-given port (Windows keeps ranges such as
+      47001-... for Hyper-V/WinNAT: os error 10013); the program notes a
+      fallback port in %TEMP%\automatic-recovery-probe-port.txt so a second
+      double-click finds the running copy (934abf0).
+- [x] CI run 40016273279 (934abf0), all green. Windows: unit tests 103,
+      self-test, map check tests 43/43, Windows checks 19/19, protection
+      20/20, unplugged 35/35, page 65/65, qpdf download 6/6, automatic 51/51
+      (7-Zip 26.04, FFmpeg 9.0.2, qpdf 12.3.2 as downloaded by the program,
+      untrunc v1-9d86ec9 Windows build, MP3val 0.1.8), Automatic tab 14/14.
+      Linux: all green (map check 93/93, kernel exFAT 23/23, automatic 51/51).
+- [x] Delivered 23 Oct 2026, 21:31 BST: C:\RECOVERY-TOOLS\automatic-recovery-probe.exe,
+      5,231,104 bytes, SHA-256
+      1d7dda80efeb5e09078b682f14af730ec327c91ff1fe5483129e783993ecdd04
+      (staged back and compared). main moved to dev; the foundation main is
+      kept as branch version-2026-10-22-1.
+- [ ] On the PC (the user): double-click it, the self-test, Get ready
+      (Install AIM Toolkit, Download qpdf), then the checklist in Obsidian
+      (automatic-recovery-checklist.md, written there on the first run).
 
 ## Not done / ideas for later
 
