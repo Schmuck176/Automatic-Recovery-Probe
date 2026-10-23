@@ -651,8 +651,25 @@ build. Simulated on a copy of the PC's files beforehand: opening it
 upgrades the Obsidian checklist and manifest to the new texts with all 31
 ticks (the old copy's hash 0x49bf8839aa61ffcf is in KNOWN_CHECKLISTS),
 checklist-ticks.txt untouched. main moved to this version; 2026-10-21 (2)
-(8d0eb83) kept in branch version-2026-10-21-2. The self-test on the PC is
-still to be run.
+(8d0eb83) kept in branch version-2026-10-21-2.
+
+The user ran the self-test on the PC on 23 Oct: every check passed
+(started 06:20:23; results\recovery-probe-state.txt agrees). Opening the
+program upgraded the Obsidian checklist at 06:20:19: the new text with all
+31 ticks (checklist_copy_hash 0x4e763f40c687cf9e, the new text's),
+checklist-ticks.txt untouched. The manifest copy was not upgraded: Obsidian
+had reformatted its last table (cell padding only, 22 Oct 19:15 BST, when
+the table was clicked into), so the program took it for one with the
+user's own notes and left it. Nothing of the user's was in it, so it was
+replaced here with the 2026-10-22 (1) manifest (06:47, mtime-guarded, staged
+back and compared). The user downloaded AIM Toolkit from
+sourceforge.net/projects/aim-toolkit/files/latest/download: AIMtk.zip,
+2,115,314 bytes, SHA-256 83b88e533dd10917..., the same as SourceForge
+publishes for 20260420/AIMtk.zip; unzipped to installed files\AIMtk\
+AIMtk20260420 (install.bat, which runs config.exe out of files.cab; the
+cabinet holds MountImg.exe, aim_cli.exe, AIMtk-Dlg.exe and the Arsenal
+driver phdskmnt.sys with its catalog for Windows 7 to 10+). Whether it is
+installed yet is not known.
 
 ## Next
 
@@ -665,3 +682,9 @@ still to be run.
    with Windows. Help read step 5's results; check the files fit on SPARE.
 2. Phase 6 is the program's step 8 (isolate, repair, put back, evaluate);
    help with the repairs themselves when the user gets there.
+3. When a new version is made anyway: let `checklist::normal` ignore how a
+   table's cells are padded (Obsidian pads them when a table is clicked
+   into), so such a copy still counts as unedited - for the checklist too,
+   where the program would otherwise stop writing ticks into the Obsidian
+   copy (a note on the page says so). Recompute KNOWN_CHECKLISTS and
+   KNOWN_MANIFESTS from the texts in git history then.
