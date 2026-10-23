@@ -27,6 +27,7 @@ import json
 import os
 import random
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -184,7 +185,13 @@ def main():
     home = os.path.join(work, "home")
     os.makedirs(home)
     shutil.copyfile(mp, os.path.join(home, "big.map"))
-    page = Page(exe, home, 47000 + random.randrange(900))
+    # A port nothing else uses, picked by the system (a fixed range can fall in
+    # one Windows keeps for itself: "access forbidden", os error 10013).
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    page = Page(exe, home, port)
     vhd_in = False
     try:
         page.act(action="set", mapfile=os.path.join(home, "big.map"))

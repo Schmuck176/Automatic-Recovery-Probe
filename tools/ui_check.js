@@ -35,13 +35,23 @@ const spare = path.join(work, "spare as big as the old drive.img");
   d.copy(s, d.length - 33 * 512, d.length - 33 * 512);
   fs.writeFileSync(spare, s);
 }
-const port = 47000 + Math.floor(Math.random() * 900);
+// A port nothing else uses, picked by the system (a fixed range can fall in
+// one Windows keeps for itself: "access forbidden", os error 10013).
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = require("net").createServer();
+    s.on("error", reject);
+    s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+}
+let port;
 const key = "uitestkey0123456789abcdef";
 const results = [];
 const pageErrors = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
 
 (async () => {
+  port = await freePort();
   const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", spare, "--test-disk", disk, "--home", home],
     { stdio: ["ignore", "pipe", "pipe"] });
   let out = "";

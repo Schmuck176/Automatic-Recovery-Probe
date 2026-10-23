@@ -18,10 +18,20 @@ fs.mkdirSync(home, { recursive: true });
 fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
 const results = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
-const port = 47000 + Math.floor(Math.random() * 900);
+// A port nothing else uses, picked by the system (a fixed range can fall in
+// one Windows keeps for itself: "access forbidden", os error 10013).
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = require("net").createServer();
+    s.on("error", reject);
+    s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+}
+let port;
 const key = "autouikey0123456789abcdef";
 
 (async () => {
+  port = await freePort();
   const server = spawn(exe, ["ui", "--port", String(port), "--token", key, "--no-browser", "--test-disk", disk, "--home", home],
     { stdio: ["ignore", "pipe", "pipe"] });
   let out = "";

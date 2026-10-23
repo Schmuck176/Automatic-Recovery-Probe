@@ -624,6 +624,9 @@ pub fn serve(cfg: Config) -> i32 {
     };
     restore_setting_on_close();
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(cfg.port);
+    if port != DEFAULT_PORT {
+        let _ = std::fs::write(port_note(), port.to_string());
+    }
     let home = cfg.home.clone().unwrap_or_else(crate::cli::home_dir);
     let results = home.join("results");
     let mut app = App {
@@ -2267,21 +2270,41 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
 
 // ---------------------------------------------------------------- starting
 
+/// Where the page's port is noted when it is not the usual one (Windows may
+/// keep the usual one for itself after a restart: Hyper-V and WSL set ranges
+/// of ports aside, a different range each time).
+fn port_note() -> PathBuf {
+    std::env::temp_dir().join("automatic-recovery-probe-port.txt")
+}
+
+fn remembered_port() -> Option<u16> {
+    std::fs::read_to_string(port_note()).ok()?.trim().parse().ok()
+}
+
+/// Does this program answer on `port`?
+fn already_running_on(port: u16) -> bool {
+    let Ok(mut s) = TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, port).into(), Duration::from_millis(500)) else {
+        return false;
+    };
+    let _ = s.write_all(format!("GET /ping HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes());
+    let mut buf = Vec::new();
+    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = s.read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).contains(crate::APP)
+}
+
 /// What double-clicking the program does.
 pub fn launch() -> i32 {
     let exe = std::env::current_exe().unwrap_or_default();
-    // Already open? Then just show it again.
-    if let Ok(mut s) = TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, DEFAULT_PORT).into(), Duration::from_millis(500)) {
-        let _ = s.write_all(format!("GET /ping HTTP/1.1\r\nHost: 127.0.0.1:{DEFAULT_PORT}\r\n\r\n").as_bytes());
-        let mut buf = Vec::new();
-        let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
-        let _ = s.read_to_end(&mut buf);
-        if String::from_utf8_lossy(&buf).contains(crate::APP) {
-            println!("{} is already running in another window.", crate::APP);
-            println!("Its window shows the web address to open. To start again, close that window first.");
-            pause(8);
-            return 0;
-        }
+    // Already open (on its usual port, or on the one it last had to use
+    // instead)? Then say so: two copies must not work on the same folders.
+    let mut ports = vec![DEFAULT_PORT];
+    ports.extend(remembered_port().filter(|&p| p != DEFAULT_PORT));
+    if ports.into_iter().any(already_running_on) {
+        println!("{} is already running in another window.", crate::APP);
+        println!("Its window shows the web address to open. To start again, close that window first.");
+        pause(8);
+        return 0;
     }
     let port = TcpListener::bind(("127.0.0.1", DEFAULT_PORT))
         .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
