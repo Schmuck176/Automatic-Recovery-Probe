@@ -1618,7 +1618,7 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     let mut ticks = cl::Ticks::load(&ticks_path);
     let mut notes: Vec<String> = Vec::new();
     let found = cl::find_copy(&home);
-    let target = found.clone().unwrap_or_else(|| home.join(cl::COPY_NAME));
+    let target = found.clone().unwrap_or_else(|| cl::first_copy_place(&home));
     if let Some(p) = &found {
         let changed = mtime_ms(p).map(|m| m.to_string()) != Some(copy_mtime.clone());
         if changed {

@@ -811,16 +811,22 @@ fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Stri
             break;
         }
         switch_spare_on(app, ctx);
-        waiting(
-            app,
-            ctx,
-            "copy",
-            &format!(
+        let elsewhere = crate::win::drives()
+            .into_iter()
+            .find(|d| d.label.eq_ignore_ascii_case("SPARE") && !plan.work.to_uppercase().starts_with(&d.letter.to_uppercase()));
+        let msg = match elsewhere {
+            Some(d) => format!(
+                "SPARE is plugged in, but as {} now, and the copies are to go into {}. Click Stop, change the copies folder to \
+                 {}\\WORK (3. The folders), and click Carry on.",
+                d.letter, plan.work, d.letter
+            ),
+            None => format!(
                 "Plug in SPARE now (the copies go into {}). The recovered SSD is not needed for this: everything is read from \
                  the image.",
                 plan.work
             ),
-        );
+        };
+        waiting(app, ctx, "copy", &msg);
         if !sleep_or_stop(ctx, 3) {
             return Ok(End::Stopped);
         }
@@ -870,7 +876,12 @@ fn stage_extra(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
     let started = local_now();
     let t = Instant::now();
     let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).div_ceil(2).clamp(1, 4);
-    let opts = extra::Options { work: PathBuf::from(&plan.work), videos: plan.videos, jobs };
+    let opts = extra::Options {
+        work: PathBuf::from(&plan.work),
+        videos: plan.videos,
+        jobs,
+        done_list: Some(results.join("extra-checks-done.tsv")),
+    };
     ctx.line("- The extra checks");
     let stop = ctx.stop.clone();
     let o = extra::run(&home, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &move || stop.load(Ordering::Relaxed))?;

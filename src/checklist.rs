@@ -528,6 +528,28 @@ pub fn find_copy(home: &Path) -> Option<PathBuf> {
     found.into_iter().max_by_key(|(m, _)| *m).map(|(_, p)| p)
 }
 
+/// Where a first copy of this checklist goes: beside Recovery Probe's own
+/// checklist copy (the person's Obsidian folder), if there is one; else in
+/// the program's folder.
+pub fn first_copy_place(home: &Path) -> PathBuf {
+    let mut dirs = vec![(home.to_path_buf(), 0)];
+    while let Some((dir, depth)) = dirs.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Ok(t) = e.file_type() else { continue };
+            if t.is_dir() {
+                if depth < 2 && !name.starts_with('.') && !name.eq_ignore_ascii_case("results") {
+                    dirs.push((e.path(), depth + 1));
+                }
+            } else if name.eq_ignore_ascii_case("recovery-checklist.md") {
+                return dir.join(COPY_NAME);
+            }
+        }
+    }
+    home.join(COPY_NAME)
+}
+
 /// Writes `text` to `path` by way of a file beside it, made safe on the
 /// drive first, so that a cut-off write or a power cut never leaves half a
 /// checklist - or a whole one full of zeros (sys::write_safely).
@@ -1090,6 +1112,17 @@ mod tests {
         assert!(is_unedited(&mine, Some(written_hash(&mine))), "unless the program wrote exactly that");
         assert!(manifest_unedited(MANIFEST));
         assert!(!manifest_unedited(&format!("{MANIFEST}\nmy note\n")));
+    }
+
+    #[test]
+    fn a_first_copy_goes_beside_recovery_probes_own() {
+        let home = std::env::temp_dir().join(format!("arp-checklist-first-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("Obsidian MD files")).unwrap();
+        assert_eq!(first_copy_place(&home), home.join(COPY_NAME));
+        std::fs::write(home.join("Obsidian MD files").join("recovery-checklist.md"), "x").unwrap();
+        assert_eq!(first_copy_place(&home), home.join("Obsidian MD files").join(COPY_NAME));
+        std::fs::remove_dir_all(&home).ok();
     }
 
     #[test]

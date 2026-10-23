@@ -1391,6 +1391,8 @@ function renderAuto() {
       items.push([READY.restart_pending === false, "Windows is not waiting to restart", READY.restart_pending ? "An update wants to restart the PC: restart it now, before the recovered SSD is plugged in." : "No restart is waiting.", ""]);
       items.push([READY.restarts_after_crash === false ? true : null, "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "It does not restart by itself.", READY.restarts_after_crash ? '<button class="second" data-act="crash-restart-off">Turn that off</button>' : ""]);
       items.push([READY.policy_to_restore ? true : null, "New disks arrive switched off", READY.policy_to_restore ? "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again." : "Not yet: the rehearsal (next) sets it.", ""]);
+      const added = setting("defender_added");
+      items.push([added ? true : null, "Defender leaves the image folder and SPARE alone (optional)", added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file.", !added && (setting("auto_image_dir") || setting("auto_work")) ? '<button class="second" data-defender="1">Exclude them</button>' : ""]);
       const aim = (READY.tools || []).find((x) => x.key === "aim");
       const aimOk = !!(aim && aim.path && READY.aim_driver);
       items.push([aimOk ? true : null, "AIM Toolkit, to open the image read-only", aimOk ? (aim.version || aim.path) : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.", !aimOk && READY.aim_setup ? '<button class="second" data-act="aim-install">Install AIM Toolkit</button>' : ""]);
@@ -1516,6 +1518,14 @@ $("ar-ready").addEventListener("click", async (e) => {
   try {
     if (b.dataset.act) { const r = await act({ action: b.dataset.act }); note("ready", "ok", r.message || "Done."); }
     if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: the bar at the bottom shows how far it is. Click Check this PC when it is done."); }
+    if (b.dataset.defender) {
+      const said = [];
+      const image = setting("auto_image_dir");
+      const work = setting("auto_work");
+      const spareRoot = work && /^[A-Za-z]:/.test(work) ? work.slice(0, 2) + "\\" : work;
+      for (const f of [image, spareRoot]) if (f) said.push((await act({ action: "defender-exclude", folder: f })).message);
+      note("ready", "ok", said.join(" "));
+    }
   } catch (err) { note("ready", "err", err.message); }
   await refresh(); loadReady();
 });

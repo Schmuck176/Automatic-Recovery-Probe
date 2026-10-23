@@ -103,12 +103,31 @@ jobs:
       - name: The open-source tools (as on the person's PC)
         if: ${{ !cancelled() }}
         timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           choco install ffmpeg qpdf -y --no-progress > "$RUNNER_TEMP/report/80-tools-install.txt" 2>&1 || true
+          # untrunc's and MP3val's own Windows builds, as the person has them
+          # in "installed files" (the program finds them on the PATH here).
+          dl="$RUNNER_TEMP/tools-dl"
+          mkdir -p "$dl"
+          {
+            gh release download latest --repo anthwlock/untrunc --pattern '*x64*.zip' --dir "$dl/untrunc" &&
+              (cd "$dl/untrunc" && "/c/Program Files/7-Zip/7z.exe" x -y *.zip > /dev/null)
+            curl -sSfL -o "$dl/mp3val.zip" "https://sourceforge.net/projects/mp3val/files/mp3val/mp3val%200.1.8/mp3val-0.1.8-bin-win32.zip/download" &&
+              (mkdir -p "$dl/mp3val" && cd "$dl/mp3val" && "/c/Program Files/7-Zip/7z.exe" x -y ../mp3val.zip > /dev/null)
+            ls -R "$dl"
+          } >> "$RUNNER_TEMP/report/80-tools-install.txt" 2>&1 || true
+          for exe in untrunc.exe mp3val.exe; do
+            found=$(find "$dl" -iname "$exe" | head -1)
+            if [ -n "$found" ]; then cygpath -w "$(dirname "$found")" >> "$GITHUB_PATH"; fi
+          done
           {
             echo "7z: $(ls "/c/Program Files/7-Zip/7z.exe" 2>&1)"
             ffmpeg -hide_banner -version 2>&1 | head -1
             qpdf --version 2>&1 | head -1
+            echo "untrunc: $(find "$dl" -iname untrunc.exe | head -1)"
+            echo "mp3val: $(find "$dl" -iname mp3val.exe | head -1)"
           } 2>&1 | tee "$RUNNER_TEMP/report/80-tools.txt"
       - name: Start, the whole automatic recovery, on a damaged test disk of real media
         if: ${{ !cancelled() }}

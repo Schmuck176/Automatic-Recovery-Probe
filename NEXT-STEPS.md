@@ -102,9 +102,21 @@ The user's answers (23 Oct, 15:05):
       Recovery Probe's own checklist copy in Obsidian is never touched.
 - [x] Tests here (Linux): unit 99, self-test, tools/auto_check.py 48/48 (FFmpeg
       and qpdf here), tools/auto_ui_check.js 14/14, tools/ui_check.js 64/64.
-- [ ] CI on Windows (first run with the new code): the Windows-only parts
-      (winset.rs registry and PowerShell, tools.rs CREATE_NO_WINDOW, curl/tar
-      download, finalise set_times on folders) are only compiled there.
+- [x] CI run 39978253835 (750bb9f): Windows compiled the Windows-only code
+      and passed unit tests, self-test, map check tests, Windows checks,
+      protection, unplugged; Linux with every tool (7-Zip 23.01, FFmpeg 6.1.1,
+      MP3val 0.1.8, qpdf 11.9.0, untrunc v1-9d86ec9 built from source) passed
+      auto_check 50/51: untrunc rebuilt the MOV with IMG_0001.MOV as pattern,
+      MP3val the MP3, qpdf the PDF (new trailer); the docx miss was the test's
+      own damage cutting into the only member (now a many-part docx whose
+      index fills whole sectors).
+- [x] After that run: tools get a short-named working copy (input.<ext>);
+      extra checks remember what they checked (results\extra-checks-done.tsv)
+      so a stopped run carries on; a check flagging >30% (and >=30) of one
+      kind is set aside as the tool's limit, not damage; the self-test checks
+      the repairs needing no tool; Defender exclusion button; the first copy
+      of the checklist goes beside Recovery Probe's in Obsidian; the copy
+      stage says where SPARE is if its letter changed.
 - [ ] Deliver to C:\RECOVERY-TOOLS (automatic-recovery-probe.exe beside
       recovery-probe.exe; qpdf from the Download button or delivered into
       C:\RECOVERY-TOOLS\tools\qpdf-12.3.2), check byte for byte, the

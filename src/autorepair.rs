@@ -1099,6 +1099,154 @@ fn sevenzip_ok(env: &Env, p: &Path) -> bool {
     })
 }
 
+/// The parts 7-Zip names as not read back right, from its own lines
+/// ("ERROR: CRC Failed : word/document.xml", "ERROR: Data Error : ...").
+/// The archive's own errors ("Headers Error", "Unexpected end of archive":
+/// its index lost) are not about any one part, and are not counted.
+fn sevenzip_failed(text: &str) -> Vec<String> {
+    let mut v: Vec<String> = text
+        .lines()
+        .filter_map(|l| {
+            let rest = l.trim_end_matches('\r').strip_prefix("ERROR: ")?;
+            let (_, name) = rest.split_once(" : ")?;
+            let name = name.trim();
+            (!name.is_empty()).then(|| name.to_string())
+        })
+        .collect();
+    v.dedup();
+    v
+}
+
+/// A zip's parts (an Office document's, an ePub's), walked one after another
+/// from its start, by their own headers, without its index (the list of its
+/// parts at its end, which is what is usually lost when the end of the file
+/// was never read): how many parts are files, and whether the walk got as far
+/// as the index - which says that no part was lost whole. `lost`: the places
+/// the old drive never gave up; the walk stops at a header in one of them,
+/// or at anything it can't read as a part.
+#[derive(Debug, Default, PartialEq)]
+struct ZipWalk {
+    /// The parts that are files (not folders).
+    files: usize,
+    /// What follows the last part is the index.
+    reached_index: bool,
+}
+
+fn read_at(f: &mut std::fs::File, size: u64, off: u64, n: u64) -> Option<Vec<u8>> {
+    if off.checked_add(n)? > size || n > (1 << 20) {
+        return None;
+    }
+    f.seek(SeekFrom::Start(off)).ok()?;
+    let mut b = vec![0u8; n as usize];
+    f.read_exact(&mut b).ok()?;
+    Some(b)
+}
+
+fn le16(b: &[u8], at: usize) -> u64 {
+    u16::from_le_bytes([b[at], b[at + 1]]) as u64
+}
+
+fn le32(b: &[u8], at: usize) -> u64 {
+    u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]) as u64
+}
+
+/// Where a part written as a stream ends (its sizes in a descriptor after
+/// its data): at the descriptor whose signature is followed by the size of
+/// the data before it.
+fn descriptor_end(f: &mut std::fs::File, size: u64, data: u64) -> Option<u64> {
+    const CHUNK: u64 = 1 << 20;
+    let mut pos = data;
+    while pos < size {
+        let n = (size - pos).min(CHUNK + 16);
+        let b = read_at(f, size, pos, n)?;
+        let mut i = 0usize;
+        while i + 16 <= b.len() {
+            if &b[i..i + 4] == b"PK\x07\x08" && le32(&b, i + 8) == pos + i as u64 - data {
+                return Some(pos + i as u64 + 16);
+            }
+            i += 1;
+        }
+        if n < CHUNK + 16 {
+            break;
+        }
+        pos += CHUNK;
+    }
+    None
+}
+
+fn zip_walk(path: &Path, lost: &[(u64, u64)]) -> Option<ZipWalk> {
+    let mut f = std::fs::File::open(path).ok()?;
+    let size = f.metadata().ok()?.len();
+    let touches = |a: u64, b: u64| lost.iter().any(|&(s, e)| s < b && a < e);
+    let mut w = ZipWalk::default();
+    let mut off = 0u64;
+    loop {
+        if touches(off, off + 4) {
+            return Some(w);
+        }
+        let Some(sig) = read_at(&mut f, size, off, 4) else { return Some(w) };
+        if [b"PK\x01\x02", b"PK\x05\x06", b"PK\x06\x06"].iter().any(|s| sig == s.as_slice()) {
+            w.reached_index = true;
+            return Some(w);
+        }
+        if sig != b"PK\x03\x04" {
+            return Some(w);
+        }
+        let Some(h) = read_at(&mut f, size, off, 30) else { return Some(w) };
+        let flags = le16(&h, 6);
+        let (mut csize, usize_) = (le32(&h, 18), le32(&h, 22));
+        let (name_len, extra_len) = (le16(&h, 26), le16(&h, 28));
+        let Some(name) = read_at(&mut f, size, off + 30, name_len) else { return Some(w) };
+        let Some(extra) = read_at(&mut f, size, off + 30 + name_len, extra_len) else { return Some(w) };
+        let zip64 = csize == 0xFFFF_FFFF || usize_ == 0xFFFF_FFFF;
+        if zip64 {
+            // The sizes are in the extra field 0x0001: the size first, then
+            // the compressed size, each only where its own field says so.
+            let mut i = 0usize;
+            let mut found = None;
+            while i + 4 <= extra.len() {
+                let (id, len) = (le16(&extra, i), le16(&extra, i + 2) as usize);
+                let body = &extra[i + 4..(i + 4 + len).min(extra.len())];
+                if id == 1 {
+                    let k = if usize_ == 0xFFFF_FFFF { 8 } else { 0 };
+                    if csize == 0xFFFF_FFFF && body.len() >= k + 8 {
+                        found = body[k..k + 8].try_into().ok().map(u64::from_le_bytes);
+                    }
+                    break;
+                }
+                i += 4 + len;
+            }
+            if csize == 0xFFFF_FFFF {
+                let Some(c) = found else { return Some(w) };
+                csize = c;
+            }
+        }
+        let data = off + 30 + name_len + extra_len;
+        if touches(off, data) {
+            // A header the old drive never gave up (whole or in part): its
+            // part's name or size can't be vouched for.
+            return Some(w);
+        }
+        let Some(mut end) = data.checked_add(csize) else { return Some(w) };
+        if flags & 8 != 0 {
+            if csize == 0 && !zip64 {
+                let Some(e) = descriptor_end(&mut f, size, data) else { return Some(w) };
+                end = e;
+            } else {
+                let Some(sig) = read_at(&mut f, size, end, 4) else { return Some(w) };
+                end += if sig == b"PK\x07\x08" { 4 } else { 0 } + if zip64 { 20 } else { 12 };
+            }
+        }
+        if end > size {
+            return Some(w);
+        }
+        if !name.ends_with(b"/") {
+            w.files += 1;
+        }
+        off = end;
+    }
+}
+
 fn fix_zip_like(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
     let Some(sz) = env.sevenzip.as_ref() else {
         return no("7-Zip was not found on this PC", Next::OwnApp);
@@ -1120,16 +1268,17 @@ fn fix_zip_like(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
     let Some((r, files)) = sevenzip_extract(env, src, &parts) else {
         return no("7-Zip could not be run", Next::OwnApp);
     };
-    let low = r.text().to_lowercase();
-    let lost = low.matches("crc failed").count() + low.matches("data error").count() + low.matches("unexpected end").count();
     if files == 0 {
         return no(
             "7-Zip could read nothing out of it",
             if office { Next::OwnApp } else { Next::Nothing },
         );
     }
-    // Rebuilt from what read back right (an ePub's or OpenDocument's
-    // "mimetype" goes first, uncompressed, as those formats require).
+    // The parts 7-Zip could not read back right stay in, as far as it read
+    // them (they may hold most of the text or picture), and are named.
+    let failed = sevenzip_failed(&r.text());
+    // Rebuilt from what was read (an ePub's or OpenDocument's "mimetype"
+    // goes first, uncompressed, as those formats require).
     let out = tmp.join(format!("rebuilt.{ext}"));
     let mut ok = true;
     if parts.join("mimetype").is_file() {
@@ -1147,27 +1296,45 @@ fn fix_zip_like(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
     if !ok || !out.is_file() || !sevenzip_ok(env, &out) {
         return no("7-Zip could not rebuild it from its parts", if office { Next::OwnApp } else { Next::Nothing });
     }
-    if lost == 0 && r.code == Some(0) {
+    // Every part, only if each read back right (7-Zip checks each against
+    // its own checksum) and the zip's own headers, walked part by part, lead
+    // from the first part to the index with none missing on the way.
+    let lost = lost_ranges(env, item).unwrap_or_default();
+    let walk = zip_walk(src, &lost);
+    let every = failed.is_empty() && walk.as_ref().is_some_and(|w| w.reached_index && files >= w.files);
+    if every {
         return Try::Made {
             file: out,
-            how: "rebuilt by 7-Zip from every part inside it (all of them read back right; what was damaged was the zip's \
-                  own index)"
-                .to_string(),
+            how: format!(
+                "rebuilt by 7-Zip from every part inside it: all {} read back right, and what was lost was only the zip's own \
+                 index (the list of its parts, at its end)",
+                commas(files as u64)
+            ),
             tool: tools::version(Tool::SevenZip, sz),
             salvage: false,
             note: format!("{} parts", commas(files as u64)),
         };
     }
-    // Some parts were lost: what could be read is kept, the original stays.
-    let name = item.path.rsplit('\\').next().unwrap_or(&item.path);
-    let _ = name;
+    let how = if failed.is_empty() {
+        format!(
+            "{} parts inside it read back right and are kept in a new zip; its own list of its parts was lost too, so whether \
+             it held more can't be told",
+            commas(files as u64)
+        )
+    } else {
+        let shown: Vec<&str> = failed.iter().take(5).map(String::as_str).collect();
+        format!(
+            "{} parts inside it read back right and {} did not ({}{}): all are kept in a new zip, those as far as 7-Zip could \
+             read them",
+            commas(files.saturating_sub(failed.len()) as u64),
+            commas(failed.len() as u64),
+            shown.join(", "),
+            if failed.len() > shown.len() { ", ..." } else { "" }
+        )
+    };
     Try::Made {
         file: out,
-        how: format!(
-            "{} parts inside it could be read and are kept in a new zip; {} could not",
-            commas(files as u64),
-            if lost == 0 { "some".to_string() } else { commas(lost as u64) }
-        ),
+        how,
         tool: tools::version(Tool::SevenZip, sz),
         salvage: true,
         note: if office { "Word, Excel or PowerPoint's Open and Repair may still open the original".to_string() } else { String::new() },
@@ -1292,10 +1459,17 @@ fn try_item(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
             }
         }
     }
-    // 2. The format's own repair.
+    // 2. The format's own repair. Every tool works on a copy of the copy,
+    // with a short, plain name in a folder of its own (some older tools
+    // cannot open long paths, or names in other alphabets).
     let name = item.path.rsplit('\\').next().unwrap_or(&item.path);
     let ext = ext_lower(name);
     let e = ext.as_str();
+    let input = tmp.join(if e.is_empty() { "input".to_string() } else { format!("input.{e}") });
+    if std::fs::copy(src, &input).is_err() {
+        return no("a working copy of it could not be made in REPAIR", Next::Paid);
+    }
+    let src = input.as_path();
     let damage = item.why.as_str();
     if ["jpg", "jpeg", "jpe", "jfif"].contains(&e) {
         let t = fix_jpeg(env, src, tmp);
@@ -1809,5 +1983,94 @@ mod tests {
         assert_eq!(name_prefix("GOPR0012.MP4"), "gopr");
         assert_eq!(name_prefix("20190101_120000.mp4"), "");
         assert_eq!(salvage_name("IMG_1 [R0003].CR2", Path::new("/x/preview.jpg")), "IMG_1 [R0003] (preview).jpg");
+    }
+
+    /// A zip of stored parts, made by hand. `streamed`: each part's sizes
+    /// after its data, in a descriptor, as a program writing a stream does.
+    fn zip_of(parts: &[(&str, &[u8])], streamed: bool) -> (Vec<u8>, usize) {
+        let mut z = Vec::new();
+        let mut cd = Vec::new();
+        for (name, data) in parts {
+            let off = z.len() as u32;
+            let sizes = if streamed { 0 } else { data.len() as u32 };
+            z.extend_from_slice(b"PK\x03\x04\x14\x00");
+            z.extend_from_slice(&(if streamed { 8u16 } else { 0 }).to_le_bytes());
+            z.extend_from_slice(&[0u8; 10]);
+            z.extend_from_slice(&sizes.to_le_bytes());
+            z.extend_from_slice(&sizes.to_le_bytes());
+            z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            z.extend_from_slice(&0u16.to_le_bytes());
+            z.extend_from_slice(name.as_bytes());
+            z.extend_from_slice(data);
+            if streamed {
+                z.extend_from_slice(b"PK\x07\x08\0\0\0\0");
+                z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            }
+            cd.extend_from_slice(b"PK\x01\x02");
+            cd.extend_from_slice(&[0u8; 24]);
+            cd.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            cd.extend_from_slice(&[0u8; 12]);
+            cd.extend_from_slice(&off.to_le_bytes());
+            cd.extend_from_slice(name.as_bytes());
+        }
+        let at = z.len();
+        z.extend_from_slice(&cd);
+        z.extend_from_slice(b"PK\x05\x06");
+        z.extend_from_slice(&[0u8; 18]);
+        (z, at)
+    }
+
+    #[test]
+    fn a_zips_parts_are_walked_without_its_index() {
+        let dir = std::env::temp_dir().join(format!("arp-zipwalk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.docx");
+        let image = vec![7u8; 3000];
+        let parts: Vec<(&str, &[u8])> = vec![
+            ("[Content_Types].xml", b"<Types/>"),
+            ("word/", b""),
+            ("word/document.xml", b"<w:document>The report.</w:document>"),
+            ("word/media/image1.png", &image),
+        ];
+        let walk = |z: &[u8], lost: &[(u64, u64)]| {
+            std::fs::write(&f, z).unwrap();
+            zip_walk(&f, lost).unwrap()
+        };
+        for streamed in [false, true] {
+            let (z, cd) = zip_of(&parts, streamed);
+            let len = z.len() as u64;
+            let every = ZipWalk { files: 3, reached_index: true };
+            assert_eq!(walk(&z, &[]), every, "streamed {streamed}");
+            // Its index lost from just after its first bytes: still every part.
+            let mut zz = z.clone();
+            zz[cd + 4..].fill(0);
+            assert_eq!(walk(&zz, &[(cd as u64 + 4, len)]), every);
+            // The index lost from its very start: whether more parts followed can't be told.
+            assert_eq!(walk(&zz, &[(cd as u64, len)]), ZipWalk { files: 3, reached_index: false });
+            // A hole in a part's data: the walk goes on (7-Zip's checksum of the part tells).
+            if !streamed {
+                assert_eq!(walk(&z, &[(cd as u64 - 1000, cd as u64 - 900)]), every);
+            }
+            // A part's header lost: the walk stops before it.
+            let third = z.windows(4).enumerate().filter(|(_, w)| *w == b"PK\x03\x04").nth(2).unwrap().0 as u64;
+            assert_eq!(walk(&z, &[(third + 10, third + 12)]), ZipWalk { files: 1, reached_index: false });
+            // Cut short in the middle of the last part.
+            assert_eq!(walk(&z[..cd - 100], &[]), ZipWalk { files: 2, reached_index: false });
+        }
+        // Not a zip at all.
+        assert_eq!(walk(b"%PDF-1.4 and the rest", &[]), ZipWalk::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sevenzips_errors_about_parts_are_told_from_its_errors_about_the_zip() {
+        let out = "\n7-Zip 26.03 (x64)\n\nScanning the drive for archives:\n1 file, 41000 bytes\n\nExtracting archive: C:\\R\\input.docx\n\
+                   ERROR: C:\\R\\input.docx\nC:\\R\\input.docx\nOpen WARNING: Can not open the file as [zip] archive\n\n\
+                   ERRORS:\nHeaders Error\n\n--\nPath = C:\\R\\input.docx\nType = zip\n\n\
+                   ERROR: CRC Failed : word\\document.xml\r\nERROR: Data Error : word\\media\\image1.png\n\
+                   Sub items Errors: 2\n\nArchives with Errors: 1\n\nOpen Errors: 1\n";
+        assert_eq!(sevenzip_failed(out), vec!["word\\document.xml".to_string(), "word\\media\\image1.png".to_string()]);
+        assert!(sevenzip_failed("ERRORS:\nHeaders Error\nUnexpected end of archive\n\nOpen Errors: 1\n").is_empty());
     }
 }

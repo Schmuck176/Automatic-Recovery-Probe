@@ -359,6 +359,80 @@ fn disk_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(Vec<String>, Ve
     Ok((summary, problems))
 }
 
+fn seed(name: &str) -> &'static [u8] {
+    SEEDS.iter().find(|s| s.0 == name).map(|s| s.1).unwrap_or(&[])
+}
+
+/// The automatic repairs that need no outside tool, on the sample files:
+/// (summary line, problems).
+fn repair_checks(dir: &Path, say: &mut dyn FnMut(&str)) -> Result<(String, Vec<String>), String> {
+    use crate::autorepair as ar;
+    say("Checking the automatic repairs that need no outside tool...");
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let mut problems = Vec::new();
+    // 1. A photo cut short (its end never read: zeros) gets its end back.
+    let photo = seed("night.jpg");
+    let mut cut = photo[..photo.len() * 70 / 100].to_vec();
+    cut.extend(std::iter::repeat_n(0u8, 4096));
+    match ar::jpeg_with_end(&cut) {
+        Some(fixed) => {
+            let p = dir.join("cut short, repaired.jpg");
+            write(&p, &fixed)?;
+            let v = crate::probe::probe_file(&p, 4096, false);
+            if crate::formats::is_damage(v.verdict) || !fixed.ends_with(&[0xFF, 0xD9]) {
+                problems.push(format!("a photo cut short: the repaired version is {} ({})", v.verdict, v.detail));
+            }
+        }
+        None => problems.push("a photo cut short: its end was not found".to_string()),
+    }
+    // 2. An intact twin is told from a copy of the damaged file.
+    let (orig, damaged, copy) = (dir.join("twin.jpg"), dir.join("damaged.jpg"), dir.join("copy of damaged.jpg"));
+    let mut d = photo.to_vec();
+    let at = photo.len() / 2 / 512 * 512;
+    d[at..at + 2048].fill(0);
+    write(&orig, photo)?;
+    write(&damaged, &d)?;
+    write(&copy, &d)?;
+    let lost = [(at as u64, at as u64 + 2048)];
+    match (ar::is_intact_twin(&damaged, &orig, &lost), ar::is_intact_twin(&damaged, &copy, &lost)) {
+        (Ok(true), Ok(false)) => {}
+        r => problems.push(format!("an intact twin: {r:?}, expected (true, false)")),
+    }
+    // 3. A PDF whose end (its trailer) was lost gets a new trailer.
+    let pdf = seed("doc.pdf");
+    let mut lost_end = pdf[..pdf.len() * 80 / 100].to_vec();
+    lost_end.extend(std::iter::repeat_n(0u8, pdf.len() - lost_end.len()));
+    match ar::pdf_with_trailer(&lost_end) {
+        Some(x) if String::from_utf8_lossy(&x).contains("/Root") && x.ends_with(b"%%EOF\n") => {}
+        _ => problems.push("a PDF whose end was lost: no new trailer".to_string()),
+    }
+    // 4. A camera RAW's preview is found inside it.
+    let mut raw = b"II*\0\x08\0\0\0CR\x02\0".to_vec();
+    raw.extend(std::iter::repeat_n(0x5Au8, 3000));
+    let start = raw.len();
+    raw.extend_from_slice(photo);
+    raw.extend(std::iter::repeat_n(0x33u8, 500));
+    if ar::embedded_jpegs(&raw).first() != Some(&(start, start + photo.len())) {
+        problems.push("a camera RAW's preview: not found".to_string());
+    }
+    // 5. A WAV whose header says the wrong length is set right.
+    let mut wav = seed("silence.wav").to_vec();
+    if wav.len() > 44 {
+        let wrong = (wav.len() as u32 * 2).to_le_bytes();
+        wav[4..8].copy_from_slice(&wrong);
+        match ar::wav_fixed(&wav) {
+            Some(w) if u32::from_le_bytes([w[4], w[5], w[6], w[7]]) as usize == w.len() - 8 => {}
+            _ => problems.push("a WAV with the wrong length in its header: not set right".to_string()),
+        }
+    }
+    let line = format!(
+        "Automatic repairs (those needing no outside tool): a photo cut short, an intact twin, a PDF's lost end, a RAW's \
+         preview, a WAV's header - {}.",
+        if problems.is_empty() { "all as expected" } else { "NOT all as expected" }
+    );
+    Ok((line, problems))
+}
+
 /// Run every check. Err only when the self-test could not run at all.
 pub fn run_checks(say: &mut dyn FnMut(&str)) -> Result<Findings, String> {
     let dir = std::env::temp_dir().join(format!("automatic-recovery-probe-self-test-{}", std::process::id()));
@@ -379,6 +453,13 @@ pub fn run_checks(say: &mut dyn FnMut(&str)) -> Result<Findings, String> {
             problems.extend(p);
         }
         Err(e) => problems.push(format!("the disk checks could not run: {e}")),
+    }
+    match repair_checks(&dir.join("repairs"), say) {
+        Ok((s, p)) => {
+            summary.push(s);
+            problems.extend(p);
+        }
+        Err(e) => problems.push(format!("the repair checks could not run: {e}")),
     }
     if problems.is_empty() {
         let _ = std::fs::remove_dir_all(&dir);

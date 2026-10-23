@@ -126,6 +126,47 @@ pub struct Options {
     pub videos: bool,
     /// How many tools run at once.
     pub jobs: usize,
+    /// What earlier runs found, file by file (a file of the same size and
+    /// date is not checked again: stopped, the checks carry on where they
+    /// stopped).
+    pub done_list: Option<PathBuf>,
+}
+
+/// One line of the list of files checked: check, size, modified (seconds),
+/// result (F fine, D damaged, L has a password), message, path.
+fn done_line(c: Check, size: u64, mtime: i64, v: &Verdict, path: &str) -> Option<String> {
+    let (code, msg) = match v {
+        Verdict::Fine => ("F", String::new()),
+        Verdict::Damaged(m) => ("D", m.replace(['\t', '\r', '\n'], " ")),
+        Verdict::Locked => ("L", String::new()),
+        Verdict::NotChecked(_) => return None,
+    };
+    Some(format!("{}\t{size}\t{mtime}\t{code}\t{msg}\t{path}\n", c.key()))
+}
+
+fn read_done(p: &Path) -> std::collections::HashMap<(Check, String), (u64, i64, Verdict)> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(text) = std::fs::read_to_string(p) else { return out };
+    for line in text.lines() {
+        let f: Vec<&str> = line.splitn(6, '\t').collect();
+        if f.len() < 6 {
+            continue;
+        }
+        let Some(c) = Check::ALL.iter().copied().find(|c| c.key() == f[0]) else { continue };
+        let (Ok(size), Ok(mtime)) = (f[1].parse::<u64>(), f[2].parse::<i64>()) else { continue };
+        let v = match f[3] {
+            "F" => Verdict::Fine,
+            "D" => Verdict::Damaged(f[4].to_string()),
+            "L" => Verdict::Locked,
+            _ => continue,
+        };
+        out.insert((c, f[5].to_lowercase()), (size, mtime, v));
+    }
+    out
+}
+
+fn mtime_of(m: &std::fs::Metadata) -> i64 {
+    m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 /// A file a tool found something wrong with.
@@ -147,6 +188,11 @@ pub struct Outcome {
     pub not_checked: Vec<(String, String)>,
     /// Checks left out, and why (a tool not found).
     pub left_out: Vec<(Check, String)>,
+    /// A check that called too many files of one kind damaged to believe it
+    /// (the old drive's damage touches few files; a tool that cannot read a
+    /// kind of file well calls them all damaged): (check, extension, flagged,
+    /// checked). Those are not listed as damaged.
+    pub doubtful: Vec<(Check, String, u64, u64)>,
     pub lists: Vec<PathBuf>,
     pub report: Option<PathBuf>,
     pub stopped: bool,
@@ -415,6 +461,9 @@ pub fn run(
     // What to check.
     say(&format!("Looking for files to check in {}...", work.display()));
     let mut tasks: Vec<(Check, PathBuf, u64)> = Vec::new();
+    let earlier = opts.done_list.as_ref().map(|p| read_done(p)).unwrap_or_default();
+    let mut remembered: Vec<(Check, String, Verdict)> = Vec::new();
+    let mut mtimes: std::collections::HashMap<PathBuf, i64> = std::collections::HashMap::new();
     let root = work.display().to_string();
     crate::walk::walk(&root, |dir, dirs, files| {
         dirs.retain(|d| !crate::formats::SYSTEM_DIRS.contains(&d.as_str()));
@@ -427,13 +476,30 @@ pub fn run(
             if wanted.is_empty() {
                 continue;
             }
-            let size = std::fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
+            let Ok(meta) = std::fs::metadata(&full) else { continue };
+            let size = meta.len();
             if size == 0 {
                 continue;
             }
+            let mtime = mtime_of(&meta);
             for c in wanted {
                 if exes.contains_key(&c) {
-                    tasks.push((c, PathBuf::from(&full), size));
+                    // Checked before, as it is now: what was found then stands.
+                    match earlier.get(&(c, full.to_lowercase())) {
+                        Some((s, m, v)) if *s == size && *m == mtime => {
+                            let v = match v {
+                                Verdict::Fine => Verdict::Fine,
+                                Verdict::Damaged(x) => Verdict::Damaged(x.clone()),
+                                Verdict::Locked => Verdict::Locked,
+                                Verdict::NotChecked(x) => Verdict::NotChecked(x.clone()),
+                            };
+                            remembered.push((c, full.clone(), v));
+                        }
+                        _ => {
+                            mtimes.insert(PathBuf::from(&full), mtime);
+                            tasks.push((c, PathBuf::from(&full), size));
+                        }
+                    }
                 }
             }
         }
@@ -444,6 +510,16 @@ pub fn run(
     let total = tasks.len() as u64;
     let bytes: u64 = tasks.iter().map(|t| t.2).sum();
     say(&format!("{} checks to make, over {} of files.", commas(total), crate::fmt::size(bytes)));
+    if !remembered.is_empty() {
+        say(&format!("({} more were made by an earlier run, on the files as they are now: what they found stands.)", commas(remembered.len() as u64)));
+    }
+    let done_file = opts.done_list.as_ref().and_then(|p| {
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+    });
+    let done_file = Mutex::new(done_file);
     for c in Check::ALL {
         let n = tasks.iter().filter(|t| t.0 == c).count() as u64;
         if n > 0 {
@@ -469,6 +545,12 @@ pub fn run(
                 let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
                 let Some((c, path, size)) = next else { break };
                 let v = check_one(c, &exes[&c], &path, size, stop);
+                if let Some(line) = done_line(c, size, mtimes.get(&path).copied().unwrap_or(0), &v, &path.display().to_string()) {
+                    use std::io::Write;
+                    if let Some(f) = done_file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                        let _ = f.write_all(line.as_bytes());
+                    }
+                }
                 if let Verdict::Damaged(m) = &v {
                     lines.lock().unwrap_or_else(|e| e.into_inner()).push(format!("{}: {}  ({m})", c.tool().name(), path.display()));
                 }
@@ -495,7 +577,14 @@ pub fn run(
     }
     o.stopped = stop();
     let mut results = results.into_inner().unwrap_or_else(|e| e.into_inner());
+    results.extend(remembered);
     results.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    let mut checked_by_kind: std::collections::HashMap<(Check, String), u64> = std::collections::HashMap::new();
+    for (c, path, v) in &results {
+        if !matches!(v, Verdict::NotChecked(_)) {
+            *checked_by_kind.entry((*c, ext_of_path(path))).or_default() += 1;
+        }
+    }
     for (c, path, v) in results {
         let e = o.counts.entry(c).or_insert((0, 0));
         match v {
@@ -517,8 +606,44 @@ pub fn run(
         }
     }
     amount(done.load(Ordering::Relaxed), total);
+    set_aside_doubtful(&mut o, &checked_by_kind);
     write_lists(work, &mut o)?;
     Ok(o)
+}
+
+/// At least this many files of one kind flagged, and more than this share of
+/// those checked, and a check's findings for that kind are not believed.
+const DOUBT_AT_LEAST: u64 = 30;
+const DOUBT_SHARE: f64 = 0.3;
+
+/// A path's extension, from its file name only.
+fn ext_of_path(p: &str) -> String {
+    ext_lower(p.rsplit(['\\', '/']).next().unwrap_or(p))
+}
+
+fn set_aside_doubtful(o: &mut Outcome, checked: &std::collections::HashMap<(Check, String), u64>) {
+    let mut flagged: std::collections::HashMap<(Check, String), u64> = std::collections::HashMap::new();
+    for f in &o.findings {
+        *flagged.entry((f.check, ext_of_path(&f.path))).or_default() += 1;
+    }
+    let mut out: Vec<(Check, String)> = Vec::new();
+    for ((c, e), n) in &flagged {
+        let of = checked.get(&(*c, e.clone())).copied().unwrap_or(0);
+        if *n >= DOUBT_AT_LEAST && of > 0 && (*n as f64) > DOUBT_SHARE * of as f64 {
+            o.doubtful.push((*c, e.clone(), *n, of));
+            out.push((*c, e.clone()));
+        }
+    }
+    o.doubtful.sort();
+    if out.is_empty() {
+        return;
+    }
+    o.findings.retain(|f| !out.contains(&(f.check, ext_of_path(&f.path))));
+    for (c, _, n, _) in &o.doubtful {
+        if let Some(x) = o.counts.get_mut(c) {
+            x.1 = x.1.saturating_sub(*n);
+        }
+    }
 }
 
 /// The findings, into REPAIR\damaged-lists: one list per check, added to
@@ -604,6 +729,17 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     for (c, why) in &o.left_out {
         t.push(format!("  {}: not checked - {why}", c.title()));
     }
+    for (c, e, n, of) in &o.doubtful {
+        t.push(format!(
+            "  {}: it reported errors in {} of {} .{e} files - far too many to be damage from the old drive (which touched \
+             few files), so {} most likely cannot read that kind of file fully. They are not listed as damaged (the map \
+             check still names every one the drive damaged).",
+            c.title(),
+            commas(*n),
+            commas(*of),
+            c.tool().name()
+        ));
+    }
     if !o.locked.is_empty() {
         t.push(format!("{} archives or PDFs have a password, so they could not be tested.", commas(o.locked.len() as u64)));
     }
@@ -684,6 +820,51 @@ mod tests {
             v => panic!("{v:?}"),
         }
         assert_eq!(qpdf_verdict(&ran(2, "", "a.pdf: invalid password\n")), Verdict::Locked);
+    }
+
+    #[test]
+    fn a_tool_that_flags_too_many_of_a_kind_is_not_believed() {
+        let mut o = Outcome::default();
+        let mut checked = std::collections::HashMap::new();
+        for i in 0..100 {
+            o.findings.push(Finding { path: format!("p{i}.heic"), check: Check::Photo, message: "error".into() });
+        }
+        for i in 0..3 {
+            o.findings.push(Finding { path: format!("p{i}.jpg"), check: Check::Photo, message: "error".into() });
+        }
+        o.counts.insert(Check::Photo, (1200, 103));
+        checked.insert((Check::Photo, "heic".to_string()), 200u64);
+        checked.insert((Check::Photo, "jpg".to_string()), 1000u64);
+        set_aside_doubtful(&mut o, &checked);
+        assert_eq!(o.findings.len(), 3, "the three JPEGs stay");
+        assert_eq!(o.doubtful, vec![(Check::Photo, "heic".to_string(), 100, 200)]);
+        assert_eq!(o.counts[&Check::Photo], (1200, 3));
+        // A few of a kind, even all of them, are believed.
+        let mut o = Outcome::default();
+        for i in 0..5 {
+            o.findings.push(Finding { path: format!("v{i}.mov"), check: Check::Video, message: "error".into() });
+        }
+        let mut c2 = std::collections::HashMap::new();
+        c2.insert((Check::Video, "mov".to_string()), 5u64);
+        set_aside_doubtful(&mut o, &c2);
+        assert_eq!(o.findings.len(), 5);
+    }
+
+    #[test]
+    fn what_was_checked_is_remembered() {
+        let dir = std::env::temp_dir().join(format!("arp-extra-done-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("done.tsv");
+        let mut t = String::new();
+        t += &done_line(Check::Video, 10, 99, &Verdict::Fine, "E:\\W\\a.mov").unwrap();
+        t += &done_line(Check::Pdf, 20, 98, &Verdict::Damaged("xref\tbroken".into()), "E:\\W\\b.pdf").unwrap();
+        assert!(done_line(Check::Pdf, 1, 1, &Verdict::NotChecked("x".into()), "c").is_none());
+        std::fs::write(&p, t).unwrap();
+        let back = read_done(&p);
+        assert!(matches!(back.get(&(Check::Video, "e:\\w\\a.mov".to_string())), Some((10, 99, Verdict::Fine))));
+        assert!(matches!(back.get(&(Check::Pdf, "e:\\w\\b.pdf".to_string())), Some((20, 98, Verdict::Damaged(m))) if m == "xref broken"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

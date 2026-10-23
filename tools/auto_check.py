@@ -79,6 +79,23 @@ def pdf_bytes(pages=6):
     return bytes(out)
 
 
+def docx_bytes():
+    """A Word document's shape: a zip of many parts, its index (the central
+    directory) at the end, long enough to fill whole sectors of its own."""
+    import io
+    import zipfile
+    rng = random.Random(4)
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        z.writestr("_rels/.rels", '<?xml version="1.0"?><Relationships/>')
+        z.writestr("word/document.xml", "<w:document>" + "<w:p><w:r><w:t>The annual report, paragraph %d.</w:t></w:r></w:p>" * 400 % tuple(range(400)) + "</w:document>")
+        for i in range(30):
+            z.writestr("word/media/a-long-name-for-an-image-number-%02d-in-this-document.png" % i, rng.randbytes(700))
+        z.writestr("docProps/core.xml", "<cp:coreProperties/>")
+    return b.getvalue()
+
+
 def fake_raw(preview):
     """A camera RAW in miniature: a TIFF header, sensor data, and the
     camera's JPEG preview inside."""
@@ -114,7 +131,7 @@ def make_media(d):
     ff("-f", "lavfi", "-i", "sine=f=330:d=8", "-c:a", "flac", p)
     m["track.flac"] = open(p, "rb").read()
     m["report.pdf"] = pdf_bytes()
-    m["report.docx"] = open(os.path.join(ROOT, "tests", "seeds", "report.docx"), "rb").read()
+    m["report.docx"] = docx_bytes()
     m["notes.txt"] = b"Shopping list\r\n" * 300
     return m
 
@@ -171,15 +188,17 @@ def build_disk(work):
     # The PDF's cross-reference table at its end: qpdf rebuilds it.
     pdf = media["report.pdf"]
     lose("Documents\\report.pdf", last_cluster(pdf), (len(pdf) - last_cluster(pdf) + SECTOR - 1) // SECTOR * SECTOR)
-    # The docx's own index (zip central directory) at its end: 7-Zip rebuilds it.
+    # The docx's own index (zip central directory) at its end: 7-Zip rebuilds
+    # it. (From the first whole sector after the index's first bytes on, so
+    # that every part inside is intact, and the index is seen to follow them.)
     dx = media["report.docx"]
-    cd = dx.rfind(b"PK\x01\x02")
     first_cd = dx.find(b"PK\x01\x02")
-    s = first_cd // SECTOR * SECTOR
-    if s // CLUSTER != (len(dx) - 1) // CLUSTER:
-        s = last_cluster(dx)
-    lose("Documents\\report.docx", s, (len(dx) - s + SECTOR - 1) // SECTOR * SECTOR)
-    del cd
+    s = (first_cd + 4 + SECTOR - 1) // SECTOR * SECTOR
+    end = (len(dx) + SECTOR - 1) // SECTOR * SECTOR
+    while s < end:
+        e = min(end, (s // CLUSTER + 1) * CLUSTER)
+        lose("Documents\\report.docx", s, e - s)
+        s = e
     areas.sort()
     img = os.path.join(work, "disk.img")
     disk.save(img)
