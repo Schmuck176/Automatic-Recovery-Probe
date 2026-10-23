@@ -14,6 +14,7 @@
 //! Only Rust's standard library is used: no third-party code runs over the
 //! recovered files.
 
+pub mod aim;
 pub mod autorepair;
 pub mod checklist;
 pub mod checks;
@@ -25,6 +26,7 @@ pub mod extra;
 pub mod formats;
 pub mod gpt;
 pub mod guard;
+pub mod handoff;
 pub mod holes;
 pub mod image;
 pub mod join;
@@ -43,6 +45,7 @@ pub mod verify;
 pub mod walk;
 pub mod web;
 pub mod win;
+pub mod winset;
 
 pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.

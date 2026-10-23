@@ -18,6 +18,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+mod auto;
+mod finalise;
+
 const PAGE: &str = include_str!("ui.html");
 /// The address stays the same from one run to the next where it can.
 /// (Recovery Probe itself uses 47115, so both can run.)
@@ -154,6 +157,8 @@ struct App {
     last: HashMap<String, Job>,
     next_id: u64,
     test_disks: Vec<String>,
+    /// Start's stages (auto.rs).
+    auto: auto::State,
 }
 
 fn lock(app: &Arc<Mutex<App>>) -> MutexGuard<'_, App> {
@@ -258,6 +263,26 @@ impl App {
     fn setting(&self, k: &str) -> String {
         self.settings.get(k).cloned().unwrap_or_default()
     }
+}
+
+/// A step's work, checked and ready to run (as a job of its own, or as one
+/// stage of Start: auto.rs).
+type Work = Box<dyn FnOnce(&Ctx) -> Result<Outcome, String> + Send + 'static>;
+
+/// A step ready to run: what kind of step, its title, and its work.
+struct Prepared {
+    pub kind: &'static str,
+    pub title: &'static str,
+    pub work: Work,
+}
+
+fn prepared(kind: &'static str, title: &'static str, work: impl FnOnce(&Ctx) -> Result<Outcome, String> + Send + 'static) -> Prepared {
+    Prepared { kind, title, work: Box::new(work) }
+}
+
+fn start_prepared(app: &Arc<Mutex<App>>, p: Result<Prepared, String>) -> Result<u64, String> {
+    let p = p?;
+    start_job(app, p.kind, p.title, p.work)
 }
 
 /// Start a job unless one is running.
@@ -610,8 +635,10 @@ pub fn serve(cfg: Config) -> i32 {
         last: HashMap::new(),
         next_id: 0,
         test_disks: cfg.test_disks.clone(),
+        auto: auto::State::new(),
     };
     app.load();
+    auto::load(&mut app);
     MAP_SIZE.store(mapfile_domain(&app.setting("mapfile")).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
     // A job that was running when the program was closed did not finish.
     for j in app.last.values_mut() {
@@ -684,6 +711,8 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
         ("GET", "api/find-mapfiles") => (200, "application/json", find_mapfiles_json(app)),
         ("GET", "api/checklist") => (200, "application/json", checklist_page().to_string()),
         ("GET", "api/checklist-state") => (200, "application/json", checklist_sync(app)),
+        ("GET", "api/tools") => (200, "application/json", crate::tools::status_json(&lock(app).home.clone())),
+        ("GET", "api/ready") => (200, "application/json", ready_json(app)),
         ("POST", "api/do") => {
             let form = parse_form(&String::from_utf8_lossy(&req.body));
             (200, "application/json", act(app, &form))
@@ -721,6 +750,7 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .raw("policy_to_restore", &restore)
         .raw("job", &a.job.as_ref().map(|j| j.json(60)).unwrap_or_else(|| "null".to_string()))
         .raw("last", &last.end())
+        .raw("auto", &auto::state_json(&a))
         .end()
 }
 
@@ -1101,6 +1131,39 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             let kb: u64 = g("hole_kb").parse().unwrap_or(crate::formats::DEFAULT_HOLE_KB);
             start_scan(app, &g("folder"), on("holes"), kb, &g("join")).map(|id| format!("\"job\":{id}"))
         }
+        "auto-start" => auto::start(app).map(|id| format!("\"job\":{id}")),
+        "auto-start-over" => auto::start_over(app).map(|_| String::new()),
+        "auto-rehearse" => disk_number("disk").and_then(|n| auto::rehearse(app, n)),
+        "bring-back" => auto::start_bring_back(app, &g("from")).map(|id| format!("\"job\":{id}")),
+        "tool-download" => start_tool_download(app, &g("tool")).map(|id| format!("\"job\":{id}")),
+        "finalise" => finalise::start(app).map(|id| format!("\"job\":{id}")),
+        "crash-restart-off" => need_admin(app)
+            .and_then(|_| {
+                if crate::winset::restarts_after_crash() == Some(true) {
+                    crate::winset::set_restarts_after_crash(false)?;
+                    let mut a = lock(app);
+                    a.settings.insert("crash_restart_changed".to_string(), "1".to_string());
+                    a.save();
+                }
+                Ok(())
+            })
+            .map(|_| format!("\"message\":{}", json_str("Windows no longer restarts by itself after a crash: it stops at the blue screen instead (Finalise puts this back)."))),
+        "defender-exclude" => need_admin(app).and_then(|_| {
+            let folder = g("folder");
+            if folder.trim().is_empty() {
+                return Err("which folder?".to_string());
+            }
+            crate::winset::set_defender_exclusion(Path::new(folder.trim()), true)?;
+            let mut a = lock(app);
+            let mut list: Vec<String> = a.setting("defender_added").lines().map(|s| s.to_string()).collect();
+            if !list.iter().any(|l| l.eq_ignore_ascii_case(folder.trim())) {
+                list.push(folder.trim().to_string());
+            }
+            a.settings.insert("defender_added".to_string(), list.join("\n"));
+            a.save();
+            Ok(format!("\"message\":{}", json_str(&format!("Defender now leaves {} alone (Finalise takes this off again).", folder.trim()))))
+        }),
+        "aim-install" => need_admin(app).and_then(|_| aim_install(app)).map(|m| format!("\"message\":{}", json_str(&m))),
         other => Err(format!("unknown action {other:?}")),
     };
     match r {
@@ -1204,6 +1267,10 @@ fn check_disk(app: &Arc<Mutex<App>>, spec: &str) -> Result<(), String> {
 }
 
 fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) -> Result<u64, String> {
+    start_prepared(app, prepare_map_check(app, map, earlier, disk))
+}
+
+fn prepare_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) -> Result<Prepared, String> {
     check_disk(app, disk)?;
     if map.is_empty() {
         return Err("Choose the mapfile first (step 2).".to_string());
@@ -1219,7 +1286,7 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
     let app2 = app.clone();
     let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
     let removable = is_removable(disk);
-    start_job(app, "mapcheck", "Finding what the damage touched", move |ctx| {
+    Ok(prepared("mapcheck", "Finding what the damage touched", move |ctx| {
         hold_new_disks_off(ctx, guard);
         if removable {
             ctx.line(REMOVABLE_NOTE);
@@ -1238,10 +1305,14 @@ fn start_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str) 
             data: crate::mapcheck::page_json(&report),
             ..Default::default()
         })
-    })
+    }))
 }
 
 fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, lost: bool) -> Result<u64, String> {
+    start_prepared(app, prepare_rescue(app, disk, out, everything, lost))
+}
+
+fn prepare_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, lost: bool) -> Result<Prepared, String> {
     check_disk(app, disk)?;
     if out.trim().is_empty() {
         return Err("Choose where the copies go first.".to_string());
@@ -1252,7 +1323,7 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
     let removable = is_removable(disk);
     let map_check = lock(app).setting("last_map_check");
     let results = lock(app).results.clone();
-    start_job(app, "rescue", "Copying everything off the recovered SSD", move |ctx| {
+    Ok(prepared("rescue", "Copying everything off the recovered SSD", move |ctx| {
         hold_new_disks_off(ctx, guard);
         if removable {
             ctx.line(REMOVABLE_NOTE);
@@ -1367,6 +1438,109 @@ fn start_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool, 
             None
         };
         Ok(Outcome { summary, outputs: vec![opts_out.clone(), o.log.clone()], data, stopped: o.stopped, problem })
+    }))
+}
+
+// ---------------------------------------------------------------- getting ready
+
+/// What Get ready shows: the checks of this PC, the tools, the folders it suggests.
+fn ready_json(app: &Arc<Mutex<App>>) -> String {
+    let (home, elevated, map, image_dir, work, copy2) = {
+        let a = lock(app);
+        (
+            a.home.clone(),
+            a.elevated,
+            a.setting("mapfile"),
+            a.setting("auto_image_dir"),
+            a.setting("auto_work"),
+            a.setting("auto_copy2"),
+        )
+    };
+    let restart = crate::winset::restart_pending();
+    let crash = crate::winset::restarts_after_crash();
+    let aim_driver = crate::winset::aim_driver_installed();
+    let aim_setup = find_aim_setup(&home);
+    // Folders to suggest: the biggest NTFS drive that is not Windows' own
+    // disk's system drive... in practice the PC's second drive, for the image
+    // and the second copy; a drive labelled SPARE for the copies.
+    let drives = crate::win::drives();
+    let windows_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string()).to_uppercase();
+    let fixed: Vec<&crate::win::Drive> = drives.iter().filter(|d| d.kind == "fixed" && d.fs.eq_ignore_ascii_case("NTFS")).collect();
+    let image_drive = fixed
+        .iter()
+        .filter(|d| !d.letter.eq_ignore_ascii_case(&windows_drive) && !d.label.eq_ignore_ascii_case("SPARE"))
+        .max_by_key(|d| d.free)
+        .or_else(|| fixed.iter().filter(|d| !d.label.eq_ignore_ascii_case("SPARE")).max_by_key(|d| d.free))
+        .map(|d| d.letter.clone());
+    let spare = drives.iter().find(|d| d.label.eq_ignore_ascii_case("SPARE")).map(|d| d.letter.clone());
+    let sug = |l: &Option<String>, f: &str| l.as_ref().map(|l| format!("{l}\\{f}")).unwrap_or_default();
+    Obj::new()
+        .b("elevated", elevated)
+        .b("windows", cfg!(windows))
+        .s("mapfile", &map)
+        .raw("restart_pending", opt_bool(restart))
+        .raw("restarts_after_crash", opt_bool(crash))
+        .raw("aim_driver", opt_bool(aim_driver))
+        .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
+        .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
+        .raw("tools", &crate::tools::status_json(&home))
+        .s("image_dir", &image_dir)
+        .s("work", &work)
+        .s("copy2", &copy2)
+        .s("suggest_image_dir", &sug(&image_drive, "IMAGE"))
+        .s("suggest_work", &sug(&spare, "WORK"))
+        .s("suggest_copy2", &sug(&image_drive, "COPY 2"))
+        .end()
+}
+
+/// AIM Toolkit's installer (install.bat), where the person keeps it.
+fn find_aim_setup(home: &Path) -> Option<PathBuf> {
+    fn look(dir: &Path, depth: u32) -> Option<PathBuf> {
+        let rd = std::fs::read_dir(dir).ok()?;
+        let mut sub = Vec::new();
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if p.is_file() && name == "install.bat" && p.parent().is_some_and(|d| d.join("files.cab").is_file()) {
+                return Some(p);
+            }
+            if p.is_dir() && depth > 0 && name != "results" {
+                sub.push(p);
+            }
+        }
+        sub.into_iter().find_map(|d| look(&d, depth - 1))
+    }
+    look(home, 4)
+}
+
+/// Run AIM Toolkit's installer (it shows its own window; Windows asks about
+/// the driver).
+fn aim_install(app: &Arc<Mutex<App>>) -> Result<String, String> {
+    let home = lock(app).home.clone();
+    let bat = find_aim_setup(&home).ok_or_else(|| {
+        "AIM Toolkit's installer (install.bat, beside files.cab) was not found in the program's folder. Download AIMtk.zip from \
+         sourceforge.net/projects/aim-toolkit and unzip it into C:\\RECOVERY-TOOLS\\installed files."
+            .to_string()
+    })?;
+    let dir = bat.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    std::process::Command::new(crate::win::system_program("cmd.exe"))
+        .arg("/c")
+        .arg(&bat)
+        .current_dir(&dir)
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", bat.display()))?;
+    crate::tools::forget();
+    Ok("AIM Toolkit's installer is starting in its own window: click Install there, and Yes if Windows asks about the \
+        Arsenal Image Mounter driver. Then click Check again."
+        .to_string())
+}
+
+fn start_tool_download(app: &Arc<Mutex<App>>, key: &str) -> Result<u64, String> {
+    let tool = crate::tools::Tool::from_key(key).ok_or_else(|| format!("which tool? ({key})"))?;
+    let home = lock(app).home.clone();
+    start_job(app, "download", "Downloading a tool", move |ctx| {
+        let exe = crate::tools::download(tool, &home, &mut |s| ctx.line(s), &|| ctx.stopping())?;
+        Ok(Outcome { summary: vec![format!("{} is ready: {}", tool.name(), exe.display())], ..Default::default() })
     })
 }
 
@@ -1512,6 +1686,10 @@ fn drive_of(path: &str) -> Option<crate::win::Drive> {
 /// Reads the image back against the checksum saved beside it (no SSD
 /// needed), and adds the result to the list of every check.
 fn start_check_image(app: &Arc<Mutex<App>>) -> Result<u64, String> {
+    start_prepared(app, prepare_check_image(app))
+}
+
+fn prepare_check_image(app: &Arc<Mutex<App>>) -> Result<Prepared, String> {
     let image = lock(app).setting("image");
     if image.is_empty() {
         return Err("There is no image to check yet: step 4 makes it.".to_string());
@@ -1520,7 +1698,7 @@ fn start_check_image(app: &Arc<Mutex<App>>) -> Result<u64, String> {
         return Err(format!("{image} is not there: is the drive it is on plugged in?"));
     }
     let results = lock(app).results.clone();
-    start_job(app, "imagecheck", "Checking the image is unchanged", move |ctx| {
+    Ok(prepared("imagecheck", "Checking the image is unchanged", move |ctx| {
         let o = crate::image::check_existing(Path::new(&image), &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &|| ctx.stopping())?;
         let mut summary = Vec::new();
         if o.stopped {
@@ -1563,10 +1741,14 @@ fn start_check_image(app: &Arc<Mutex<App>>) -> Result<u64, String> {
             stopped: o.stopped,
             problem: (!o.stopped && !o.verified).then(|| "the image does not match its checksum".to_string()),
         })
-    })
+    }))
 }
 
 fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, String> {
+    start_prepared(app, prepare_image(app, disk, out))
+}
+
+fn prepare_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<Prepared, String> {
     check_disk(app, disk)?;
     if out.trim().is_empty() {
         return Err("Choose where the image goes first.".to_string());
@@ -1592,7 +1774,7 @@ fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, Stri
     let app2 = app.clone();
     let disk = disk.to_string();
     let out = out.to_string();
-    start_job(app, "image", "Making an image of the recovered SSD", move |ctx| {
+    Ok(prepared("image", "Making an image of the recovered SSD", move |ctx| {
         hold_new_disks_off(ctx, guard);
         if removable {
             ctx.line(REMOVABLE_NOTE);
@@ -1630,7 +1812,7 @@ fn start_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<u64, Stri
             stopped: o.stopped,
             problem: (!o.stopped && !o.verified).then(|| "the image does not read back the same as it was written".to_string()),
         })
-    })
+    }))
 }
 
 /// The latest check of the copies (step 7) of this folder: its results CSV.
@@ -1647,6 +1829,10 @@ fn scan_csv_for(app: &Arc<Mutex<App>>, folder: &str) -> Option<PathBuf> {
 /// Step 8: copy the damaged files out, put the repaired ones back (or undo
 /// one), evaluate.
 fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) -> Result<u64, String> {
+    start_prepared(app, prepare_repair_step(app, step, folder, id))
+}
+
+fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) -> Result<Prepared, String> {
     let work = PathBuf::from(folder.trim());
     if folder.trim().is_empty() || !work.is_dir() {
         return Err("Choose the folder the copies went into first (step 7's folder).".to_string());
@@ -1691,7 +1877,7 @@ fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) 
         _ => ("evaluate", "Evaluating what is damaged"),
     };
     let step = step.to_string();
-    start_job(app, kind, title, move |ctx| {
+    Ok(prepared(kind, title, move |ctx| {
         let stop = || ctx.stopping();
         let repair_s = repair.display().to_string();
         match step.as_str() {
@@ -1788,10 +1974,14 @@ fn start_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str) 
                 })
             }
         }
-    })
+    }))
 }
 
 fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
+    start_prepared(app, prepare_verify(app, folder))
+}
+
+fn prepare_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<Prepared, String> {
     let dir = Path::new(folder.trim());
     if folder.trim().is_empty() || !dir.is_dir() {
         return Err(format!("Choose the folder the copies went into first ({folder:?} is not one)."));
@@ -1807,7 +1997,7 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
     let dir = dir.to_path_buf();
     let map_check = lock(app).setting("last_map_check");
     let results = lock(app).results.clone();
-    start_job(app, "verify", "Checking the copies are unchanged", move |ctx| {
+    Ok(prepared("verify", "Checking the copies are unchanged", move |ctx| {
         // The check counts from when it started: a box ticked while it ran
         // may stand for something it did not see (the checkpoints, checklist.rs).
         let started = crate::fmt::when_now();
@@ -1853,19 +2043,23 @@ fn start_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<u64, String> {
             stopped: r.stopped,
             problem,
         })
-    })
+    }))
 }
 
 fn start_scan(app: &Arc<Mutex<App>>, folder: &str, holes: bool, hole_kb: u64, join_dir: &str) -> Result<u64, String> {
+    start_prepared(app, prepare_scan(app, folder, holes, hole_kb, join_dir))
+}
+
+fn prepare_scan(app: &Arc<Mutex<App>>, folder: &str, holes: bool, hole_kb: u64, join_dir: &str) -> Result<Prepared, String> {
     if folder.trim().is_empty() || !Path::new(folder).is_dir() {
         return Err(format!("Choose a folder to check first ({folder:?} is not one)."));
     }
     let out = fresh(&lock(app).results, &format!("scan-{}", stamp()), ".csv").display().to_string();
     let folder = folder.to_string();
     let join_dir = join_dir.to_string();
-    start_job(app, "scan", "Checking every copied file", move |ctx| {
+    Ok(prepared("scan", "Checking every copied file", move |ctx| {
         scan_job(ctx, &folder, holes, hole_kb.max(1) * 1024, &join_dir, &out)
-    })
+    }))
 }
 
 fn count_files(root: &str, stop: &AtomicBool) -> u64 {

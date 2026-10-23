@@ -144,6 +144,11 @@ impl Outcome {
 
 // ---------------------------------------------------------------- small helpers
 
+/// A camera RAW, by its extension (without the dot).
+fn is_raw(ext: &str) -> bool {
+    crate::formats::is_raw_ext(&format!(".{}", ext.to_lowercase()))
+}
+
 fn ext_lower(name: &str) -> String {
     match name.rsplit_once('.') {
         Some((stem, e)) if !stem.is_empty() => e.to_lowercase(),
@@ -1236,7 +1241,7 @@ fn try_item(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
     if ARCHIVES.contains(&e) {
         return salvage_archive(env, src, tmp);
     }
-    if crate::formats::is_raw_ext(e) {
+    if is_raw(e) {
         if let Some(t) = salvage_preview(src, tmp, 64 * 1024, "the largest preview the camera saved inside it") {
             if let Try::Made { file, how, tool, .. } = t {
                 return Try::Made {
@@ -1523,7 +1528,7 @@ pub fn run(
                                     a.note = note;
                                     a.next = if salvage {
                                         match ext_lower(&copy_name).as_str() {
-                                            e if crate::formats::is_raw_ext(e) => Next::Mac,
+                                            e if is_raw(e) => Next::Mac,
                                             e if ZIP_LIKE.contains(&e) && !matches!(e, "zip" | "jar") => Next::OwnApp,
                                             "jpg" | "jpeg" | "jpe" | "jfif" => Next::Paid,
                                             _ => Next::Nothing,
