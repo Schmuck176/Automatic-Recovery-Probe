@@ -149,6 +149,15 @@ jobs:
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
           exit $status
+      - name: Get ready's qpdf download, for real
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set +e -o pipefail
+          python tools/download_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/dl" 2>&1 | tee "$RUNNER_TEMP/report/86-download.txt"
+          status=$?
+          echo "::notice title=Download::$(tail -n 1 "$RUNNER_TEMP/report/86-download.txt")"
+          exit $status
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |

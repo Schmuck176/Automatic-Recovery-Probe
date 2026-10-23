@@ -221,8 +221,8 @@ class Program:
         s.close()
         self.key = "k" * 32
         self.out = open(os.path.join(home, "server-output.txt"), "w")
-        self.p = subprocess.Popen([exe, "ui", "--port", str(self.port), "--token", self.key, "--no-browser", "--home", home,
-                                   "--test-disk", disk], stdout=self.out, stderr=subprocess.STDOUT)
+        self.p = subprocess.Popen([exe, "ui", "--port", str(self.port), "--token", self.key, "--no-browser", "--home", home]
+                                  + (["--test-disk", disk] if disk else []), stdout=self.out, stderr=subprocess.STDOUT)
         self.base = "http://127.0.0.1:%d/%s/" % (self.port, self.key)
         for _ in range(100):
             try:
