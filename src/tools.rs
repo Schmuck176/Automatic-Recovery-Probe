@@ -301,7 +301,14 @@ fn version_line(tool: Tool, text: &str) -> String {
         Tool::Ffmpeg => lines.iter().find(|l| l.starts_with("ffmpeg version")),
         Tool::Ffprobe => lines.iter().find(|l| l.starts_with("ffprobe version")),
         Tool::Mp3val => lines.iter().find(|l| l.to_lowercase().contains("version")),
-        Tool::Qpdf => lines.iter().find(|l| l.starts_with("qpdf version")),
+        // qpdf names itself as it was started, on Windows with its whole
+        // path ("C:\\...\\bin\\qpdf version 12.3.2"): from its name on.
+        Tool::Qpdf => {
+            if let Some(l) = lines.iter().find_map(|l| l.find("qpdf version").map(|i| &l[i..])) {
+                return l.chars().take(120).collect();
+            }
+            None
+        }
         Tool::Untrunc | Tool::AimCli => lines.first(),
     };
     pick.or(lines.first()).map(|l| l.chars().take(120).collect()).unwrap_or_default()
@@ -629,6 +636,10 @@ mod tests {
     #[test]
     fn version_lines_are_picked() {
         assert_eq!(version_line(Tool::Qpdf, "qpdf version 12.3.2\nRun qpdf --copyright"), "qpdf version 12.3.2");
+        assert_eq!(
+            version_line(Tool::Qpdf, "C:\\RECOVERY-TOOLS\\tools\\qpdf-12.3.2\\qpdf-12.3.2-msvc64\\bin\\qpdf version 12.3.2\nRun"),
+            "qpdf version 12.3.2"
+        );
         assert_eq!(
             version_line(Tool::SevenZip, "\n7-Zip 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov\n\nUsage: 7z"),
             "7-Zip 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov"

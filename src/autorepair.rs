@@ -973,8 +973,44 @@ fn fix_wav(env: &Env, src: &Path, tmp: &Path) -> Try {
     }
 }
 
-fn qpdf_check(qpdf: &Path, p: &Path, stop: &dyn Fn() -> bool) -> Option<i32> {
-    run_tool(qpdf, vec!["--check".into(), p.as_os_str().to_os_string()], None, 600, stop).and_then(|r| r.code)
+/// qpdf --check: its exit code (0 clean, 3 warnings only, 2 errors) and the
+/// first thing it says is wrong.
+fn qpdf_check(qpdf: &Path, p: &Path, stop: &dyn Fn() -> bool) -> (Option<i32>, String) {
+    match run_tool(qpdf, vec!["--check".into(), p.as_os_str().to_os_string()], None, 600, stop) {
+        Some(r) => (r.code, qpdf_first_problem(&r.text())),
+        None => (None, String::new()),
+    }
+}
+
+/// The first line qpdf gives about a problem, without the file's name.
+fn qpdf_first_problem(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("WARNING:") || (l.starts_with("qpdf:") && !l.contains("operation succeeded")))
+        .map(|l| {
+            let l = l.trim_start_matches("WARNING:").trim_start_matches("qpdf:").trim();
+            // "input.pdf (object 14 0, offset 8723): expected endstream" -> "object 14 0, offset 8723: expected endstream"
+            let l = match l.split_once(": ") {
+                Some((head, rest)) if head.ends_with(".pdf") => rest.to_string(),
+                Some((head, rest)) if head.contains(".pdf (") => {
+                    format!("{}: {rest}", head.split_once(" (").map(|(_, w)| w.trim_end_matches(')')).unwrap_or(head))
+                }
+                _ => l.to_string(),
+            };
+            l.chars().take(160).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether a PDF's end, with its trailer (which says where the document
+/// starts), was lost: no "startxref" left near its end.
+fn pdf_trailer_lost(d: &[u8]) -> bool {
+    let mut end = d.len();
+    while end > 0 && d[end - 1] == 0 {
+        end -= 1;
+    }
+    let tail = &d[end.saturating_sub(4096)..end];
+    !tail.windows(9).any(|w| w == b"startxref")
 }
 
 /// A PDF whose end (its trailer, which says where the document starts) was
@@ -1019,43 +1055,81 @@ fn fix_pdf(env: &Env, src: &Path, tmp: &Path) -> Try {
     let Some(qpdf) = env.qpdf.as_ref() else {
         return no("qpdf (which rebuilds PDFs) was not found on this PC", Next::Paid);
     };
-    let before = qpdf_check(qpdf, src, env.stop);
-    let out = tmp.join("repaired.pdf");
-    let mut r = run_tool(qpdf, vec![src.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop);
-    let mut with_trailer = false;
-    if !r.as_ref().is_some_and(|r| matches!(r.code, Some(0) | Some(3))) {
-        // Its trailer lost too: one made again, pointing at its catalogue.
-        if let Some(patched) = std::fs::read(src).ok().and_then(|d| pdf_with_trailer(&d)) {
+    let (before, _) = qpdf_check(qpdf, src, env.stop);
+    // qpdf makes the table of where everything is again, from the objects in
+    // the file. Where the file's end was lost with its trailer, it is also
+    // tried with a new trailer pointing at its catalogue: older qpdf versions
+    // can't rebuild such a file without one, and newer ones rebuild it with a
+    // trailer short of its /Size, so it still doesn't check out.
+    struct Made {
+        file: PathBuf,
+        after: Option<i32>,
+        problem: String,
+        with_trailer: bool,
+    }
+    // Ok(what it made), or Err(why it could not).
+    let rebuild = |input: &Path, name: &str, with_trailer: bool| -> Result<Made, String> {
+        let out = tmp.join(name);
+        let _ = std::fs::remove_file(&out);
+        match run_tool(qpdf, vec![input.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop) {
+            Some(r) if matches!(r.code, Some(0) | Some(3)) && out.is_file() => {
+                let (after, problem) = qpdf_check(qpdf, &out, env.stop);
+                Ok(Made { file: out, after, problem, with_trailer })
+            }
+            Some(r) => Err(qpdf_first_problem(&r.text())),
+            None => Err(String::new()),
+        }
+    };
+    let mut made: Vec<Made> = Vec::new();
+    let mut failed = String::new();
+    match rebuild(src, "repaired.pdf", false) {
+        Ok(m) => made.push(m),
+        Err(e) => failed = e,
+    }
+    if !made.iter().any(|m| m.after == Some(0)) {
+        if let Some(patched) = std::fs::read(src).ok().filter(|d| pdf_trailer_lost(d)).and_then(|d| pdf_with_trailer(&d)) {
             let p = tmp.join("with-trailer.pdf");
             if std::fs::write(&p, patched).is_ok() {
-                let _ = std::fs::remove_file(&out);
-                r = run_tool(qpdf, vec![p.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop);
-                with_trailer = true;
+                match rebuild(&p, "repaired-with-trailer.pdf", true) {
+                    Ok(m) => made.push(m),
+                    Err(e) => {
+                        if failed.is_empty() {
+                            failed = e;
+                        }
+                    }
+                }
             }
         }
     }
-    let made = r.as_ref().is_some_and(|r| matches!(r.code, Some(0) | Some(3))) && out.is_file();
-    if !made {
+    // The best: one qpdf finds nothing wrong with; else one with warnings
+    // only, where the damaged copy had errors.
+    let best = made
+        .iter()
+        .position(|m| m.after == Some(0))
+        .or_else(|| made.iter().position(|m| m.after == Some(3) && before == Some(2)));
+    let Some(best) = best else {
+        if made.is_empty() {
+            return no(
+                format!("qpdf could not rebuild it{}", if failed.is_empty() { String::new() } else { format!(": {failed}") }),
+                Next::Paid,
+            );
+        }
+        let still = made.iter().map(|m| m.problem.as_str()).find(|p| !p.is_empty()).unwrap_or("");
         return no(
             format!(
-                "qpdf could not rebuild it{}",
-                r.map(|r| format!(": {}", r.text().lines().next().unwrap_or(""))).unwrap_or_default()
+                "qpdf rebuilt it, but the rebuilt PDF does not check out better{}",
+                if still.is_empty() { String::new() } else { format!(" (qpdf still finds: {still})") }
             ),
             Next::Paid,
         );
-    }
-    let after = qpdf_check(qpdf, &out, env.stop);
-    let better = match (before, after) {
-        (_, Some(0)) => true,
-        (Some(2), Some(3)) => true,
-        _ => false,
     };
-    if !better || probe_ok(&out).is_err() {
-        return no("qpdf rebuilt it, but the rebuilt PDF does not check out better", Next::Paid);
+    let m = made.swap_remove(best);
+    if let Err(e) = probe_ok(&m.file) {
+        return no(format!("qpdf rebuilt it, but the rebuilt PDF does not check out ({e})"), Next::Paid);
     }
     Try::Made {
-        file: out,
-        how: if with_trailer {
+        file: m.file,
+        how: if m.with_trailer {
             "rebuilt by qpdf: its end (the trailer and the table of where everything is) was lost, so a new trailer was \
              written pointing at its catalogue, and qpdf made the table again from what is in the file; anything that was in \
              the lost part (often the last page's text) is missing"
@@ -1067,7 +1141,11 @@ fn fix_pdf(env: &Env, src: &Path, tmp: &Path) -> Try {
         },
         tool: tools::version(Tool::Qpdf, qpdf),
         salvage: false,
-        note: if after == Some(0) { "qpdf --check finds no errors".to_string() } else { "qpdf --check finds warnings only".to_string() },
+        note: if m.after == Some(0) {
+            "qpdf --check finds no errors".to_string()
+        } else {
+            format!("qpdf --check finds warnings only: {}", m.problem)
+        },
     }
 }
 
@@ -2072,5 +2150,29 @@ mod tests {
                    Sub items Errors: 2\n\nArchives with Errors: 1\n\nOpen Errors: 1\n";
         assert_eq!(sevenzip_failed(out), vec!["word\\document.xml".to_string(), "word\\media\\image1.png".to_string()]);
         assert!(sevenzip_failed("ERRORS:\nHeaders Error\nUnexpected end of archive\n\nOpen Errors: 1\n").is_empty());
+    }
+
+    #[test]
+    fn qpdfs_answers_are_read() {
+        let damaged = "WARNING: input.pdf: file is damaged\nWARNING: input.pdf: can't find startxref\n\
+                       WARNING: input.pdf (object 14 0, offset 8723): expected endstream\n\
+                       qpdf: input.pdf: unable to find trailer dictionary while recovering damaged file\n";
+        assert_eq!(qpdf_first_problem(damaged), "file is damaged");
+        assert_eq!(
+            qpdf_first_problem("WARNING: C:\\R\\out put.pdf (trailer, offset 2269): trailer dictionary lacks /Size key\n"),
+            "trailer, offset 2269: trailer dictionary lacks /Size key"
+        );
+        assert_eq!(qpdf_first_problem("qpdf: x.pdf: unable to find trailer dictionary while recovering damaged file\n"),
+                   "unable to find trailer dictionary while recovering damaged file");
+        assert_eq!(qpdf_first_problem("checking a.pdf\nPDF Version: 1.4\nqpdf: operation succeeded with warnings\n"), "");
+        let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".to_vec();
+        assert!(pdf_trailer_lost(&pdf));
+        pdf.extend_from_slice(b"xref\n0 1\ntrailer\n<< /Root 1 0 R >>\nstartxref\n42\n%%EOF\n");
+        assert!(!pdf_trailer_lost(&pdf));
+        pdf.extend(std::iter::repeat(0).take(5000));
+        assert!(!pdf_trailer_lost(&pdf), "zeros after the end are not the end");
+        let mut cut = pdf[..40].to_vec();
+        cut.extend(std::iter::repeat(0).take(600));
+        assert!(pdf_trailer_lost(&cut));
     }
 }

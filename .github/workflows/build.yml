@@ -129,6 +129,17 @@ jobs:
             echo "untrunc: $(find "$dl" -iname untrunc.exe | head -1)"
             echo "mp3val: $(find "$dl" -iname mp3val.exe | head -1)"
           } 2>&1 | tee "$RUNNER_TEMP/report/80-tools.txt"
+      - name: Get ready's qpdf download, for real (the tests below then use it, as the PC will)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set +e -o pipefail
+          python tools/download_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/dl" 2>&1 | tee "$RUNNER_TEMP/report/81-download.txt"
+          status=$?
+          q=$(find "$RUNNER_TEMP/dl/home/tools" -iname qpdf.exe 2>/dev/null | head -1)
+          if [ -n "$q" ]; then cygpath -w "$(dirname "$q")" >> "$GITHUB_PATH"; fi
+          echo "::notice title=Download::$(tail -n 1 "$RUNNER_TEMP/report/81-download.txt")"
+          exit $status
       - name: Start, the whole automatic recovery, on a damaged test disk of real media
         if: ${{ !cancelled() }}
         timeout-minutes: 20
@@ -137,6 +148,7 @@ jobs:
           python tools/auto_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/ac" 2>&1 | tee "$RUNNER_TEMP/report/82-automatic.txt"
           status=$?
           cp "$RUNNER_TEMP/ac/home/server-output.txt" "$RUNNER_TEMP/report/82-automatic-server-output.txt" 2>/dev/null || true
+          cp "$RUNNER_TEMP/ac/auto-repair-log.txt" "$RUNNER_TEMP/report/83-auto-repair-log.txt" 2>/dev/null || true
           echo "::notice title=Automatic::$(tail -n 1 "$RUNNER_TEMP/report/82-automatic.txt")"
           exit $status
       - name: The Automatic tab, in a real browser
@@ -148,15 +160,6 @@ jobs:
           status=$?
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
-          exit $status
-      - name: Get ready's qpdf download, for real
-        if: ${{ !cancelled() }}
-        timeout-minutes: 15
-        run: |
-          set +e -o pipefail
-          python tools/download_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/dl" 2>&1 | tee "$RUNNER_TEMP/report/86-download.txt"
-          status=$?
-          echo "::notice title=Download::$(tail -n 1 "$RUNNER_TEMP/report/86-download.txt")"
           exit $status
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
@@ -242,9 +245,12 @@ jobs:
       - name: Start, the whole automatic recovery, on a damaged test disk of real media
         if: ${{ !cancelled() }}
         run: |
-          set -o pipefail
+          set +e -o pipefail
           python3 tools/auto_check.py target/release/automatic-recovery-probe "$RUNNER_TEMP/ac" 2>&1 | tee "$RUNNER_TEMP/report/82-automatic.txt"
+          status=$?
+          cp "$RUNNER_TEMP/ac/auto-repair-log.txt" "$RUNNER_TEMP/report/83-auto-repair-log.txt" 2>/dev/null || true
           echo "::notice title=Automatic (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/82-automatic.txt")"
+          exit $status
       - name: The Automatic tab, in a real browser
         if: ${{ !cancelled() }}
         run: |

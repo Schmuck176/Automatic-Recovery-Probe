@@ -316,6 +316,12 @@ def main():
         log = {r["path_in_work"].replace("\\", "/"): r for r in read_csv(os.path.join(repair, "auto-repair-log.csv"))}
         for k, r in log.items():
             print("  %-26s %-13s %s" % (k, r["result"], r["how"][:110]))
+        # Every attempt in full, with the tool and its version (what the
+        # report needs when an expectation below is not met).
+        with open(os.path.join(work, "auto-repair-log.txt"), "w", encoding="utf-8") as f:
+            for k, r in log.items():
+                f.write("%s\n  %s | %s\n  %s\n  tool: %s | next: %s | note: %s\n\n"
+                        % (k, r["id"], r["result"], r["how"], r["tool"], r["next"], r["note"]))
 
         def fate(path):
             return log.get(path, {}).get("result", "(not tried)")
