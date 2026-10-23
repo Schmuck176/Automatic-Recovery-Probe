@@ -358,6 +358,13 @@ pub fn is_intact_twin(damaged: &Path, cand: &Path, lost: &[(u64, u64)]) -> std::
     if std::fs::metadata(cand)?.len() != size || lost.is_empty() {
         return Ok(false);
     }
+    // Enough of the file must have been read to tell it from any other file
+    // of the same size: at least 16 KB and half of it, and not just zeros.
+    let parts = read_parts(size, lost);
+    let read: u64 = parts.iter().map(|(s, e)| e - s).sum();
+    if read < 16 * 1024 || read * 2 < size {
+        return Ok(false);
+    }
     let mut a = std::fs::File::open(damaged)?;
     let mut b = std::fs::File::open(cand)?;
     let mut x = vec![0u8; 1 << 20];
@@ -377,10 +384,29 @@ pub fn is_intact_twin(damaged: &Path, cand: &Path, lost: &[(u64, u64)]) -> std::
         }
         Ok(true)
     };
-    for (s, e) in read_parts(size, lost) {
+    for &(s, e) in &parts {
         if !same_part(&mut a, &mut b, s, e)? {
             return Ok(false);
         }
+    }
+    // ... and the part read must hold something (4 KB that are not zeros).
+    let mut nonzero = 0u64;
+    let mut buf = vec![0u8; 1 << 16];
+    'outer: for &(s, e) in &parts {
+        a.seek(SeekFrom::Start(s))?;
+        let mut left = e - s;
+        while left > 0 {
+            let n = left.min(buf.len() as u64) as usize;
+            a.read_exact(&mut buf[..n])?;
+            nonzero += buf[..n].iter().filter(|&&x| x != 0).count() as u64;
+            if nonzero >= 4096 {
+                break 'outer;
+            }
+            left -= n as u64;
+        }
+    }
+    if nonzero < 4096 {
+        return Ok(false);
     }
     // Where it was never read, the twin must hold something else.
     let mut all_same = true;
@@ -850,12 +876,15 @@ fn fix_mp3(env: &Env, src: &Path, tmp: &Path) -> Try {
     }
 }
 
+const PLAYS_WITH_SKIP: &str = "it plays as it is: where data was lost there is a short skip or click (FFmpeg plays \
+through it without an error). Nothing can bring the lost part back";
+
 fn fix_reencode_flac(env: &Env, src: &Path, tmp: &Path) -> Try {
     let Some(ff) = env.ffmpeg.as_ref() else { return no("FFmpeg was not found on this PC", Next::Nothing) };
     let before = plays(env, src);
     if let Some((true, e)) = &before {
         if e.is_empty() {
-            return no("FFmpeg plays it through without an error: nothing to repair", Next::Nothing);
+            return no(PLAYS_WITH_SKIP, Next::Nothing);
         }
     }
     let out = tmp.join("repaired.flac");
@@ -908,7 +937,7 @@ fn fix_remux_audio(env: &Env, src: &Path, tmp: &Path) -> Try {
     let before = plays(env, src);
     if let Some((true, e)) = &before {
         if e.is_empty() {
-            return no("FFmpeg plays it through without an error: nothing to repair", Next::Nothing);
+            return no(PLAYS_WITH_SKIP, Next::Nothing);
         }
     }
     match remux(env, src, tmp, before.as_ref()) {
@@ -948,13 +977,63 @@ fn qpdf_check(qpdf: &Path, p: &Path, stop: &dyn Fn() -> bool) -> Option<i32> {
     run_tool(qpdf, vec!["--check".into(), p.as_os_str().to_os_string()], None, 600, stop).and_then(|r| r.code)
 }
 
+/// A PDF whose end (its trailer, which says where the document starts) was
+/// lost, with a new trailer pointing at its catalogue, so qpdf can rebuild
+/// the rest from the objects in it. None: no catalogue found.
+pub fn pdf_with_trailer(d: &[u8]) -> Option<Vec<u8>> {
+    let text = String::from_utf8_lossy(d);
+    let mut catalog = None;
+    let mut max_obj = 0u64;
+    let b = text.as_bytes();
+    let mut i = 0;
+    while let Some(k) = text[i..].find(" 0 obj") {
+        let at = i + k;
+        let mut s = at;
+        while s > 0 && b[s - 1].is_ascii_digit() {
+            s -= 1;
+        }
+        if s < at {
+            if let Ok(n) = text[s..at].parse::<u64>() {
+                max_obj = max_obj.max(n);
+                let body = &text[at..text.len().min(at + 400)];
+                let end = body.find("endobj").unwrap_or(body.len());
+                let body = &body[..end];
+                if body.contains("/Type /Catalog") || body.contains("/Type/Catalog") {
+                    catalog = Some(n);
+                }
+            }
+        }
+        i = at + 6;
+    }
+    let catalog = catalog?;
+    let mut end = d.len();
+    while end > 0 && d[end - 1] == 0 {
+        end -= 1;
+    }
+    let mut out = d[..end].to_vec();
+    out.extend_from_slice(format!("\ntrailer\n<< /Size {} /Root {catalog} 0 R >>\nstartxref\n0\n%%EOF\n", max_obj + 1).as_bytes());
+    Some(out)
+}
+
 fn fix_pdf(env: &Env, src: &Path, tmp: &Path) -> Try {
     let Some(qpdf) = env.qpdf.as_ref() else {
         return no("qpdf (which rebuilds PDFs) was not found on this PC", Next::Paid);
     };
     let before = qpdf_check(qpdf, src, env.stop);
     let out = tmp.join("repaired.pdf");
-    let r = run_tool(qpdf, vec![src.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop);
+    let mut r = run_tool(qpdf, vec![src.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop);
+    let mut with_trailer = false;
+    if !r.as_ref().is_some_and(|r| matches!(r.code, Some(0) | Some(3))) {
+        // Its trailer lost too: one made again, pointing at its catalogue.
+        if let Some(patched) = std::fs::read(src).ok().and_then(|d| pdf_with_trailer(&d)) {
+            let p = tmp.join("with-trailer.pdf");
+            if std::fs::write(&p, patched).is_ok() {
+                let _ = std::fs::remove_file(&out);
+                r = run_tool(qpdf, vec![p.as_os_str().to_os_string(), out.as_os_str().to_os_string()], None, 900, env.stop);
+                with_trailer = true;
+            }
+        }
+    }
     let made = r.as_ref().is_some_and(|r| matches!(r.code, Some(0) | Some(3))) && out.is_file();
     if !made {
         return no(
@@ -976,9 +1055,16 @@ fn fix_pdf(env: &Env, src: &Path, tmp: &Path) -> Try {
     }
     Try::Made {
         file: out,
-        how: "rebuilt by qpdf: its table of where everything is (the cross-reference table) was made again from what is \
-              in the file"
-            .to_string(),
+        how: if with_trailer {
+            "rebuilt by qpdf: its end (the trailer and the table of where everything is) was lost, so a new trailer was \
+             written pointing at its catalogue, and qpdf made the table again from what is in the file; anything that was in \
+             the lost part (often the last page's text) is missing"
+                .to_string()
+        } else {
+            "rebuilt by qpdf: its table of where everything is (the cross-reference table) was made again from what is in \
+             the file"
+                .to_string()
+        },
         tool: tools::version(Tool::Qpdf, qpdf),
         salvage: false,
         note: if after == Some(0) { "qpdf --check finds no errors".to_string() } else { "qpdf --check finds warnings only".to_string() },
@@ -1704,6 +1790,17 @@ mod tests {
         assert!(!is_intact_twin(&d, &t, &[]).unwrap());
         assert_eq!(read_parts(100, &[(10, 20), (15, 30), (90, 120)]), vec![(0, 10), (30, 90)]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lost_pdf_trailer_is_written_again() {
+        let pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n12 0 obj\n<< >>\nend";
+        let mut d = pdf.to_vec();
+        d.extend(std::iter::repeat(0).take(600));
+        let out = String::from_utf8(pdf_with_trailer(&d).unwrap()).unwrap();
+        assert!(out.ends_with("trailer\n<< /Size 13 /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"), "{out}");
+        assert!(!out.contains('\0'));
+        assert!(pdf_with_trailer(b"%PDF-1.4\n3 0 obj\n<< /Type /Page >>\nendobj\n").is_none());
     }
 
     #[test]
