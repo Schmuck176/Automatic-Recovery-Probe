@@ -117,6 +117,19 @@ The user's answers (23 Oct, 15:05):
       the repairs needing no tool; Defender exclusion button; the first copy
       of the checklist goes beside Recovery Probe's in Obsidian; the copy
       stage says where SPARE is if its letter changed.
+- [x] Run 39978253835 also showed on Windows (48/49) and Linux that 7-Zip
+      always reports "Headers Error" (exit code 2) for a zip whose index is
+      lost, so the rebuild was always called a salvage. Now (138b5e5) a
+      rebuild counts as repaired when 7-Zip names no part as failed (its
+      "ERROR: CRC Failed : <part>" lines; its errors about the zip as a whole
+      don't count) and the zip's own local headers, walked from the start
+      (autorepair.rs zip_walk), lead to the index with none missing.
+      Read from 7-Zip 26.05's source (ZipIn.cpp LOCALS-CD-MODE,
+      ExtractCallbackConsole.cpp): building it here was not allowed.
+- [x] Windows CI now also uses untrunc's own Windows build (anthwlock
+      release "latest", the PC has untrunc_x64 with FFmpeg 3.x DLLs) and
+      MP3val 0.1.8 for Windows, and tools/download_check.py downloads qpdf
+      for real (0326a6e).
 - [ ] Deliver to C:\RECOVERY-TOOLS (automatic-recovery-probe.exe beside
       recovery-probe.exe; qpdf from the Download button or delivered into
       C:\RECOVERY-TOOLS\tools\qpdf-12.3.2), check byte for byte, the

@@ -97,6 +97,11 @@ Linux's own exFAT drivers, the disk protection, the page), plus:
   Finalise via the page's own API, every result checked against what must
   happen given the tools present.
 - `tools/auto_ui_check.js`: the Automatic tab in a real browser.
+- `tools/download_check.py` (on Windows): Get ready's download of qpdf, for
+  real, from qpdf's GitHub release, checked by size and SHA-256.
+- On Windows the tests run with the tools' own Windows builds, as on the
+  PC (7-Zip, FFmpeg, qpdf, untrunc, MP3val); on Linux with the same tools
+  built for Linux (untrunc from its own source).
 - Unit tests of every repair, the twin rule, the tools' outputs, AIM's answer,
   the hand-off and bring back.
 
