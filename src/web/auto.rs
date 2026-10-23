@@ -208,6 +208,19 @@ pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
 /// Start (or carry on).
 pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     let plan = plan_of(app)?;
+    {
+        // The rehearsal first, before the recovered SSD is plugged in (not
+        // needed once the image is made, or for the page's test disks).
+        let a = lock(app);
+        let image_made = !a.setting("image").is_empty() && !a.setting("image_sha").is_empty();
+        if cfg!(windows) && a.test_disks.is_empty() && !image_made && a.setting("rehearsal") != "passed" && a.setting("rehearsal") != "stop" {
+            return Err(
+                "Do the rehearsal with SPARE first (2. The rehearsal): it shows whether Windows will keep the recovered SSD \
+                 switched off when it is plugged in that way."
+                    .to_string(),
+            );
+        }
+    }
     if lock(app).setting("rehearsal") == "stop" {
         return Err(
             "The rehearsal with SPARE said to stop: Windows would not keep a disk plugged in that way switched off. Use \
@@ -353,7 +366,6 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
                     s.seconds = secs;
                     s.summary = lines.clone();
                 });
-                summary.push(format!("{title}: done."));
             }
             End::Skipped(lines) => {
                 set_stage(app, key, |s| {

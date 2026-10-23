@@ -712,7 +712,12 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
         ("GET", "api/checklist") => (200, "application/json", checklist_page().to_string()),
         ("GET", "api/checklist-state") => (200, "application/json", checklist_sync(app)),
         ("GET", "api/tools") => (200, "application/json", crate::tools::status_json(&lock(app).home.clone())),
-        ("GET", "api/ready") => (200, "application/json", ready_json(app)),
+        ("GET", "api/ready") => {
+            if q("fresh") == "1" {
+                crate::tools::forget();
+            }
+            (200, "application/json", ready_json(app))
+        }
         ("POST", "api/do") => {
             let form = parse_form(&String::from_utf8_lossy(&req.body));
             (200, "application/json", act(app, &form))
@@ -984,6 +989,27 @@ fn mapinfo_json(path: &str) -> String {
 /// ddrescue mapfiles in the program's folder (and one level down).
 fn find_mapfiles_json(app: &Arc<Mutex<App>>) -> String {
     let home = lock(app).home.clone();
+    arr(find_mapfiles(&home)
+        .iter()
+        .map(|(p, size, fin, bad)| Obj::new().s("path", p).n("disk_size", *size).b("finished", *fin).n("bad_bytes", *bad).end())
+        .collect())
+}
+
+/// The mapfile to use when none is chosen: of the finished ones, the one
+/// with the fewest bytes never read (the last, most complete attempt).
+fn best_mapfile(home: &Path) -> Option<String> {
+    let all = find_mapfiles(home);
+    let mut fin: Vec<&(String, u64, bool, u64)> = all.iter().filter(|m| m.2).collect();
+    if fin.is_empty() {
+        fin = all.iter().collect();
+    }
+    fin.sort_by_key(|m| m.3);
+    fin.first().map(|m| m.0.clone())
+}
+
+/// (path, disk size, finished, bytes never read) of every mapfile found.
+fn find_mapfiles(home: &Path) -> Vec<(String, u64, bool, u64)> {
+    let home = home.to_path_buf();
     let mut found = Vec::new();
     let look = |dir: &Path, found: &mut Vec<(String, u64, bool, u64)>| {
         if let Ok(rd) = std::fs::read_dir(dir) {
@@ -1019,10 +1045,7 @@ fn find_mapfiles_json(app: &Arc<Mutex<App>>) -> String {
         }
     }
     found.sort();
-    arr(found
-        .iter()
-        .map(|(p, size, fin, bad)| Obj::new().s("path", p).n("disk_size", *size).b("finished", *fin).n("bad_bytes", *bad).end())
-        .collect())
+    found
 }
 
 // ---------------------------------------------------------------- actions
@@ -1445,6 +1468,18 @@ fn prepare_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool
 
 /// What Get ready shows: the checks of this PC, the tools, the folders it suggests.
 fn ready_json(app: &Arc<Mutex<App>>) -> String {
+    {
+        // No mapfile chosen yet: the best one in the program's folder.
+        let home = lock(app).home.clone();
+        if lock(app).setting("mapfile").is_empty() {
+            if let Some(m) = best_mapfile(&home) {
+                let mut a = lock(app);
+                a.settings.insert("mapfile".to_string(), m.clone());
+                a.save();
+                MAP_SIZE.store(mapfile_domain(&m).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
+            }
+        }
+    }
     let (home, elevated, map, image_dir, work, copy2) = {
         let a = lock(app);
         (

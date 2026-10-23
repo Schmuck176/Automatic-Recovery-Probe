@@ -208,6 +208,37 @@ ul.phases .warn { color: var(--unread); }
 .checklist .tablewrap { overflow-x: auto; max-width: 100%; }
 .checklist section.ph > hr:last-child { display: none; }
 .checklist hr { border: 0; border-top: 1px solid var(--rule); margin: 18px 0; }
+/* The Automatic view. */
+.intro p { max-width: none; }
+.checks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 2px 8px; align-items: start; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.checks li:last-child { border-bottom: 0; }
+.checks .mk { font-weight: 700; text-align: center; }
+.checks .mk.good { color: var(--read); }
+.checks .mk.bad { color: var(--unread); }
+.checks .mk.meh { color: var(--caution-ink); }
+.checks .what { min-width: 0; }
+.checks .what .small { display: block; }
+.checks button { padding: 5px 12px; font-size: 0.9rem; }
+ul.stages { list-style: none; margin: 12px 0 0; padding: 0; }
+ul.stages li { display: grid; grid-template-columns: 1.8em 1fr auto; gap: 2px 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+ul.stages li:last-child { border-bottom: 0; }
+ul.stages .ic { font-weight: 700; text-align: center; color: var(--quiet); }
+ul.stages li.done .ic, ul.stages li.skipped .ic { color: var(--read); }
+ul.stages li.running .ic, ul.stages li.waiting .ic { color: var(--act); }
+ul.stages li.failed .ic, ul.stages li.stopped .ic { color: var(--unread); }
+ul.stages li.pending .st-title { color: var(--ink-soft); }
+ul.stages li.running .st-title, ul.stages li.waiting .st-title { font-weight: 600; }
+ul.stages .st-sum { font-size: 0.88rem; color: var(--ink-soft); grid-column: 2 / 4; }
+ul.stages li.failed .st-sum { color: var(--unread); }
+ul.stages details { margin: 2px 0 0; grid-column: 2 / 4; }
+ul.stages details summary { font-size: 0.86rem; font-weight: 400; }
+.waitcard { margin: 12px 0 0; padding: 14px 16px; border-radius: 8px; border: 2px solid var(--act); background: color-mix(in srgb, var(--act) 9%, var(--sheet)); }
+.waitcard b { font-family: var(--head); font-size: 1.05rem; }
+button.big { font-size: 1.1rem; padding: 12px 26px; }
+textarea { font: 0.95rem var(--body); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); width: 100%; min-height: 3.2em; }
+.folder-row { margin-top: 12px; }
+.folder-row label.lab { display: block; font-weight: 600; margin-bottom: 2px; }
 @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; } }
 @media (max-width: 560px) {
   main { padding: 18px 16px 170px; }
@@ -228,17 +259,68 @@ ul.phases .warn { color: var(--unread); }
   <div id="restore-banner" role="status"></div>
 
   <nav class="views" role="tablist" aria-label="What to show">
+    <button role="tab" id="tab-auto" aria-controls="view-auto" aria-selected="true">Automatic</button>
     <button role="tab" id="tab-checklist" aria-controls="view-checklist" aria-selected="false">The checklist <span id="tab-count"></span></button>
-    <button role="tab" id="tab-steps" aria-controls="view-steps" aria-selected="true">The program's steps</button>
+    <button role="tab" id="tab-steps" aria-controls="view-steps" aria-selected="false">The program's steps, one at a time</button>
   </nav>
   <div id="where" class="where" role="status"></div>
+
+  <div id="view-auto" role="tabpanel" aria-labelledby="tab-auto">
+    <div class="panel intro">
+      <p><b>The whole recovery, by itself.</b> Get the PC ready, rehearse with <code>SPARE</code>, choose the folders, then press <b>Start</b>: it makes the image, finds what the damage touched, copies everything into <code>WORK</code>, checks every file, repairs every damaged one it can with open-source tools and puts each repaired file back (the damaged original is kept, and every repair can be undone), and checks everything again. It waits where you have to plug something in, and stops and says why if any check finds something. What no tool here can repair is made ready for the Mac or a paid repair tool, to bring back afterwards.</p>
+      <p class="small soft">Nothing is ever written to the recovered SSD or the image. The open-source tools only read the copies in <code>WORK</code>, and only repair copies of the damaged files, in <code>REPAIR</code>. The program's steps, one at a time, are still there in the third tab.</p>
+    </div>
+    <ol class="steps">
+      <li id="a-ready">
+        <div class="step-head"><h2>Get ready</h2><span class="state" id="ast-ready"></span></div>
+        <p>The program checks this PC and the tools it uses. Do this first, while the recovered SSD is <b>not</b> plugged in.</p>
+        <div class="row"><button id="b-ready">Check this PC</button><button class="second" id="b-ready-test">Run the self-test</button></div>
+        <div id="ar-ready"></div>
+      </li>
+      <li id="a-rehearse">
+        <div class="step-head"><h2>The rehearsal with SPARE</h2><span class="state" id="ast-rehearse"></span></div>
+        <p>Windows can be told to leave a newly plugged-in disk switched off, so it cannot write to it - but some USB cases and adapters stop that working. So first plug in <code>SPARE</code> (it is empty: nothing to lose) <b>exactly the way the recovered SSD will be plugged in</b>: the same USB case or adapter, the same port and cable. The program looks at what Windows did with it.</p>
+        <div id="ar-rehearse"></div>
+      </li>
+      <li id="a-folders">
+        <div class="step-head"><h2>The folders it works in</h2><span class="state" id="ast-folders"></span></div>
+        <div class="folder-row"><label class="lab" for="af-image">The image (about 1,000 GB, on the PC's own second drive)</label>
+          <div class="row" style="margin-top:2px"><input type="text" id="af-image" placeholder="For example D:\IMAGE"><button class="second" id="b-af-image">Choose…</button></div></div>
+        <div class="folder-row"><label class="lab" for="af-work">The copies (WORK, on SPARE)</label>
+          <div class="row" style="margin-top:2px"><input type="text" id="af-work" placeholder="For example E:\WORK"><button class="second" id="b-af-work">Choose…</button></div>
+          <p class="small soft">REPAIR (the repairs) goes beside it, on the same drive.</p></div>
+        <div class="folder-row"><label class="lab" for="af-copy2">The second copy, made by Finalise (on the PC's second drive, beside the image)</label>
+          <div class="row" style="margin-top:2px"><input type="text" id="af-copy2" placeholder="For example D:\COPY 2"><button class="second" id="b-af-copy2">Choose…</button></div></div>
+        <div class="folder-row"><label class="lab" for="af-search">Older copies of your files, if you have any (optional)</label>
+          <textarea id="af-search" placeholder="One folder per line: an old backup, photos downloaded from a phone or iCloud…"></textarea>
+          <p class="small soft">A damaged file whose intact twin is found there (or anywhere in WORK) is restored exactly, not just repaired.</p></div>
+        <label class="check"><input type="checkbox" id="af-videos" checked> <span>Play every video through to find damage (thorough, but it can take hours to days for a big collection; it runs last and can be stopped).</span></label>
+        <div id="ar-folders"></div>
+      </li>
+      <li id="a-start">
+        <div class="step-head"><h2>Start</h2><span class="state" id="ast-start"></span></div>
+        <div class="row"><button class="big" id="b-auto-start">Start</button><button class="second" id="b-auto-over">Start over</button></div>
+        <div id="ar-start"></div>
+      </li>
+      <li id="a-left">
+        <div class="step-head"><h2>What is left: the Mac, or a paid tool</h2><span class="state" id="ast-left"></span></div>
+        <div id="ar-left"><p class="soft">After Start: what no open-source tool could repair, made ready in <code>REPAIR\hand-off</code>.</p></div>
+      </li>
+      <li id="a-final">
+        <div class="step-head"><h2>Finalise</h2><span class="state" id="ast-final"></span></div>
+        <p>Keeps it safe: a <code>RECORDS</code> folder beside WORK, the second copy (WORK, REPAIR and RECORDS) in the second-copy folder, then the final check of both copies and of the image, and Windows' settings put back as they were. Run it again twice a year: it checks everything again.</p>
+        <div class="row"><button id="b-finalise">Finalise</button></div>
+        <div id="ar-final"></div>
+      </li>
+    </ol>
+  </div>
 
   <div id="view-checklist" role="tabpanel" aria-labelledby="tab-checklist" hidden>
     <div class="panel" id="cl-top"></div>
     <div class="checklist" id="cl-body"><p class="soft">Loading the checklist…</p></div>
   </div>
 
-  <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps">
+  <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
   <section class="map" aria-labelledby="map-lead">
     <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
     <div id="map-picture"></div>
@@ -1043,7 +1125,7 @@ function renderJob() {
 
 function render() {
   if (!S) return;
-  renderTop(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
+  renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -1250,23 +1332,282 @@ async function refresh() {
   if (S.job && S.job.state === "running") lastJobId = S.job.id;
   render();
 }
+
+// ------------------------------------------------------------ the Automatic view
+
+let READY = null;      // what Get ready found (api/ready)
+let readyBusy = false;
+async function loadReady(fresh) {
+  if (readyBusy) return;
+  readyBusy = true;
+  try { READY = await get("api/ready" + (fresh ? "?fresh=1" : "")); } catch { readyBusy = false; return; }
+  readyBusy = false;
+  fillFolders();
+  render();
+}
+function mk(ok) {
+  return ok === true ? '<span class="mk good" aria-label="fine">✓</span>'
+    : ok === false ? '<span class="mk bad" aria-label="needs doing">✗</span>' : '<span class="mk meh" aria-label="note">!</span>';
+}
+function setAuto(id, cls, text) {
+  const li = $("a-" + id);
+  li.classList.remove("done", "problem", "running");
+  if (cls) li.classList.add(cls);
+  const st = $("ast-" + id);
+  st.className = "state " + (cls || "");
+  st.textContent = text || "";
+}
+const ICON = { done: "✓", skipped: "–", running: "⟳", waiting: "⏸", failed: "✗", stopped: "■", pending: "○" };
+function autoRunning() { return busy() && S.job.kind === "auto"; }
+
+function fillFolders() {
+  if (!S) return;
+  const f = [["af-image", "auto_image_dir", "suggest_image_dir"], ["af-work", "auto_work", "suggest_work"], ["af-copy2", "auto_copy2", "suggest_copy2"]];
+  for (const [id, key, sug] of f) {
+    const el = $(id);
+    if (el.dataset.touched || document.activeElement === el) continue;
+    const v = setting(key) || (READY && READY[sug]) || "";
+    if (el.value !== v) el.value = v;
+  }
+  const s = $("af-search");
+  if (!s.dataset.touched && document.activeElement !== s) s.value = setting("auto_search");
+  $("af-videos").checked = setting("auto_videos") !== "0";
+}
+
+function renderAuto() {
+  if (!S) return;
+  const running = busy();
+  // 1. Get ready.
+  let h = noteHtml("ready");
+  let readyOk = false;
+  if (READY) {
+    const t = lastOf("selftest");
+    const items = [];
+    items.push([READY.elevated || !READY.windows, "Administrator rights", READY.elevated ? "The program can read the recovered SSD (it never writes to it)." : READY.windows ? "Close the program's window, double-click it again and click Yes when Windows asks." : "Not needed on this system.", ""]);
+    items.push([!!READY.mapfile, "The ddrescue mapfile", READY.mapfile || "Not found: put it in the program's folder.", ""]);
+    const testOk = t && t.state === "done";
+    items.push([testOk ? true : t && t.state !== "running" ? false : null, "The self-test", t ? (t.state === "running" ? "Running…" : (t.summary || [])[0] || t.error) : "Not run yet: click Run the self-test (a few seconds).", ""]);
+    if (READY.windows) {
+      items.push([READY.restart_pending === false, "Windows is not waiting to restart", READY.restart_pending ? "An update wants to restart the PC: restart it now, before the recovered SSD is plugged in." : "No restart is waiting.", ""]);
+      items.push([READY.restarts_after_crash === false ? true : null, "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "It does not restart by itself.", READY.restarts_after_crash ? '<button class="second" data-act="crash-restart-off">Turn that off</button>' : ""]);
+      items.push([READY.policy_to_restore ? true : null, "New disks arrive switched off", READY.policy_to_restore ? "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again." : "Not yet: the rehearsal (next) sets it.", ""]);
+      const aim = (READY.tools || []).find((x) => x.key === "aim");
+      const aimOk = !!(aim && aim.path && READY.aim_driver);
+      items.push([aimOk ? true : null, "AIM Toolkit, to open the image read-only", aimOk ? (aim.version || aim.path) : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.", !aimOk && READY.aim_setup ? '<button class="second" data-act="aim-install">Install AIM Toolkit</button>' : ""]);
+    }
+    for (const x of READY.tools || []) {
+      if (x.key === "aim") continue;
+      const btn = !x.path && x.download ? `<button class="second" data-dl="${esc(x.key)}">Download it (${esc(size(x.download.size))})</button>` : "";
+      items.push([x.path ? true : null, x.name, x.path ? (x.version || x.path) : `Not found: what it does (${x.used_for}) is left out.`, btn]);
+    }
+    h += `<ul class="checks">${items.map(([ok, title, detail, btn]) => `<li>${mk(ok)}<span class="what"><b>${esc(title)}</b><span class="small soft">${esc(detail)}</span></span><span>${btn}</span></li>`).join("")}</ul>`;
+    readyOk = (READY.elevated || !READY.windows) && !!READY.mapfile && testOk && READY.restart_pending !== true;
+  }
+  put($("ar-ready"), h);
+  $("b-ready").disabled = readyBusy;
+  $("b-ready-test").disabled = running;
+  setAuto("ready", readyOk ? "done" : "", readyOk ? "Ready" : "");
+
+  // 2. The rehearsal.
+  const verdict = setting("rehearsal");
+  const imageMade = !!(setting("image") && setting("image_sha"));
+  h = noteHtml("rehearse");
+  if (imageMade) {
+    h += `<div class="msg ok">The image is made, so the recovered SSD is not needed any more: no rehearsal needed.</div>`;
+  } else {
+    if (verdict) h += `<div class="msg ${verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn"}">${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span></div>`;
+    if (verdict === "ask") h += `<div class="row"><button data-rh="passed">It shows SPARE's own name: carry on</button><button class="second" data-rh="stop">It shows the case's or adapter's name</button></div>`;
+    const windows = READY ? READY.windows : S.windows;
+    if (windows && !S.policy_to_restore) {
+      h += `<div class="row"><button data-prep="1">First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
+    } else if (verdict !== "passed") {
+      const cands = disks.filter((d) => !d.system && !isCopy(d) && !d.test);
+      if (cands.length) {
+        h += `<h3>Disks this PC can see</h3><div class="choices">` + cands.map((d) => {
+          const l = diskLine(d);
+          return `<div class="choice" style="cursor:default"><span></span><span><b>${l.title}</b>${l.tags}</span><span class="small soft">${l.what || "&nbsp;"}</span><span><button class="second" data-spare="${esc(d.spec)}">This is SPARE: check it</button></span></div>`;
+        }).join("") + `</div>`;
+      } else if (windows) {
+        h += `<p class="soft">Plug SPARE in now. The list looks for it every couple of seconds.</p>`;
+      }
+      if (copiesHere().length) h += `<div class="msg warn">A copy of the old drive is plugged in already (marked <i>the copy ddrescue made</i>). That's fine if it is the recovered SSD and it arrived switched off: Start protects it at once. Never the 4 TB SSD at the same time.</div>`;
+    }
+  }
+  put($("ar-rehearse"), h);
+  const rehearsed = imageMade || verdict === "passed";
+  setAuto("rehearse", rehearsed ? "done" : verdict === "stop" ? "problem" : "", rehearsed ? "Done" : verdict === "stop" ? "Stop" : "");
+  if ($("view-auto").hidden === false && !rehearsed) watchDisks(30);
+
+  // 3. The folders.
+  const foldersOk = (imageMade || !!setting("auto_image_dir")) && !!setting("auto_work");
+  h = noteHtml("folders");
+  if (READY && !setting("auto_work") && !READY.suggest_work) h += `<p class="small soft">No drive called SPARE is plugged in now: type the folder (such as E:\\WORK), or plug SPARE in and click Check this PC.</p>`;
+  put($("ar-folders"), h);
+  setAuto("folders", foldersOk ? "done" : "", foldersOk ? "Chosen" : "");
+
+  // 4. Start.
+  const A = S.auto || { stages: [], resume_at: 0 };
+  const n = A.stages.length;
+  const allDone = n && A.resume_at >= n;
+  const autoJob = lastOf("auto");
+  $("b-auto-start").textContent = allDone ? "Start (all done)" : A.resume_at > 0 ? "Carry on" : "Start";
+  $("b-auto-start").disabled = running || allDone;
+  $("b-auto-over").disabled = running || A.resume_at === 0;
+  h = noteHtml("start");
+  if (autoRunning() && A.waiting) h += `<div class="waitcard" role="status"><b>Your turn:</b> ${esc(A.waiting)}</div>`;
+  if (A.banner) h += `<div class="msg ok">${esc(A.banner)}</div>`;
+  h += `<ul class="stages">` + A.stages.map((s) => {
+    const sum = (s.summary || []);
+    const head = sum[0] ? `<span class="st-sum">${esc(sum[0])}</span>` : "";
+    const more = sum.length > 1 ? `<details><summary>more</summary><pre class="report">${lines(sum.slice(1))}</pre></details>` : "";
+    const time = s.seconds > 0 && s.state !== "running" ? duration(s.seconds) : "";
+    return `<li class="${esc(s.state)}"><span class="ic">${ICON[s.state] || "○"}</span><span class="st-title">${esc(s.title)}</span><span class="small soft">${esc(time)}</span>${head}${more}</li>`;
+  }).join("") + `</ul>`;
+  if (autoJob && autoJob.state !== "running" && autoJob.kind === "auto") {
+    const ok = autoJob.state === "done";
+    h += `<div class="msg ${ok ? "ok" : autoJob.state === "stopped" ? "warn" : "err"}">${lines(autoJob.summary || [autoJob.error]).replace(/\n/g, "<br>")}</div>`;
+  }
+  put($("ar-start"), h);
+  const failedStage = A.stages.find((s) => s.state === "failed");
+  setAuto("start", allDone ? "done" : failedStage ? "problem" : autoRunning() ? "running" : "", allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (A.waiting ? "Waiting for you" : "Running…") : A.resume_at > 0 ? "Stopped part-way" : "");
+
+  // 5. What is left.
+  const ho = lastOf("handoff"), ar = lastOf("autorepair"), bb = lastOf("bringback");
+  h = noteHtml("left");
+  if (ar && ar.data) {
+    const d = ar.data;
+    h += `<div class="figures">${figure(d.repaired, "repaired and put back")}${figure(d.salvaged, "with something salvaged")}${figure(d.not_repaired, "not repaired", true)}</div>`;
+    if ((d.attempts || []).length) {
+      h += `<details><summary>Every damaged file, and what was done</summary><div class="scroll"><table><tr><th>No.</th><th>File</th><th>Result</th><th>How</th></tr>` +
+        d.attempts.map((a) => `<tr><td>${esc(a.id)}</td><td class="path">${esc(a.path)}</td><td class="verdict">${esc(a.result)}</td><td class="small">${esc(a.how)}${a.note ? ` <span class="soft">(${esc(a.note)})</span>` : ""}</td></tr>`).join("") +
+        `</table></div></details>`;
+    }
+  }
+  if (ho && ho.data) {
+    const d = ho.data;
+    h += `<p>${lines(ho.summary || []).replace(/\n/g, "<br>")}</p>`;
+    h += `<div class="row"><button class="second" data-open="${esc(d.folder)}">Open the hand-off folder</button></div>`;
+    h += `<h3>Bring back</h3><p class="small">When repaired files come back - from the Mac (on the USB stick), or saved by a paid tool into <code>hand-off\\returned</code> - the program puts each one back where it belongs (by its number) and checks everything again.</p>
+      <div class="row"><input type="text" id="ab-from" value="${esc(d.returned || "")}" aria-label="Bring back from this folder"><button class="second" id="b-ab-from">Choose…</button><button id="b-bring">Bring back</button></div>`;
+  }
+  if (bb && bb.state !== "running") h += `<div class="msg ${bb.state === "done" ? "ok" : "err"}">${lines(bb.summary || [bb.error]).replace(/\n/g, "<br>")}</div>`;
+  const leftBox = $("ar-left");
+  const fromNow = $("ab-from") ? $("ab-from").value : null;
+  if (ho || ar || bb) put(leftBox, h);
+  if (fromNow !== null && $("ab-from") && $("ab-from").dataset.touched) $("ab-from").value = fromNow;
+  setAuto("left", ho ? "done" : "", ho ? "Ready" : "");
+
+  // 6. Finalise.
+  const fi = lastOf("finalise");
+  h = noteHtml("final");
+  if (fi && fi.state !== "running") h += `<div class="msg ${fi.state === "done" ? "ok" : fi.state === "stopped" ? "warn" : "err"}">${lines(fi.summary || [fi.error]).replace(/\n/g, "<br>")}</div>`;
+  put($("ar-final"), h);
+  $("b-finalise").disabled = running;
+  setAuto("final", fi && fi.state === "done" ? "done" : fi && fi.state === "failed" ? "problem" : "", fi && fi.state === "done" ? "Done " + (fi.started_at || "") : "");
+}
+function copiesHere() { return disks.filter((d) => isCopy(d) && !d.system); }
+
+// Buttons in the Automatic view (drawn again as things change: one handler each).
+$("b-ready").onclick = async () => { note("ready", "", ""); await loadReady(true); loadDisks(); };
+$("b-ready-test").onclick = () => startJob("ready", { action: "selftest" });
+$("ar-ready").addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  try {
+    if (b.dataset.act) { const r = await act({ action: b.dataset.act }); note("ready", "ok", r.message || "Done."); }
+    if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: the bar at the bottom shows how far it is. Click Check this PC when it is done."); }
+  } catch (err) { note("ready", "err", err.message); }
+  await refresh(); loadReady();
+});
+$("ar-rehearse").addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  note("rehearse", "", "");
+  try {
+    if (b.dataset.prep) {
+      const r = await act({ action: "guard-prepare" });
+      note("rehearse", "ok", r.message + " Now plug SPARE in, exactly as the recovered SSD will be.");
+      watchDisks(15 * 60);
+    }
+    if (b.dataset.spare) {
+      b.disabled = true;
+      await act({ action: "auto-rehearse", disk: b.dataset.spare });
+    }
+    if (b.dataset.rh) await save({ rehearsal: b.dataset.rh });
+  } catch (err) { note("rehearse", "err", err.message); }
+  await refresh(); loadDisks(); loadReady();
+});
+const FOLDERS = [["af-image", "auto_image_dir", "IMAGE"], ["af-work", "auto_work", "WORK"], ["af-copy2", "auto_copy2", "COPY 2"]];
+for (const [id, key, sub] of FOLDERS) {
+  const el = $(id);
+  el.addEventListener("input", () => { el.dataset.touched = "1"; });
+  el.addEventListener("change", () => save({ [key]: el.value.trim() }));
+  $("b-" + id).onclick = () => openPicker("Choose the folder", el.value || "", false, (p) => {
+    // A whole drive chosen: the folder goes on it.
+    if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\" + sub;
+    el.value = p; el.dataset.touched = "1"; save({ [key]: p });
+  });
+}
+$("af-search").addEventListener("input", () => { $("af-search").dataset.touched = "1"; });
+$("af-search").addEventListener("change", () => save({ auto_search: $("af-search").value }));
+$("af-videos").addEventListener("change", () => save({ auto_videos: $("af-videos").checked ? "1" : "0" }));
+$("b-auto-start").onclick = async () => {
+  note("start", "", "");
+  // Folders typed but not yet saved.
+  const f = {};
+  for (const [id, key] of FOLDERS) if ($(id).value.trim() !== setting(key)) f[key] = $(id).value.trim();
+  if (Object.keys(f).length) await save(f);
+  try { await act({ action: "auto-start" }); } catch (err) { note("start", "err", err.message); }
+  await refresh();
+};
+let overArmed = 0;
+$("b-auto-over").onclick = async () => {
+  if (Date.now() - overArmed > 5000) {
+    overArmed = Date.now();
+    note("start", "warn", "Click Start over again to begin from the first stage. Nothing made so far is deleted: each stage re-uses what is already there (the image, the copies) where it can.");
+    return;
+  }
+  overArmed = 0;
+  try { await act({ action: "auto-start-over" }); note("start", "ok", "Start begins from the first stage next time."); } catch (err) { note("start", "err", err.message); }
+  await refresh();
+};
+$("ar-left").addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.id === "b-ab-from") {
+    openPicker("Bring back from this folder", $("ab-from").value || "", false, (p) => { $("ab-from").value = p; $("ab-from").dataset.touched = "1"; });
+  } else if (b.id === "b-bring") {
+    note("left", "", "");
+    try { await act({ action: "bring-back", from: $("ab-from").value.trim() }); } catch (err) { note("left", "err", err.message); }
+    await refresh();
+  }
+});
+$("ar-left").addEventListener("input", (e) => { if (e.target.id === "ab-from") e.target.dataset.touched = "1"; });
+$("b-finalise").onclick = async () => {
+  note("final", "", "");
+  try { await act({ action: "finalise" }); } catch (err) { note("final", "err", err.message); }
+  await refresh();
+};
+
 // ------------------------------------------------------------ the checklist
 
 let CL = null;   // the checklist: its HTML and boxes (the same while the program runs)
 let CLS = null;  // where it stands: ticks, checkpoints, the next box
-let view = "checklist";
-try { view = localStorage.getItem("rp-view") || "checklist"; } catch { /* a private window: just this time */ }
+let view = "auto";
+try { view = localStorage.getItem("arp-view") || "auto"; } catch { /* a private window: just this time */ }
 
 function showView(v, scroll) {
   view = v;
-  try { localStorage.setItem("rp-view", v); } catch { /* fine */ }
-  $("view-checklist").hidden = v !== "checklist";
-  $("view-steps").hidden = v !== "steps";
-  $("tab-checklist").setAttribute("aria-selected", String(v === "checklist"));
-  $("tab-steps").setAttribute("aria-selected", String(v === "steps"));
+  try { localStorage.setItem("arp-view", v); } catch { /* fine */ }
+  for (const w of ["auto", "checklist", "steps"]) {
+    $("view-" + w).hidden = v !== w;
+    $("tab-" + w).setAttribute("aria-selected", String(v === w));
+  }
   if (v === "checklist") loadChecklist();
+  if (v === "auto") loadReady();
   if (scroll !== false) window.scrollTo(0, 0);
 }
+$("tab-auto").onclick = () => showView("auto");
 $("tab-checklist").onclick = () => showView("checklist");
 $("tab-steps").onclick = () => showView("steps");
 
@@ -1405,7 +1746,7 @@ function renderChecklist() {
 }
 
 async function start() {
-  showView(view === "steps" ? "steps" : "checklist", false);
+  showView(["auto", "steps", "checklist"].includes(view) ? view : "auto", false);
   loadChecklist();
   await refresh();
   try { mapfiles = await get("api/find-mapfiles"); } catch { mapfiles = []; }
@@ -1424,6 +1765,7 @@ async function start() {
     const running = busy();
     if (running || tick % 3 === 0) await refresh();
     if (tick % 5 === 0 && !running) loadChecklist();
+    if (tick % 15 === 0 && !running && view === "auto") loadReady();
     // Looking for disks plugged in: for a while after Get Windows ready, a
     // disk clicked, Protect or Switch on (not while a step reads the SSD).
     if (Date.now() < watchUntil && tick % 2 === 0 && !running) loadDisks();
