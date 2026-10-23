@@ -14,12 +14,14 @@
 //! Only Rust's standard library is used: no third-party code runs over the
 //! recovered files.
 
+pub mod autorepair;
 pub mod checklist;
 pub mod checks;
 pub mod cli;
 pub mod disk;
 pub mod exfat;
 pub mod fmt;
+pub mod extra;
 pub mod formats;
 pub mod gpt;
 pub mod guard;
@@ -36,6 +38,7 @@ pub mod selftest;
 pub mod sha256;
 pub mod sqlite;
 pub mod sys;
+pub mod tools;
 pub mod verify;
 pub mod walk;
 pub mod web;

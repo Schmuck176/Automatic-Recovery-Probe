@@ -114,6 +114,38 @@ pub fn parse_tsv(text: &str) -> Vec<MapItem> {
     out
 }
 
+/// "1000-1512; 9000-13096" -> [(1000, 1512), (9000, 13096)] (bytes of the file).
+pub fn parse_ranges(s: &str) -> Vec<(u64, u64)> {
+    s.split(';')
+        .filter_map(|r| {
+            let (a, b) = r.trim().split_once('-')?;
+            let (a, b): (u64, u64) = (a.trim().parse().ok()?, b.trim().parse().ok()?);
+            (b > a).then_some((a, b))
+        })
+        .collect()
+}
+
+/// The map check's line for a copy in WORK (its path from WORK's top, and
+/// its size): a file that lost data, with the same name (as the copying gave
+/// it) and size, and the most folders in common.
+pub fn item_for_copy<'a>(items: &'a [MapItem], rel: &str, size: u64) -> Option<&'a MapItem> {
+    let want = components(rel);
+    let name = want.last()?.clone();
+    let plain = without_number(&name);
+    let mut best: Option<(usize, &MapItem)> = None;
+    for it in items.iter().filter(|i| i.kind == "DAMAGED" && i.size == size) {
+        let k = it.name_key();
+        if k != name && plain.as_deref() != Some(k.as_str()) {
+            continue;
+        }
+        let tail = common_tail(&components(&it.path), &want);
+        if best.is_none_or(|(b, _)| tail > b) {
+            best = Some((tail, it));
+        }
+    }
+    best.map(|b| b.1)
+}
+
 /// A file the scan saw that might be a copy of a map-check file.
 #[derive(Clone, Debug)]
 pub struct Seen {
