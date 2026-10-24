@@ -1499,6 +1499,18 @@ fn ready_json(app: &Arc<Mutex<App>>) -> String {
     let crash = crate::winset::restarts_after_crash();
     let aim_driver = crate::winset::aim_driver_installed();
     let aim_setup = find_aim_setup(&home);
+    // The folders Defender leaves alone already (it says only to an
+    // administrator): the image folder and SPARE, by hand or by the program.
+    let defender_has: Vec<String> = if elevated && cfg!(windows) {
+        let ex = crate::winset::defender_exclusions().unwrap_or_default();
+        let spare_root = |w: &str| if w.len() >= 2 && w.as_bytes()[1] == b':' { format!("{}\\", &w[..2]) } else { w.to_string() };
+        [image_dir.clone(), spare_root(&work)]
+            .into_iter()
+            .filter(|f| !f.trim().is_empty() && crate::winset::is_excluded(&ex, Path::new(f.trim())))
+            .collect()
+    } else {
+        Vec::new()
+    };
     // Folders to suggest: the biggest NTFS drive that is not Windows' own
     // disk's system drive... in practice the PC's second drive, for the image
     // and the second copy; a drive labelled SPARE for the copies.
@@ -1520,6 +1532,7 @@ fn ready_json(app: &Arc<Mutex<App>>) -> String {
         .raw("restart_pending", opt_bool(restart))
         .raw("restarts_after_crash", opt_bool(crash))
         .raw("aim_driver", opt_bool(aim_driver))
+        .raw("defender_has", &strings(defender_has.iter()))
         .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
         .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
         .raw("tools", &crate::tools::status_json(&home))

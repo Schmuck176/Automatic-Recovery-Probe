@@ -34,7 +34,11 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
-    // 2026-10-24 (1): AIM Toolkit's "Try it".
+    // 2026-10-24 (1): AIM Toolkit's "Try it"; the hand-made Defender exclusion.
+    (
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, Finalise took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+    ),
     (
         "**AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again. (Without it everything still works, but the map check can't check itself against Windows' own reading.)",
         "**AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *\"AIM Toolkit works\"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)",

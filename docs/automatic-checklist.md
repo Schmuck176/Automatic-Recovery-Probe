@@ -97,7 +97,7 @@ are, with a glitch where data was lost, are not handed off: nothing can bring th
 - [ ] **✅ The final check — both copies** — this ticks when Finalise's checks of both copies pass.
 - [ ] Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.
 - [ ] The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.
-- [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; AutoPlay back on if you want it. Then reconnect and let Windows catch up.
+- [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, Finalise took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
 
 ---
 

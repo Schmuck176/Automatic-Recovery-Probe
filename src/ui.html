@@ -1392,7 +1392,10 @@ function renderAuto() {
       items.push([READY.restarts_after_crash === false ? true : null, "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "It does not restart by itself.", READY.restarts_after_crash ? '<button class="second" data-act="crash-restart-off">Turn that off</button>' : ""]);
       items.push([READY.policy_to_restore ? true : null, "New disks arrive switched off", READY.policy_to_restore ? "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again." : "Not yet: the rehearsal (next) sets it.", ""]);
       const added = setting("defender_added");
-      items.push([added ? true : null, "Defender leaves the image folder and SPARE alone (optional)", added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file.", !added && (setting("auto_image_dir") || setting("auto_work")) ? '<button class="second" data-defender="1">Exclude them</button>' : ""]);
+      const has = READY.defender_has || [];
+      const wanted = [setting("auto_image_dir"), setting("auto_work")].filter((x) => x).length;
+      const allHas = wanted > 0 && has.length >= wanted;
+      items.push([added || allHas ? true : null, "Defender leaves the image folder and SPARE alone (optional)", added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : allHas ? "Excluded already: " + has.join(", ") + "." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file." + (has.length ? " (Excluded already: " + has.join(", ") + ".)" : ""), !added && !allHas && (setting("auto_image_dir") || setting("auto_work")) ? '<button class="second" data-defender="1">Exclude them</button>' : ""]);
       const aim = (READY.tools || []).find((x) => x.key === "aim");
       const aimOk = !!(aim && aim.path && READY.aim_driver);
       const tried = setting("aim_test");
