@@ -20,7 +20,10 @@ const TEMP_NAME: &str = "~arp-copying.tmp";
 
 /// Copy a folder's files into another, with their dates; a file already
 /// there with the same size and modified time is left as it is (so a copying
-/// that was stopped carries on). Returns (files, bytes) copied this time.
+/// that was stopped carries on), unless `always` says otherwise: a repaired
+/// version put back into WORK has its original's size (an intact twin) and
+/// dates, so only its contents tell it from the damaged copy. Returns
+/// (files, bytes) copied this time.
 pub(super) fn copy_tree(
     from: &Path,
     to: &Path,
@@ -28,6 +31,7 @@ pub(super) fn copy_tree(
     stop: &dyn Fn() -> bool,
     total: u64,
     done: &mut u64,
+    always: &dyn Fn(&Path) -> bool,
 ) -> Result<(u64, u64), String> {
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -46,7 +50,7 @@ pub(super) fn copy_tree(
         let d = dst.join(&name);
         let ft = e.file_type().map_err(|err| format!("could not read {}: {err}", s.display()))?;
         if ft.is_dir() {
-            let (f, b) = copy_tree(&s, &d, progress, stop, total, done)?;
+            let (f, b) = copy_tree(&s, &d, progress, stop, total, done, always)?;
             files += f;
             bytes += b;
             if let Ok(m) = std::fs::metadata(&s) {
@@ -59,7 +63,7 @@ pub(super) fn copy_tree(
         }
         let m = std::fs::metadata(&s).map_err(|err| format!("could not read {}: {err}", s.display()))?;
         if let Ok(dm) = std::fs::metadata(&d) {
-            if dm.len() == m.len() && dm.modified().ok() == m.modified().ok() {
+            if dm.len() == m.len() && dm.modified().ok() == m.modified().ok() && (!always(&s) || same_contents(&s, &d)) {
                 *done += m.len();
                 progress(*done, total);
                 continue;
@@ -80,6 +84,12 @@ pub(super) fn copy_tree(
         progress(*done, total);
     }
     Ok((files, bytes))
+}
+
+/// The same bytes in both files.
+fn same_contents(a: &Path, b: &Path) -> bool {
+    let (Ok(x), Ok(y)) = (crate::sha256::file_hex(a, &|| false), crate::sha256::file_hex(b, &|| false)) else { return false };
+    x.is_some() && x == y
 }
 
 fn set_times(p: &Path, m: &std::fs::Metadata) {
@@ -156,7 +166,7 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
     ctx.line(&format!("- RECORDS: the results, the mapfile and the checklists, into {}", records.display()));
     let mut none = |_: u64, _: u64| {};
     let mut d = 0u64;
-    copy_tree(&results, &records.join("results"), &mut none, &|| ctx.stopping(), 0, &mut d)?;
+    copy_tree(&results, &records.join("results"), &mut none, &|| ctx.stopping(), 0, &mut d, &|_| false)?;
     if Path::new(&map).is_file() {
         let _ = std::fs::copy(&map, records.join(Path::new(&map).file_name().unwrap_or_default()));
     }
@@ -203,8 +213,16 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
         ctx.line(&format!("- The second copy: {} into {copy2}", crate::fmt::size(total)));
         let mut done = 0u64;
         let mut copied = (0u64, 0u64);
+        // Every file put back into WORK (or put back and undone): compared by
+        // its contents, not by its size and dates, which are its original's.
+        let returned: std::collections::HashSet<String> = crate::repair::returned_now(&work).into_keys().collect();
+        let in_work = |p: &Path| {
+            crate::repair::relative_to(&work, &p.display().to_string().replace('/', "\\"))
+                .is_some_and(|r| returned.contains(&r.to_lowercase()))
+        };
         for (from, to) in &parts {
-            let (f, b) = copy_tree(from, to, &mut |d, t| ctx.amount(d, t), &|| ctx.stopping(), total, &mut done)?;
+            let always: &dyn Fn(&Path) -> bool = if from == &work { &in_work } else { &|_| false };
+            let (f, b) = copy_tree(from, to, &mut |d, t| ctx.amount(d, t), &|| ctx.stopping(), total, &mut done, always)?;
             copied.0 += f;
             copied.1 += b;
             if ctx.stopping() {
@@ -347,15 +365,27 @@ mod tests {
         std::fs::File::options().write(true).open(a.join("b.txt")).unwrap().set_modified(old).unwrap();
         let b = base.join("COPY 2").join("WORK");
         let mut done = 0;
-        let (f, n) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done).unwrap();
+        let (f, n) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done, &|_| false).unwrap();
         assert_eq!((f, n), (2, 5005));
         assert_eq!(std::fs::read(b.join("b.txt")).unwrap(), b"hello");
         assert_eq!(std::fs::metadata(b.join("b.txt")).unwrap().modified().unwrap(), old);
         // Again: nothing to copy.
         let mut done = 0;
-        let (f, _) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done).unwrap();
+        let (f, _) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done, &|_| false).unwrap();
         assert_eq!(f, 0);
         assert_eq!(done, 5005);
+        // A repaired version put back in place of b.txt: the same size and
+        // dates as before, so only a file named as put back is compared, and
+        // copied again.
+        std::fs::write(a.join("b.txt"), b"HELLO").unwrap();
+        std::fs::File::options().write(true).open(a.join("b.txt")).unwrap().set_modified(old).unwrap();
+        let mut done = 0;
+        let (f, _) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done, &|_| false).unwrap();
+        assert_eq!(f, 0, "size and dates alone can't tell");
+        let put_back = |p: &Path| p.file_name().is_some_and(|n| n == "b.txt");
+        let (f, _) = copy_tree(&a, &b, &mut |_, _| {}, &|| false, 5005, &mut done, &put_back).unwrap();
+        assert_eq!(f, 1);
+        assert_eq!(std::fs::read(b.join("b.txt")).unwrap(), b"HELLO");
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -97,6 +97,9 @@ pub struct HandedOff {
     pub own: Vec<String>,
     /// Open or play as they are; nothing to do.
     pub nothing: Vec<(String, String)>,
+    /// Read whole from the old drive, so exactly as they were on it (a
+    /// checking tool found something in them that was so already).
+    pub as_before: Vec<(String, String)>,
 }
 
 /// Copy everything still damaged into REPAIR\hand-off, sorted by who can
@@ -125,7 +128,12 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
             Next::Paid => FOR_PAID,
             Next::OwnApp => FOR_OWN,
             Next::Nothing => {
-                o.nothing.push((item.path.clone(), a.map(|a| a.how.clone()).unwrap_or_default()));
+                let how = a.map(|a| a.how.clone()).unwrap_or_default();
+                if how.contains(autorepair::READ_WHOLE) {
+                    o.as_before.push((item.path.clone(), how));
+                } else {
+                    o.nothing.push((item.path.clone(), how));
+                }
                 continue;
             }
             Next::Done => continue,
@@ -250,6 +258,16 @@ fn write_readmes(root: &Path, o: &HandedOff) -> Result<(), String> {
             o.nothing.len()
         ));
         for (p, why) in &o.nothing {
+            t.push_str(&format!("  {p}: {why}\n"));
+        }
+    }
+    if !o.as_before.is_empty() {
+        t.push_str(&format!(
+            "\nNot handed off either ({}): every byte of them was read from the old drive, so they are exactly as they \
+             were on it. A checking tool found something in them that was so already:\n",
+            o.as_before.len()
+        ));
+        for (p, why) in &o.as_before {
             t.push_str(&format!("  {p}: {why}\n"));
         }
     }
@@ -511,6 +529,13 @@ pub fn summary(o: &HandedOff) -> Vec<String> {
             "{} more open or play as they are, with a glitch where data was lost: nothing can bring that part back, so they \
              are not handed off.",
             commas(o.nothing.len() as u64)
+        ));
+    }
+    if !o.as_before.is_empty() {
+        t.push(format!(
+            "{} more are exactly as they were on the old drive (every byte was read): what a checking tool found in them was \
+             so already, so they are not handed off.",
+            commas(o.as_before.len() as u64)
         ));
     }
     t

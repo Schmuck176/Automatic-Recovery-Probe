@@ -45,8 +45,9 @@ The user's answers (23 Oct, 15:05):
 - No Windows target: static.rust-lang.org and crates.io are blocked, so
   Windows-only code is checked by GitHub's Windows run only. Keep it small and
   in few places (win.rs, guard.rs, tools.rs's Windows parts).
-- GitHub release pages/assets cannot be fetched from the shell (403); WebFetch
-  can read pages. Git clones of public repos work.
+- GitHub release assets could be fetched from the shell on 23 Oct (qpdf's
+  Linux builds, to test qpdf 12 here); PyPI could not. Git clones of public
+  repos work; building code cloned from elsewhere was not allowed.
 - Here: ffmpeg, qpdf, ImageMagick 6 (`convert`), zip/unzip. Not here: 7z,
   mp3val, untrunc (the Linux CI run installs them with apt / builds untrunc).
 
@@ -82,78 +83,56 @@ The user's answers (23 Oct, 15:05):
   (paid tools / Mac script / Bring back), finalise.rs (RECORDS, verified
   COPY 2, final checks), an "Automatic" tab on the page.
 
-## Plan and progress
+## Done (23 Oct 2026)
 
-- [x] Repo set up from Recovery-Probe's whole history (main = the foundation,
-      Recovery-Probe 2026-10-22 (1) plus this README); renamed; tests pass.
-- [x] tools.rs (find/run, qpdf download with pinned SHA-256 - not yet tried on
-      Windows: CI and the PC will tell).
-- [x] web/auto.rs: Start's stages, resumable, waits for the SSD / SPARE,
-      protects the SSD, AIM mount (aim.rs; syntax from Arsenal's
-      ConsoleAppImplementation.cs: --mount --readonly --online --filename=
-      --background; --dismount=NNNNNN --force), stops on the map check's red
-      flags. The Automatic tab in ui.html.
-- [x] extra.rs, autorepair.rs, handoff.rs (Mac script, Bring back),
-      web/finalise.rs (RECORDS, COPY 2, both checks, image check, settings).
-- [x] New checklist docs/automatic-checklist.md (30 boxes) and
-      docs/automatic-manifest.md, built in under their own names
-      (automatic-recovery-checklist.md, automatic-download-manifest.md,
-      results\automatic-checklist-ticks.txt, settings auto_checklist_copy_*);
-      Recovery Probe's own checklist copy in Obsidian is never touched.
-- [x] Tests here (Linux): unit 99, self-test, tools/auto_check.py 48/48 (FFmpeg
-      and qpdf here), tools/auto_ui_check.js 14/14, tools/ui_check.js 64/64.
-- [x] CI run 39978253835 (750bb9f): Windows compiled the Windows-only code
-      and passed unit tests, self-test, map check tests, Windows checks,
-      protection, unplugged; Linux with every tool (7-Zip 23.01, FFmpeg 6.1.1,
-      MP3val 0.1.8, qpdf 11.9.0, untrunc v1-9d86ec9 built from source) passed
-      auto_check 50/51: untrunc rebuilt the MOV with IMG_0001.MOV as pattern,
-      MP3val the MP3, qpdf the PDF (new trailer); the docx miss was the test's
-      own damage cutting into the only member (now a many-part docx whose
-      index fills whole sectors).
-- [x] After that run: tools get a short-named working copy (input.<ext>);
-      extra checks remember what they checked (results\extra-checks-done.tsv)
-      so a stopped run carries on; a check flagging >30% (and >=30) of one
-      kind is set aside as the tool's limit, not damage; the self-test checks
-      the repairs needing no tool; Defender exclusion button; the first copy
-      of the checklist goes beside Recovery Probe's in Obsidian; the copy
-      stage says where SPARE is if its letter changed.
-- [x] Run 39978253835 also showed on Windows (48/49) and Linux that 7-Zip
-      always reports "Headers Error" (exit code 2) for a zip whose index is
-      lost, so the rebuild was always called a salvage. Now (138b5e5) a
-      rebuild counts as repaired when 7-Zip names no part as failed (its
-      "ERROR: CRC Failed : <part>" lines; its errors about the zip as a whole
-      don't count) and the zip's own local headers, walked from the start
-      (autorepair.rs zip_walk), lead to the index with none missing.
-      Read from 7-Zip 26.05's source (ZipIn.cpp LOCALS-CD-MODE,
-      ExtractCallbackConsole.cpp): building it here was not allowed.
-- [x] Windows CI now also uses untrunc's own Windows build (anthwlock
-      release "latest", the PC has untrunc_x64 with FFmpeg 3.x DLLs) and
-      MP3val 0.1.8 for Windows, and tools/download_check.py downloads qpdf
-      for real (0326a6e).
-- [x] qpdf 12 (fa75606): it rebuilds a PDF whose end was lost without a
-      trailer, but leaves the trailer without /Size, so its own check still
-      warns. fix_pdf now also tries the new trailer when the plain rebuild is
-      not clean (only where no startxref is left), keeping the best. Checked
-      here with qpdf 11.9, 12.3.2 and 12.4.2 (official Linux builds, SHA-256s
-      as qpdf publishes them; 12.3.2-msvc64's matches DOWNLOADS too).
-- [x] The page tests pick a system-given port (Windows keeps ranges such as
-      47001-... for Hyper-V/WinNAT: os error 10013); the program notes a
-      fallback port in %TEMP%\automatic-recovery-probe-port.txt so a second
-      double-click finds the running copy (934abf0).
-- [x] CI run 40016273279 (934abf0), all green. Windows: unit tests 103,
-      self-test, map check tests 43/43, Windows checks 19/19, protection
-      20/20, unplugged 35/35, page 65/65, qpdf download 6/6, automatic 51/51
-      (7-Zip 26.04, FFmpeg 9.0.2, qpdf 12.3.2 as downloaded by the program,
-      untrunc v1-9d86ec9 Windows build, MP3val 0.1.8), Automatic tab 14/14.
-      Linux: all green (map check 93/93, kernel exFAT 23/23, automatic 51/51).
-- [x] Delivered 23 Oct 2026, 21:31 BST: C:\RECOVERY-TOOLS\automatic-recovery-probe.exe,
-      5,231,104 bytes, SHA-256
-      1d7dda80efeb5e09078b682f14af730ec327c91ff1fe5483129e783993ecdd04
-      (staged back and compared). main moved to dev; the foundation main is
-      kept as branch version-2026-10-22-1.
-- [ ] On the PC (the user): double-click it, the self-test, Get ready
-      (Install AIM Toolkit, Download qpdf), then the checklist in Obsidian
-      (automatic-recovery-checklist.md, written there on the first run).
+Built and tested (unit tests, self-test, tools/auto_check.py on a damaged disk
+of real media, the page tests, on GitHub's Windows machine with the PC's own
+tool builds and on Linux), then delivered: version 2026-10-23 (1), CI run
+40016273279, C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, SHA-256
+1d7dda80efeb5e09078b682f14af730ec327c91ff1fe5483129e783993ecdd04; main moved
+to it (the foundation is kept as branch version-2026-10-22-1). Things learnt
+on the way, kept in the code's comments: 7-Zip always reports "Headers Error"
+for a zip whose index is lost (autorepair.rs zip_walk judges the rebuild);
+qpdf 12 rebuilds a PDF whose end was lost without a trailer but leaves the
+trailer without /Size (fix_pdf also tries a new trailer); Windows keeps port
+ranges for itself (tests take a system-given port; the program notes a
+fallback port in %TEMP%).
+
+## 24 Oct 2026: the user's PC, and a review
+
+On the PC (11:07-11:08 BST): Check this PC, the self-test (passed, with the
+repairs needing no tool), Install AIM Toolkit (C:\Program Files\AIM Toolkit),
+Download qpdf (12.3.2, checked) - all done by the user. Then asked for a bug
+hunt and a clean-up of the repository. Found and fixed:
+
+- The evaluation counted only what the latest check flagged: after the
+  repairs it said "7 damaged, 5 put back" where the repairs said 9 and 7.
+  Every file copied out is now counted.
+- AIM's mount was left open if the program closed between "open" and the
+  map check (the device number is now kept in the settings and closed next
+  time), a Stop while waiting for the drive letter marked "open" skipped for
+  good, and a map check carried on after a stop ran without the comparison
+  with Windows (now "open" runs again first).
+- The repairs' log was written only at the end of the stage: a power cut lost
+  it, and a salvage made before the cut then failed as "already there". Each
+  attempt is logged at once; a salvage already there is kept.
+- Files the old drive gave up whole (no never-read place, per the map check)
+  and found only by a checking tool: the tool's complaint was there before
+  the failure (or is the tool's limit). They are still tried, but a tool's
+  version is kept in REPAIR\salvaged (not put in their place), they are never
+  handed off, and the reports say so. The doubt rule weighs only those files
+  (at least 10 and over 3% of a kind: the tool's limit). FFmpeg's complaints
+  about a photo's EXIF, ICC or APP data are not damage. 7-Zip's exit code 0
+  is trusted over words in the archive's path ("Error reports\x.zip").
+- The extra checks reused an old verdict for a file put back with its
+  original's size and dates (an intact twin): those are checked again.
+- The second copy skipped a put-back file with its original's size and dates:
+  put-back files are now compared by contents.
+- tools/resume_check.py: Start stopped and killed at random in every stage,
+  carried on each time, must end as one unbroken run (CI, both systems).
+- Clean-up: unused test seeds and Recovery Probe's own docs removed (its
+  README kept for the steps tab, with a note); .gitignore and tools/README
+  brought up to date; builds skipped for notes-only changes.
 
 ## Not done / ideas for later
 

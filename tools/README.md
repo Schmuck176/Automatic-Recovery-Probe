@@ -1,9 +1,9 @@
 # Test tools
 
 None of these is part of the program, and none is needed to run it: the
-program is `recovery-probe.exe` alone. They are how every change is shown to
-be safe before it reaches the person's PC, and GitHub runs them on every push
-to `dev` (`.github/workflows/build.yml`).
+program is `automatic-recovery-probe.exe` alone. They are how every change is
+shown to be safe before it reaches the person's PC, and GitHub runs them on
+every push to `dev` (`.github/workflows/build.yml`).
 
 Most are Python on purpose. They work out the right answers a second,
 separate way - from what a test disk was built to hold, or from what Windows
@@ -21,5 +21,9 @@ same mistake in its test.
 | `make_big_disk.py` | A test disk with very many files, for timing and for `dropout_check.py`. |
 | `make_selftest_disk.py` | Makes the small damaged disk the program's own self-test carries (`src/selftest/`); GitHub checks the committed one is exactly what it makes. |
 | `ui_check.js` | The page in a real browser (Chromium, through Playwright), the way a person uses it: every step, the safety checks and the checklist, at desktop and phone size. |
+| `auto_check.py` | Start, Bring back and Finalise, through the page's own API, on a damaged test disk of real media made with FFmpeg (videos from one camera with one's index lost, photos cut short, with a hole, with an intact twin, a RAW, MP3, FLAC, a PDF and a Word file that lost their ends, an MP3 broken before the drive failed): every stage, every repair and every file in WORK checked against what must happen with the tools present. |
+| `resume_check.py` | The same Start, stopped and killed outright at random moments in every stage and started again each time: it must end exactly as one run without a break. |
+| `auto_ui_check.js` | The Automatic tab in a real browser: Get ready, the folders, Start, What is left, Finalise. |
+| `download_check.py` | Get ready's qpdf download, for real (Windows): from qpdf's GitHub release, checked by size and SHA-256, unpacked into the program's own tools folder. |
 
 The sample files the self-test checks are in `tests/seeds/`.

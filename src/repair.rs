@@ -1580,6 +1580,9 @@ pub struct Evaluation {
 const STATE_BACK: &str = "repaired and put back";
 const STATE_WAITING: &str = "copied out, waiting to be repaired";
 const STATE_NOT_YET: &str = "not copied out yet: copy the damaged files out";
+const STATE_AS_BEFORE: &str =
+    "left as it was: every byte of it was read from the old drive, so it is exactly as it was on it (a checking tool found \
+     something in it that was so already)";
 
 fn verdict_for(p: &PackageReport) -> String {
     if p.damaged == 0 {
@@ -1647,10 +1650,26 @@ pub fn evaluate(
 ) -> Result<Evaluation, String> {
     let repair = repair_dir(work)?;
     let mut ev = Evaluation::default();
-    let (damaged, _) = collect_damaged(work, scans, &repair);
+    let (mut damaged, _) = collect_damaged(work, scans, &repair);
     let items = read_list(&repair)?;
     let isolated: HashSet<String> = items.iter().map(|i| i.path.to_lowercase()).collect();
+    // A file copied out to repair is one of the damaged files, even when the
+    // latest check no longer finds anything wrong with it (because what was
+    // put back in its place checks out).
+    {
+        let have: HashSet<String> = damaged.iter().map(|d| d.path.to_lowercase()).collect();
+        for i in items.iter().filter(|i| !i.package && !have.contains(&i.path.to_lowercase())) {
+            damaged.push(Damaged { path: i.path.clone(), why: vec![i.why.clone()], only_unreadable: false });
+        }
+    }
     let back = returned_now(work);
+    // Read whole from the old drive, and found only by a checking tool: the
+    // automatic repairs left those as they were (their log says so).
+    let as_before: HashSet<String> = crate::autorepair::read_log(&repair)
+        .into_iter()
+        .filter(|a| a.fate != crate::autorepair::Fate::Repaired && a.how.contains(crate::autorepair::READ_WHOLE))
+        .map(|a| a.path.to_lowercase())
+        .collect();
     // Every package in WORK, with its size (the outermost one, where one is
     // inside another).
     progress("Looking for packages (libraries, apps, documents kept as folders) in WORK...");
@@ -1726,6 +1745,8 @@ pub fn evaluate(
         let key = unit.to_lowercase();
         if back.get(&key).is_some_and(|n| n.repaired) {
             STATE_BACK
+        } else if as_before.contains(&key) {
+            STATE_AS_BEFORE
         } else if isolated.contains(&key) {
             STATE_WAITING
         } else {
@@ -1756,6 +1777,7 @@ pub fn evaluate(
         };
         match &plan {
             Plan::Isolate { .. } if state == STATE_BACK => ev.put_back += 1,
+            Plan::Isolate { .. } if state == STATE_AS_BEFORE => ev.left += 1,
             Plan::Isolate { .. } => ev.waiting += 1,
             Plan::Leave(_) => ev.left += 1,
         }

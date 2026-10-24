@@ -1,5 +1,11 @@
 # Recovery Probe
 
+> **This is Recovery Probe's own README** (version 2026-10-22 (1)), kept for its description of the
+> program's steps: Automatic Recovery Probe is built from it, and the **steps** tab is these steps.
+> Recovery Probe's 130-box checklist and download manifest are in its own repository
+> (Schmuck176/Recovery-Probe) and, with the ticks, in Obsidian on the PC; this program has its own,
+> `docs/automatic-checklist.md` and `docs/automatic-manifest.md`.
+
 A Windows program for getting files back off a ddrescue copy safely, and
 finding every bit of damage in them — including the kind that opens fine and
 looks normal.

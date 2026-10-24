@@ -1190,6 +1190,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             Ok(format!("\"message\":{}", json_str(&format!("Defender now leaves {} alone (Finalise takes this off again).", folder.trim()))))
         }),
         "aim-install" => need_admin(app).and_then(|_| aim_install(app)).map(|m| format!("\"message\":{}", json_str(&m))),
+        "aim-test" => auto::start_aim_test(app).map(|id| format!("\"job\":{id}")),
         other => Err(format!("unknown action {other:?}")),
     };
     match r {

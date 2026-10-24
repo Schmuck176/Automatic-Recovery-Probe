@@ -49,4 +49,4 @@ pub mod winset;
 
 pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-23 (1)";
+pub const VERSION: &str = "2026-10-24 (1)";

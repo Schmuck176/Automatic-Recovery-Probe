@@ -641,11 +641,19 @@ fn stage_open(app: &Arc<Mutex<App>>, ctx: &Ctx) -> Result<End, String> {
     if crate::winset::aim_driver_installed() == Some(false) {
         return skip("AIM Toolkit's driver is not installed");
     }
+    // Opened before, by a copy of the program that was then closed: closed
+    // first, so the image is never open twice.
+    close_image(app);
     ctx.line(&format!("Opening {image} read-only with AIM Toolkit..."));
     let m = match crate::aim::mount_read_only(&exe, Path::new(&image), &|| ctx.stopping()) {
         Ok(m) => m,
         Err(e) => return skip(&format!("AIM Toolkit could not open the image ({e})")),
     };
+    {
+        let mut a = lock(app);
+        a.settings.insert("aim_device".to_string(), m.device.clone());
+        a.save();
+    }
     *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened { exe, device: m.device.clone() });
     // Windows gives the volume a letter in a moment.
     let serial = crate::disk::open_source(&image)
@@ -659,8 +667,12 @@ fn stage_open(app: &Arc<Mutex<App>>, ctx: &Ctx) -> Result<End, String> {
         if let Some(s) = serial {
             letter = crate::sys::drive_for_serial(s);
         }
-        if letter.is_some() || !sleep_or_stop(ctx, 1) {
+        if letter.is_some() {
             break;
+        }
+        if !sleep_or_stop(ctx, 1) {
+            close_image(app);
+            return Ok(End::Stopped);
         }
     }
     match letter {
@@ -670,17 +682,51 @@ fn stage_open(app: &Arc<Mutex<App>>, ctx: &Ctx) -> Result<End, String> {
             m.device
         )])),
         None => {
-            *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            close_image(app);
             skip("Windows gave the image's volume no drive letter")
         }
     }
+}
+
+/// Close the image AIM Toolkit opened: this copy of the program's, or one
+/// left open by a copy that was closed before it could close it (aim_cli
+/// keeps serving the image by itself until it is told to stop).
+fn close_image(app: &Arc<Mutex<App>>) {
+    let opened = OPENED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let left = lock(app).setting("aim_device");
+    match opened {
+        // (Dropping it closes it.)
+        Some(o) => drop(o),
+        None if !left.is_empty() => {
+            let home = lock(app).home.clone();
+            if let Some(exe) = crate::tools::find(crate::tools::Tool::AimCli, &home) {
+                let _ = crate::aim::dismount(&exe, &left);
+            }
+        }
+        None => return,
+    }
+    let mut a = lock(app);
+    a.settings.remove("aim_device");
+    a.save();
 }
 
 fn stage_mapcheck(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     let image = image_done(app).ok_or("there is no checked image to read")?;
     let r = run_map_check(app, ctx, plan, &image);
     // Closed again whatever happened.
-    *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    close_image(app);
+    if !matches!(r, Ok(End::Done(_))) {
+        // Opened again when Start carries on, so the map check can still
+        // check itself against Windows then.
+        {
+            let mut a = lock(app);
+            let open = a.auto.get("open");
+            if open.state == "done" {
+                open.state = "pending".to_string();
+            }
+        }
+        save_state(app);
+    }
     r
 }
 
@@ -869,18 +915,26 @@ fn stage_scan(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, key: &str) -> Resul
 }
 
 fn stage_extra(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
-    let (home, results) = {
+    let (home, results, map_check) = {
         let a = lock(app);
-        (a.home.clone(), a.results.clone())
+        (a.home.clone(), a.results.clone(), a.setting("last_map_check"))
     };
     let started = local_now();
     let t = Instant::now();
     let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).div_ceil(2).clamp(1, 4);
+    // The map check's list of the files the damage touched: a tool's
+    // findings among the files read whole are weighed against how many it
+    // flags (extra.rs).
+    let map_items = (!map_check.is_empty())
+        .then(|| std::fs::read_to_string(Path::new(&map_check).join(crate::join::TSV_NAME)).ok())
+        .flatten()
+        .map(|t| crate::join::parse_tsv(&t));
     let opts = extra::Options {
         work: PathBuf::from(&plan.work),
         videos: plan.videos,
         jobs,
         done_list: Some(results.join("extra-checks-done.tsv")),
+        map_items,
     };
     ctx.line("- The extra checks");
     let stop = ctx.stop.clone();
@@ -1098,6 +1152,111 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
         summary.extend(handoff::summary(&h));
     }
     Ok(Outcome { summary, ..Default::default() })
+}
+
+// ---------------------------------------------------------------- AIM Toolkit, tried
+
+/// Get ready's "Try it": AIM Toolkit opens the self-test's small disk image
+/// read-only, Windows gives its volume a letter and reads it, nothing can be
+/// written to it, and it is closed again - before Start relies on it with
+/// the real image.
+pub(super) fn start_aim_test(app: &Arc<Mutex<App>>) -> Result<u64, String> {
+    need_admin(app)?;
+    let (home, results) = {
+        let a = lock(app);
+        (a.home.clone(), a.results.clone())
+    };
+    let exe = crate::tools::find(crate::tools::Tool::AimCli, &home).ok_or("AIM Toolkit is not installed yet (Install AIM Toolkit first)")?;
+    let app2 = app.clone();
+    start_job(app, "aimtest", "Trying AIM Toolkit on a test image", move |ctx| {
+        let r = aim_test(ctx, &exe, &results);
+        let (ok, lines) = match &r {
+            Ok(lines) => (true, lines.clone()),
+            Err(lines) => (false, lines.clone()),
+        };
+        {
+            let mut a = lock(&app2);
+            a.settings.insert("aim_test".to_string(), if ok { "passed" } else { "failed" }.to_string());
+            a.settings.insert("aim_test_text".to_string(), lines.first().cloned().unwrap_or_default());
+            a.save();
+        }
+        Ok(Outcome {
+            summary: lines.clone(),
+            problem: (!ok).then(|| lines.first().cloned().unwrap_or_default()),
+            data: Obj::new().b("passed", ok).end(),
+            ..Default::default()
+        })
+    })
+}
+
+fn aim_test(ctx: &Ctx, exe: &Path, results: &Path) -> Result<Vec<String>, Vec<String>> {
+    let fail = |why: String| Err(vec![why]);
+    let img = results.join("aim-test.img");
+    let disk = crate::selftest::disk_image().map_err(|e| vec![e])?;
+    let _ = std::fs::create_dir_all(results);
+    if let Err(e) = std::fs::write(&img, &disk) {
+        return fail(format!("the test image could not be written to {} ({e})", img.display()));
+    }
+    let serial = crate::disk::open_source(&img.display().to_string()).ok().and_then(|src| {
+        let table = crate::gpt::read(&*src, &[]);
+        crate::mapcheck::find_volume_quick(&*src, &table).ok().map(|(v, _)| v.serial)
+    });
+    ctx.line(&format!("Opening {} read-only with AIM Toolkit...", img.display()));
+    let m = match crate::aim::mount_read_only(exe, &img, &|| ctx.stopping()) {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = std::fs::remove_file(&img);
+            return fail(format!("AIM Toolkit could not open the test image: {e}"));
+        }
+    };
+    ctx.line(&format!("Opened as device {}{}.", m.device, if m.read_only { ", read-only" } else { "" }));
+    let mut letter = None;
+    for _ in 0..30 {
+        letter = serial.and_then(crate::sys::drive_for_serial);
+        if letter.is_some() || !sleep_or_stop(ctx, 1) {
+            break;
+        }
+    }
+    let mut lines = Vec::new();
+    let mut problem = None;
+    match &letter {
+        Some(l) => {
+            let root = PathBuf::from(format!("{l}\\"));
+            let listed = std::fs::read_dir(&root).map(|rd| rd.flatten().count()).unwrap_or(0);
+            let probe = root.join("aim-test-write.tmp");
+            let written = std::fs::write(&probe, b"x").is_ok();
+            if written {
+                let _ = std::fs::remove_file(&probe);
+                problem = Some(format!("the test image opened as {l} but could be written to: AIM did not open it read-only"));
+            } else if listed == 0 {
+                problem = Some(format!("the test image opened as {l}, but Windows could list nothing on it"));
+            } else {
+                lines.push(format!(
+                    "AIM Toolkit works: it opened a test image read-only as {l}, Windows listed {listed} entries on it, nothing \
+                     could be written to it, and it was closed again. Start will use it the same way with the image."
+                ));
+            }
+        }
+        None => problem = Some("AIM Toolkit opened the test image, but Windows gave its volume no drive letter".to_string()),
+    }
+    match crate::aim::dismount(exe, &m.device) {
+        Ok(()) => {}
+        Err(e) => {
+            problem.get_or_insert(format!("the test image could not be closed again ({e}): restart the PC to close it"));
+        }
+    }
+    // Gone again (the letter goes in a moment).
+    for _ in 0..10 {
+        if letter.is_none() || serial.and_then(crate::sys::drive_for_serial).is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let _ = std::fs::remove_file(&img);
+    match problem {
+        Some(p) => Err(vec![p, format!("(AIM's device number was {}.)", m.device)]),
+        None => Ok(lines),
+    }
 }
 
 // ---------------------------------------------------------------- the rehearsal

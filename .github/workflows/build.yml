@@ -7,6 +7,13 @@ name: Build and test
 on:
   push:
     branches: [dev]
+    # Notes that are not part of the program need no build. (The checklist
+    # and the manifest in docs/ are built into the program: they do.)
+    paths-ignore:
+      - "README.md"
+      - "NEXT-STEPS.md"
+      - "tools/README.md"
+      - "docs/recovery-probe-README.md"
   pull_request:
   workflow_dispatch:
 permissions:
@@ -161,6 +168,15 @@ jobs:
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
           exit $status
+      - name: Start stopped and killed at random moments, carried on each time
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: |
+          set +e -o pipefail
+          python tools/resume_check.py target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/rc" 3 12 2>&1 | tee "$RUNNER_TEMP/report/85-resume.txt"
+          status=$?
+          echo "::notice title=Resume::$(tail -n 1 "$RUNNER_TEMP/report/85-resume.txt")"
+          exit $status
       - name: Publish the program and the report to the ci-windows branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
@@ -182,6 +198,8 @@ jobs:
           name: automatic-recovery-probe-windows
           path: target/release/automatic-recovery-probe.exe
           if-no-files-found: error
+          # (The ci-windows branch keeps the latest; these only need to last a while.)
+          retention-days: 14
   linux:
     name: Linux (more checks)
     runs-on: ubuntu-24.04
@@ -254,10 +272,20 @@ jobs:
       - name: The Automatic tab, in a real browser
         if: ${{ !cancelled() }}
         run: |
-          set -o pipefail
+          set +e -o pipefail
           node tools/auto_ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/aui" target/selftest-build/disk.img src/selftest/disk.map 2>&1 | tee "$RUNNER_TEMP/report/84-automatic-page.txt"
+          status=$?
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
+          exit $status
+      - name: Start stopped and killed at random moments, carried on each time
+        if: ${{ !cancelled() }}
+        run: |
+          set +e -o pipefail
+          python3 tools/resume_check.py target/release/automatic-recovery-probe "$RUNNER_TEMP/rc" 5 20 2>&1 | tee "$RUNNER_TEMP/report/85-resume.txt"
+          status=$?
+          echo "::notice title=Resume (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/85-resume.txt")"
+          exit $status
       - name: Publish the report to the ci-linux branch
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |

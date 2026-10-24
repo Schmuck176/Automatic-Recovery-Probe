@@ -1,8 +1,8 @@
 //! The recovery checklist, built into the program.
 //!
 //! `docs/automatic-checklist.md` is part of the program (Recovery Probe's own,
-//! longer one, `docs/recovery-checklist.md`, is not: the person's copy of it in
-//! Obsidian is left exactly as it is). The page shows it with
+//! longer one is not: the person's copy of it, `recovery-checklist.md` in
+//! Obsidian, is left exactly as it is). The page shows it with
 //! its tick boxes, and the ticks are kept in `results\automatic-checklist-ticks.txt`,
 //! each with when it was ticked (a box ticked by mistake is unticked the same
 //! way; the file keeps both).
@@ -32,14 +32,21 @@ pub const MANIFEST_NAME: &str = "automatic-download-manifest.md";
 pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 
 /// Lines whose wording changed since a checklist the person has ticked:
-/// (old, new), so a tick follows its line. (None yet.)
-const RENAMED: &[(&str, &str)] = &[];
+/// (old, new), so a tick follows its line.
+const RENAMED: &[(&str, &str)] = &[
+    // 2026-10-24 (1): AIM Toolkit's "Try it".
+    (
+        "**AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again. (Without it everything still works, but the map check can't check itself against Windows' own reading.)",
+        "**AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *\"AIM Toolkit works\"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)",
+    ),
+];
 
 /// Checklists and manifests delivered before (their text with ticks and Your
 /// numbers left out, hashed): a copy that is one of these, or the program's
-/// own, holds nothing the person wrote. (None yet: version 2026-10-23 (1) is
-/// the first.)
-const KNOWN_CHECKLISTS: &[u64] = &[];
+/// own, holds nothing the person wrote.
+const KNOWN_CHECKLISTS: &[u64] = &[
+    2884287995947329277, // 2026-10-23 (1)
+];
 const KNOWN_MANIFESTS: &[u64] = &[];
 
 /// One tick box.

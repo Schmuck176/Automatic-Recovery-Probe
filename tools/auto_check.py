@@ -130,6 +130,14 @@ def make_media(d):
     p = os.path.join(d, "track.flac")
     ff("-f", "lavfi", "-i", "sine=f=330:d=8", "-c:a", "flac", p)
     m["track.flac"] = open(p, "rb").read()
+    # An MP3 that was broken already on the old drive (a stretch of junk in
+    # the middle), every byte of it read: a checking tool finds it, but the
+    # drive's failure did not touch it, so it is left as it was.
+    g = bytearray(m["song.mp3"])
+    rng = random.Random(11)
+    mid = len(g) // 2
+    g[mid:mid + 3000] = rng.randbytes(3000)
+    m["old-glitch.mp3"] = bytes(g)
     m["report.pdf"] = pdf_bytes()
     m["report.docx"] = docx_bytes()
     m["notes.txt"] = b"Shopping list\r\n" * 300
@@ -149,6 +157,7 @@ def build_disk(work):
     v.add_file("RAW/IMG_0100.CR2", media["IMG_0100.CR2"])
     v.add_file("Music/song.mp3", media["song.mp3"])
     v.add_file("Music/track.flac", media["track.flac"])
+    v.add_file("Music/old-glitch.mp3", media["old-glitch.mp3"])  # broken before, read whole
     v.add_file("Documents/report.pdf", media["report.pdf"])
     v.add_file("Documents/report.docx", media["report.docx"])
     v.add_file("Documents/notes.txt", media["notes.txt"])
@@ -341,6 +350,13 @@ def main():
             check(fate("DCIM/IMG_0002.MOV") == "REPAIRED", "the video is rebuilt by untrunc")
         if tools["mp3val"]:
             check(fate("Music/song.mp3") in ("REPAIRED", "NOT REPAIRED"), "the MP3 is tried by MP3val")
+        # Broken before, read whole: tried, but left as it was, and not handed off.
+        og = log.get("Music/old-glitch.mp3", {})
+        check(fate("Music/old-glitch.mp3") in ("SALVAGED", "NOT REPAIRED") and "read from the old drive" in og.get("how", "")
+              and og.get("next") == "nothing",
+              "the MP3 broken before the drive failed is left as it was (%s, next %s)" % (fate("Music/old-glitch.mp3"), og.get("next")))
+        check(open(os.path.join(w, "Music", "old-glitch.mp3"), "rb").read() == media["old-glitch.mp3"],
+              "and WORK still holds it exactly as it was on the old drive")
         # Put back: every REPAIRED file is in WORK now, its original kept.
         rets = read_csv(os.path.join(w, "repair-returns.csv"))
         back = {r["path_in_work"].replace("\\", "/") for r in rets if r["action"] == "RETURNED"}

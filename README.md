@@ -109,5 +109,5 @@ Linux's own exFAT drivers, the disk protection, the page), plus:
 cargo build --release
 cargo test --release
 target/release/automatic-recovery-probe self-test
-python tools/auto_check.py target/release/automatic-recovery-probe work
+python tools/auto_check.py target/release/automatic-recovery-probe target/auto-check
 ```

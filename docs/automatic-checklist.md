@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-10-23 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-10-24 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -43,7 +43,7 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 - [ ] Unplug every USB drive. Double-click `automatic-recovery-probe.exe` → **Yes**. The page opens on **Automatic**.
 - [ ] **1. Get ready → Check this PC.** You want a ✓ for administrator rights, the mapfile (`1TB hard drive DDRescue-GUI second attempt.log`) and *Windows is not waiting to restart*. If it says Windows is waiting to restart: restart the PC now (no SSD plugged in), and start again.
 - [ ] **Run the self-test.** A few seconds: it must say *"Every check passed: the program works on this PC."*
-- [ ] **AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again. (Without it everything still works, but the map check can't check itself against Windows' own reading.)
+- [ ] **AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *"AIM Toolkit works"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)
 - [ ] **The tools:** 7-Zip, FFmpeg, MP3val and untrunc should show a version (you installed them). If **qpdf** shows **Download it**, click it (it comes from qpdf's own GitHub page, checked by its SHA-256), then **Check this PC** again.
 
 ---

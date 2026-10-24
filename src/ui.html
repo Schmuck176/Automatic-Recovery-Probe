@@ -1395,7 +1395,9 @@ function renderAuto() {
       items.push([added ? true : null, "Defender leaves the image folder and SPARE alone (optional)", added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file.", !added && (setting("auto_image_dir") || setting("auto_work")) ? '<button class="second" data-defender="1">Exclude them</button>' : ""]);
       const aim = (READY.tools || []).find((x) => x.key === "aim");
       const aimOk = !!(aim && aim.path && READY.aim_driver);
-      items.push([aimOk ? true : null, "AIM Toolkit, to open the image read-only", aimOk ? (aim.version || aim.path) : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.", !aimOk && READY.aim_setup ? '<button class="second" data-act="aim-install">Install AIM Toolkit</button>' : ""]);
+      const tried = setting("aim_test");
+      const aimText = !aimOk ? "" : tried === "passed" ? setting("aim_test_text") : tried === "failed" ? "Tried, and it did not work: " + setting("aim_test_text") + " Start still works without it (the map check then cannot check itself against Windows)." : "Installed (" + aim.path + "). Try it once on a small test image before Start relies on it.";
+      items.push([aimOk ? (tried === "failed" ? false : tried === "passed" ? true : null) : null, "AIM Toolkit, to open the image read-only", aimOk ? aimText : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.", !aimOk && READY.aim_setup ? '<button class="second" data-act="aim-install">Install AIM Toolkit</button>' : aimOk && tried !== "passed" ? '<button class="second" data-aimtest="1">Try it</button>' : ""]);
     }
     for (const x of READY.tools || []) {
       if (x.key === "aim") continue;
@@ -1518,6 +1520,7 @@ $("ar-ready").addEventListener("click", async (e) => {
   try {
     if (b.dataset.act) { const r = await act({ action: b.dataset.act }); note("ready", "ok", r.message || "Done."); }
     if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: the bar at the bottom shows how far it is. Click Check this PC when it is done."); }
+    if (b.dataset.aimtest) { await act({ action: "aim-test" }); note("ready", "ok", "Trying AIM Toolkit on a small test image (a few seconds): the bar at the bottom shows how it goes, and this list says how it went."); }
     if (b.dataset.defender) {
       const said = [];
       const image = setting("auto_image_dir");

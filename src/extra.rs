@@ -21,7 +21,7 @@
 
 use crate::fmt::{commas, csv_row};
 use crate::tools::{self, Tool};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -130,6 +130,10 @@ pub struct Options {
     /// date is not checked again: stopped, the checks carry on where they
     /// stopped).
     pub done_list: Option<PathBuf>,
+    /// The map check's list of the files the never-read places touched
+    /// (map-check-files.tsv), when there is one: every other file was read
+    /// whole from the old drive.
+    pub map_items: Option<Vec<crate::join::MapItem>>,
 }
 
 /// One line of the list of files checked: check, size, modified (seconds),
@@ -189,13 +193,25 @@ pub struct Outcome {
     /// Checks left out, and why (a tool not found).
     pub left_out: Vec<(Check, String)>,
     /// A check that called too many files of one kind damaged to believe it
-    /// (the old drive's damage touches few files; a tool that cannot read a
-    /// kind of file well calls them all damaged): (check, extension, flagged,
-    /// checked). Those are not listed as damaged.
-    pub doubtful: Vec<(Check, String, u64, u64)>,
+    /// (a tool that cannot read a kind of file well calls them all damaged).
+    /// Those are not listed as damaged.
+    pub doubtful: Vec<Doubt>,
     pub lists: Vec<PathBuf>,
     pub report: Option<PathBuf>,
     pub stopped: bool,
+}
+
+/// A check's findings for one kind of file, set aside.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Doubt {
+    pub check: Check,
+    pub ext: String,
+    /// Files of that kind it called damaged, and checked.
+    pub flagged: u64,
+    pub checked: u64,
+    /// Counted among the files read whole from the old drive (the map check
+    /// was known): those are exactly as they were on it.
+    pub read_whole: bool,
 }
 
 /// What a tool's run of one file says.
@@ -229,6 +245,12 @@ pub fn ffmpeg_problems(err: &str) -> Vec<String> {
         "invalid utf-8",
         "unknown cover type",
         "ignoring",
+        // What a photo's own notes say (the camera's EXIF, its colour
+        // profile, other APP segments): not the picture.
+        "exif",
+        "icc",
+        "app fields",
+        "xmp",
     ];
     err.lines()
         .map(|l| l.trim())
@@ -268,7 +290,13 @@ fn sevenzip_verdict(r: &tools::Ran) -> Verdict {
     if low.contains("wrong password") || low.contains("can not open encrypted archive") || low.contains("cannot open encrypted archive") {
         return Verdict::Locked;
     }
-    if r.code == Some(0) && !low.contains("error") {
+    // 0: every part read back right (whatever the names in it say: a file
+    // called "error.log" inside is not an error). 1: warnings only, such as
+    // data after the end of the archive - not damage to anything in it.
+    if r.code == Some(0) {
+        return Verdict::Fine;
+    }
+    if r.code == Some(1) && !["crc failed", "data error", "unexpected end", "headers error"].iter().any(|w| low.contains(w)) {
         return Verdict::Fine;
     }
     let lines: Vec<String> = text
@@ -462,6 +490,19 @@ pub fn run(
     say(&format!("Looking for files to check in {}...", work.display()));
     let mut tasks: Vec<(Check, PathBuf, u64)> = Vec::new();
     let earlier = opts.done_list.as_ref().map(|p| read_done(p)).unwrap_or_default();
+    // A repaired version put back keeps its original's size (an intact twin)
+    // and dates: what was found before is about the damaged copy, so it is
+    // checked again.
+    let back = crate::repair::returned_now(work);
+    // The files the never-read places touched, by size (for a quick look-up).
+    let touched_by_size: Option<std::collections::HashMap<u64, Vec<crate::join::MapItem>>> = opts.map_items.as_ref().map(|m| {
+        let mut by: std::collections::HashMap<u64, Vec<crate::join::MapItem>> = std::collections::HashMap::new();
+        for it in m.iter().filter(|i| i.kind == "DAMAGED" && !i.only_past_end) {
+            by.entry(it.size).or_default().push(it.clone());
+        }
+        by
+    });
+    let mut read_whole: HashSet<String> = HashSet::new();
     let mut remembered: Vec<(Check, String, Verdict)> = Vec::new();
     let mut mtimes: std::collections::HashMap<PathBuf, i64> = std::collections::HashMap::new();
     let root = work.display().to_string();
@@ -482,10 +523,18 @@ pub fn run(
                 continue;
             }
             let mtime = mtime_of(&meta);
+            let rel = crate::repair::relative_to(work, &full.replace('/', "\\")).unwrap_or_default();
+            if let Some(by) = &touched_by_size {
+                let touched = by.get(&size).is_some_and(|c| crate::join::item_for_copy(c, &rel, size).is_some());
+                if !touched {
+                    read_whole.insert(full.to_lowercase());
+                }
+            }
+            let put_back = back.contains_key(&rel.to_lowercase());
             for c in wanted {
                 if exes.contains_key(&c) {
                     // Checked before, as it is now: what was found then stands.
-                    match earlier.get(&(c, full.to_lowercase())) {
+                    match earlier.get(&(c, full.to_lowercase())).filter(|_| !put_back) {
                         Some((s, m, v)) if *s == size && *m == mtime => {
                             let v = match v {
                                 Verdict::Fine => Verdict::Fine,
@@ -579,10 +628,15 @@ pub fn run(
     let mut results = results.into_inner().unwrap_or_else(|e| e.into_inner());
     results.extend(remembered);
     results.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
-    let mut checked_by_kind: std::collections::HashMap<(Check, String), u64> = std::collections::HashMap::new();
+    // Files checked, per check and kind: all of them, and those read whole.
+    let mut checked_by_kind: std::collections::HashMap<(Check, String), (u64, u64)> = std::collections::HashMap::new();
     for (c, path, v) in &results {
         if !matches!(v, Verdict::NotChecked(_)) {
-            *checked_by_kind.entry((*c, ext_of_path(path))).or_default() += 1;
+            let e = checked_by_kind.entry((*c, ext_of_path(path))).or_default();
+            e.0 += 1;
+            if read_whole.contains(&path.to_lowercase()) {
+                e.1 += 1;
+            }
         }
     }
     for (c, path, v) in results {
@@ -606,31 +660,49 @@ pub fn run(
         }
     }
     amount(done.load(Ordering::Relaxed), total);
-    set_aside_doubtful(&mut o, &checked_by_kind);
+    set_aside_doubtful(&mut o, &checked_by_kind, opts.map_items.is_some().then_some(&read_whole));
     write_lists(work, &mut o)?;
     Ok(o)
 }
 
-/// At least this many files of one kind flagged, and more than this share of
-/// those checked, and a check's findings for that kind are not believed.
+/// Without the map check: at least this many files of one kind flagged, and
+/// more than this share of those checked, and a check's findings for that
+/// kind are not believed.
 const DOUBT_AT_LEAST: u64 = 30;
 const DOUBT_SHARE: f64 = 0.3;
+/// With it: among the files read whole from the old drive (exactly as they
+/// were on it, so rarely damaged), at least this many flagged and more than
+/// this share.
+const DOUBT_WHOLE_AT_LEAST: u64 = 10;
+const DOUBT_WHOLE_SHARE: f64 = 0.03;
 
 /// A path's extension, from its file name only.
 fn ext_of_path(p: &str) -> String {
     ext_lower(p.rsplit(['\\', '/']).next().unwrap_or(p))
 }
 
-fn set_aside_doubtful(o: &mut Outcome, checked: &std::collections::HashMap<(Check, String), u64>) {
+/// `checked`: per (check, kind), the files checked (all, read whole).
+/// `read_whole`: the files read whole from the old drive, when the map check
+/// is known. Then only findings among those are weighed (and set aside): a
+/// file the drive damaged is listed whatever any tool says of its kind.
+fn set_aside_doubtful(
+    o: &mut Outcome,
+    checked: &std::collections::HashMap<(Check, String), (u64, u64)>,
+    read_whole: Option<&HashSet<String>>,
+) {
     let mut flagged: std::collections::HashMap<(Check, String), u64> = std::collections::HashMap::new();
     for f in &o.findings {
-        *flagged.entry((f.check, ext_of_path(&f.path))).or_default() += 1;
+        if read_whole.is_none_or(|w| w.contains(&f.path.to_lowercase())) {
+            *flagged.entry((f.check, ext_of_path(&f.path))).or_default() += 1;
+        }
     }
     let mut out: Vec<(Check, String)> = Vec::new();
     for ((c, e), n) in &flagged {
-        let of = checked.get(&(*c, e.clone())).copied().unwrap_or(0);
-        if *n >= DOUBT_AT_LEAST && of > 0 && (*n as f64) > DOUBT_SHARE * of as f64 {
-            o.doubtful.push((*c, e.clone(), *n, of));
+        let (all, whole) = checked.get(&(*c, e.clone())).copied().unwrap_or((0, 0));
+        let (of, at_least, share) =
+            if read_whole.is_some() { (whole, DOUBT_WHOLE_AT_LEAST, DOUBT_WHOLE_SHARE) } else { (all, DOUBT_AT_LEAST, DOUBT_SHARE) };
+        if *n >= at_least && of > 0 && (*n as f64) > share * of as f64 {
+            o.doubtful.push(Doubt { check: *c, ext: e.clone(), flagged: *n, checked: of, read_whole: read_whole.is_some() });
             out.push((*c, e.clone()));
         }
     }
@@ -638,10 +710,12 @@ fn set_aside_doubtful(o: &mut Outcome, checked: &std::collections::HashMap<(Chec
     if out.is_empty() {
         return;
     }
-    o.findings.retain(|f| !out.contains(&(f.check, ext_of_path(&f.path))));
-    for (c, _, n, _) in &o.doubtful {
-        if let Some(x) = o.counts.get_mut(c) {
-            x.1 = x.1.saturating_sub(*n);
+    o.findings.retain(|f| {
+        !(out.contains(&(f.check, ext_of_path(&f.path))) && read_whole.is_none_or(|w| w.contains(&f.path.to_lowercase())))
+    });
+    for d in &o.doubtful {
+        if let Some(x) = o.counts.get_mut(&d.check) {
+            x.1 = x.1.saturating_sub(d.flagged);
         }
     }
 }
@@ -729,16 +803,31 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     for (c, why) in &o.left_out {
         t.push(format!("  {}: not checked - {why}", c.title()));
     }
-    for (c, e, n, of) in &o.doubtful {
-        t.push(format!(
-            "  {}: it reported errors in {} of {} .{e} files - far too many to be damage from the old drive (which touched \
-             few files), so {} most likely cannot read that kind of file fully. They are not listed as damaged (the map \
-             check still names every one the drive damaged).",
-            c.title(),
-            commas(*n),
-            commas(*of),
-            c.tool().name()
-        ));
+    for d in &o.doubtful {
+        t.push(if d.read_whole {
+            format!(
+                "  {}: it reported errors in {} of the {} .{} files the old drive gave up whole (every byte read, so each is \
+                 exactly as it was on it) - far too many to be damage, so {} most likely cannot read that kind of file \
+                 fully. Those are not listed as damaged (every .{} file the drive did damage still is).",
+                d.check.title(),
+                commas(d.flagged),
+                commas(d.checked),
+                d.ext,
+                d.check.tool().name(),
+                d.ext
+            )
+        } else {
+            format!(
+                "  {}: it reported errors in {} of {} .{} files - far too many to be damage from the old drive (which \
+                 touched few files), so {} most likely cannot read that kind of file fully. They are not listed as damaged \
+                 (the map check still names every one the drive damaged).",
+                d.check.title(),
+                commas(d.flagged),
+                commas(d.checked),
+                d.ext,
+                d.check.tool().name()
+            )
+        });
     }
     if !o.locked.is_empty() {
         t.push(format!("{} archives or PDFs have a password, so they could not be tested.", commas(o.locked.len() as u64)));
@@ -789,6 +878,11 @@ mod tests {
     #[test]
     fn sevenzip_results_are_read() {
         assert_eq!(sevenzip_verdict(&ran(0, "Testing archive: a.zip\nEverything is Ok\n", "")), Verdict::Fine);
+        assert_eq!(sevenzip_verdict(&ran(0, "Testing archive: E:\\W\\Error reports\\crash.zip\nEverything is Ok\n", "")), Verdict::Fine);
+        assert_eq!(
+            sevenzip_verdict(&ran(1, "Testing archive: a.zip\nWARNINGS:\nThere are data after the end of archive\n", "")),
+            Verdict::Fine
+        );
         assert_eq!(sevenzip_verdict(&ran(2, "", "ERROR: Wrong password : a.txt\n")), Verdict::Locked);
         match sevenzip_verdict(&ran(2, "ERROR: CRC Failed : photos/a.jpg\nSub items Errors: 1\n", "")) {
             Verdict::Damaged(m) => assert!(m.contains("CRC Failed"), "{m}"),
@@ -824,6 +918,7 @@ mod tests {
 
     #[test]
     fn a_tool_that_flags_too_many_of_a_kind_is_not_believed() {
+        // Without the map check: by share of all files checked.
         let mut o = Outcome::default();
         let mut checked = std::collections::HashMap::new();
         for i in 0..100 {
@@ -833,11 +928,14 @@ mod tests {
             o.findings.push(Finding { path: format!("p{i}.jpg"), check: Check::Photo, message: "error".into() });
         }
         o.counts.insert(Check::Photo, (1200, 103));
-        checked.insert((Check::Photo, "heic".to_string()), 200u64);
-        checked.insert((Check::Photo, "jpg".to_string()), 1000u64);
-        set_aside_doubtful(&mut o, &checked);
+        checked.insert((Check::Photo, "heic".to_string()), (200u64, 0u64));
+        checked.insert((Check::Photo, "jpg".to_string()), (1000u64, 0u64));
+        set_aside_doubtful(&mut o, &checked, None);
         assert_eq!(o.findings.len(), 3, "the three JPEGs stay");
-        assert_eq!(o.doubtful, vec![(Check::Photo, "heic".to_string(), 100, 200)]);
+        assert_eq!(
+            o.doubtful,
+            vec![Doubt { check: Check::Photo, ext: "heic".to_string(), flagged: 100, checked: 200, read_whole: false }]
+        );
         assert_eq!(o.counts[&Check::Photo], (1200, 3));
         // A few of a kind, even all of them, are believed.
         let mut o = Outcome::default();
@@ -845,9 +943,42 @@ mod tests {
             o.findings.push(Finding { path: format!("v{i}.mov"), check: Check::Video, message: "error".into() });
         }
         let mut c2 = std::collections::HashMap::new();
-        c2.insert((Check::Video, "mov".to_string()), 5u64);
-        set_aside_doubtful(&mut o, &c2);
+        c2.insert((Check::Video, "mov".to_string()), (5u64, 0u64));
+        set_aside_doubtful(&mut o, &c2, None);
         assert_eq!(o.findings.len(), 5);
+    }
+
+    #[test]
+    fn with_the_map_check_only_files_read_whole_are_weighed() {
+        // 2,000 HEIC photos, 60 of them flagged among the 1,990 read whole (3%
+        // is 59.7): FFmpeg's limit. The 10 the drive damaged stay listed, and
+        // so do the 12 JPEGs flagged among 20,000 read whole.
+        let mut o = Outcome::default();
+        let mut whole = HashSet::new();
+        for i in 0..70 {
+            let p = format!("e:\\w\\h{i}.heic");
+            if i >= 10 {
+                whole.insert(p.clone());
+            }
+            o.findings.push(Finding { path: p, check: Check::Photo, message: "error".into() });
+        }
+        for i in 0..12 {
+            let p = format!("e:\\w\\j{i}.jpg");
+            whole.insert(p.clone());
+            o.findings.push(Finding { path: p, check: Check::Photo, message: "error".into() });
+        }
+        o.counts.insert(Check::Photo, (22000, 82));
+        let mut checked = std::collections::HashMap::new();
+        checked.insert((Check::Photo, "heic".to_string()), (2000u64, 1990u64));
+        checked.insert((Check::Photo, "jpg".to_string()), (20000u64, 20000u64));
+        set_aside_doubtful(&mut o, &checked, Some(&whole));
+        assert_eq!(
+            o.doubtful,
+            vec![Doubt { check: Check::Photo, ext: "heic".to_string(), flagged: 60, checked: 1990, read_whole: true }]
+        );
+        assert_eq!(o.findings.len(), 22, "the 10 damaged HEICs and the 12 JPEGs");
+        assert!(o.findings.iter().filter(|f| f.path.ends_with(".heic")).all(|f| !whole.contains(&f.path)));
+        assert_eq!(o.counts[&Check::Photo], (22000, 22));
     }
 
     #[test]

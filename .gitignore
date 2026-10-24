@@ -4,5 +4,4 @@
 *.vhd
 *.vhdx
 __pycache__/
-/scratch
 node_modules/

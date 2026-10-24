@@ -426,6 +426,9 @@ struct Env<'a> {
     home: &'a Path,
     work: &'a Path,
     map_items: Vec<crate::join::MapItem>,
+    /// The map check's list of the files the never-read places touched was
+    /// read: a file not on it was read whole from the old drive.
+    map_known: bool,
     /// Damaged files' paths in WORK (lower case): never a twin or a pattern.
     damaged: HashSet<String>,
     /// Same-size files, by size, for the twins (filled once).
@@ -544,7 +547,7 @@ fn media_checks_out(env: &Env, made: &Path, before: Option<&(bool, Vec<String>)>
 
 // ---------------------------------------------------------------- one file
 
-fn fix_jpeg(env: &Env, src: &Path, tmp: &Path) -> Try {
+fn fix_jpeg(env: &Env, src: &Path, tmp: &Path, read_whole: bool) -> Try {
     let Ok(d) = std::fs::read(src) else { return no("it could not be read", Next::Paid) };
     match jpeg_layout(&d) {
         JpegLayout::CutShort => {
@@ -566,6 +569,11 @@ fn fix_jpeg(env: &Env, src: &Path, tmp: &Path) -> Try {
                 Err(e) => no(format!("its end marker was put back, but it still does not check out ({e})"), Next::Paid),
             }
         }
+        JpegLayout::Complete(_) if read_whole => no(
+            "every part of the photo is in place, and every byte of it was read from the old drive: it is exactly as it was \
+             there",
+            Next::Nothing,
+        ),
         JpegLayout::Complete(_) => no(
             "every part of the photo is in place, but some of its picture data was never read: it opens, with part of the \
              picture grey or garbled from that point; no tool can bring that part back (a photo repair tool's free preview \
@@ -1479,10 +1487,15 @@ fn fix_png(env: &Env, src: &Path, tmp: &Path) -> Try {
     }
 }
 
-/// The map check's line for this file, as (lost byte ranges).
+/// The map check's line for this file, as (lost byte ranges). None: nothing
+/// of it was lost (every place never read lies past its end, or it is not on
+/// the map check's list at all).
 fn lost_ranges(env: &Env, item: &Item) -> Option<Vec<(u64, u64)>> {
     let it = crate::join::item_for_copy(&env.map_items, &item.path, item.size)?;
-    let r = crate::join::parse_ranges(&it.ranges);
+    if it.only_past_end {
+        return None;
+    }
+    let r: Vec<(u64, u64)> = crate::join::parse_ranges(&it.ranges).into_iter().filter(|&(a, b)| b > a && a < item.size).collect();
     (!r.is_empty()).then_some(r)
 }
 
@@ -1515,8 +1528,42 @@ fn try_item(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
             Next::Mac,
         );
     }
+    let lost = lost_ranges(env, item);
+    let read_whole = env.map_known && lost.is_none();
+    let only_tools = only_by_tools(env, item);
+    let t = try_format(env, item, src, tmp, lost, read_whole, only_tools);
+    match t {
+        Try::No { why, .. } if only_tools => Try::No {
+            why: format!(
+                "{why}. {READ_WHOLE}, so it is exactly as it was there: what the check found was so already (or is the \
+                 checking tool's own limit), not damage from the drive's failure"
+            ),
+            next: Next::Nothing,
+        },
+        t => t,
+    }
+}
+
+/// What the log says of a file read whole from the old drive (found only by
+/// a checking tool): handoff.rs tells those apart by it.
+pub const READ_WHOLE: &str = "Every byte of it was read from the old drive";
+
+/// Read whole from the old drive (the map check: no place of it was never
+/// read), and found only by one of the extra checks' tools: what the tool
+/// finds was in the file already on the old drive (or is the tool's own
+/// limit). It is tried all the same, but what a tool makes of it is kept
+/// beside it (in salvaged), not put in its place, and it is not handed off:
+/// the drive's failure did not touch it.
+fn only_by_tools(env: &Env, item: &Item) -> bool {
+    env.map_known
+        && lost_ranges(env, item).is_none()
+        && !item.why.is_empty()
+        && item.why.split("; ").all(|r| r.starts_with("on the list auto-"))
+}
+
+fn try_format(env: &Env, item: &Item, src: &Path, tmp: &Path, lost: Option<Vec<(u64, u64)>>, read_whole: bool, only_tools: bool) -> Try {
     // 1. An intact copy elsewhere: the file as it was.
-    if let Some(lost) = lost_ranges(env, item) {
+    if let Some(lost) = lost {
         if let Some(t) = find_twin(env, item, src, &lost) {
             let shown = repair::relative_to(env.work, &t.display().to_string().replace('/', "\\"))
                 .map(|r| format!("WORK\\{r}"))
@@ -1550,8 +1597,11 @@ fn try_item(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
     let src = input.as_path();
     let damage = item.why.as_str();
     if ["jpg", "jpeg", "jpe", "jfif"].contains(&e) {
-        let t = fix_jpeg(env, src, tmp);
+        let t = fix_jpeg(env, src, tmp, read_whole);
         if let Try::No { why, .. } = &t {
+            if only_tools || read_whole {
+                return t;
+            }
             if let Some(Try::Made { file, how, tool, note, .. }) = salvage_preview(src, tmp, 4096, "the small preview the camera saved inside it") {
                 return Try::Made { file, how, tool, salvage: true, note: if note.is_empty() { why.clone() } else { note } };
             }
@@ -1675,10 +1725,13 @@ pub fn read_log(repair: &Path) -> Vec<Attempt> {
 fn salvage_name(copy_name: &str, made: &Path) -> String {
     let made_ext = if made.is_dir() { String::new() } else { ext_lower(&made.to_string_lossy()) };
     let stem = stem_of(copy_name);
+    let name = made.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
     let what = if made.is_dir() {
         "what could be read"
-    } else if made.file_name().is_some_and(|n| n.to_string_lossy().starts_with("preview")) {
+    } else if name.starts_with("preview") {
         "preview"
+    } else if ["repaired", "remuxed", "rebuilt"].iter().any(|s| name.starts_with(s)) {
+        "rebuilt"
     } else {
         "what could be read"
     };
@@ -1746,17 +1799,15 @@ pub fn run(
     if todo.is_empty() {
         return Ok(o);
     }
-    let map_items = opts
-        .map_check
-        .as_ref()
-        .and_then(|d| std::fs::read_to_string(d.join(crate::join::TSV_NAME)).ok())
-        .map(|t| crate::join::parse_tsv(&t))
-        .unwrap_or_default();
+    let map_text = opts.map_check.as_ref().and_then(|d| std::fs::read_to_string(d.join(crate::join::TSV_NAME)).ok());
+    let map_known = map_text.is_some();
+    let map_items = map_text.map(|t| crate::join::parse_tsv(&t)).unwrap_or_default();
     let damaged: HashSet<String> = items.iter().map(|i| i.path.to_lowercase()).collect();
     let mut env = Env {
         home,
         work,
         map_items,
+        map_known,
         damaged,
         by_size: HashMap::new(),
         videos: std::cell::RefCell::new(None),
@@ -1838,7 +1889,27 @@ pub fn run(
             a.how = format!("its copy {} is not in REPAIR any more", item.copied_as);
             a.next = Next::Paid;
         } else {
+            let whole_only = only_by_tools(&env, item);
             match try_item(&env, item, &src, &tmp) {
+                Try::Made { file, how, tool, salvage, note } if whole_only && !salvage => {
+                    // Exactly as it was on the old drive: it stays in WORK.
+                    let rel = format!("{}\\{AUTO_DIR}\\{}", repair::SALVAGED, salvage_name(&copy_name, &file));
+                    let dest = under(&repair, &rel);
+                    let kept = std::fs::symlink_metadata(&dest).is_ok() || move_into(&file, &dest).is_ok();
+                    if kept {
+                        a.fate = Fate::Salvaged;
+                        a.how = format!(
+                            "{how}. {READ_WHOLE}, so it stays in WORK exactly as it was there, and this version is kept \
+                             beside it in REPAIR"
+                        );
+                        a.tool = tool;
+                        a.output = rel;
+                        a.note = note;
+                    } else {
+                        a.how = format!("{how}, but it could not be saved into REPAIR");
+                    }
+                    a.next = Next::Nothing;
+                }
                 Try::Made { file, how, tool, salvage, note } => {
                     if salvage && salvaged_before.contains(&item.id) {
                         a.how = format!("{how} (kept in salvaged before)");
@@ -1853,9 +1924,24 @@ pub fn run(
                         };
                         let dest = under(&repair, &rel);
                         let same = !salvage && sha_of(&file).is_some_and(|h| h == item.sha256);
+                        let next_after_salvage = || match ext_lower(&copy_name).as_str() {
+                            e if is_raw(e) => Next::Mac,
+                            e if ZIP_LIKE.contains(&e) && !matches!(e, "zip" | "jar") => Next::OwnApp,
+                            "jpg" | "jpeg" | "jpe" | "jfif" => Next::Paid,
+                            _ => Next::Nothing,
+                        };
                         if same {
                             a.how = "the repair changed nothing".to_string();
                             a.next = Next::Paid;
+                        } else if salvage && std::fs::symlink_metadata(&dest).is_ok() {
+                            // Salvaged by a run that was cut off before it
+                            // could write its log: what it kept stays.
+                            a.fate = Fate::Salvaged;
+                            a.how = format!("{how} (kept in salvaged before)");
+                            a.tool = tool;
+                            a.output = rel;
+                            a.note = note;
+                            a.next = next_after_salvage();
                         } else {
                             match move_into(&file, &dest) {
                                 Ok(()) => {
@@ -1864,16 +1950,7 @@ pub fn run(
                                     a.tool = tool;
                                     a.output = rel;
                                     a.note = note;
-                                    a.next = if salvage {
-                                        match ext_lower(&copy_name).as_str() {
-                                            e if is_raw(e) => Next::Mac,
-                                            e if ZIP_LIKE.contains(&e) && !matches!(e, "zip" | "jar") => Next::OwnApp,
-                                            "jpg" | "jpeg" | "jpe" | "jfif" => Next::Paid,
-                                            _ => Next::Nothing,
-                                        }
-                                    } else {
-                                        Next::Done
-                                    };
+                                    a.next = if salvage { next_after_salvage() } else { Next::Done };
                                 }
                                 Err(e) => {
                                     a.how = format!("{how}, but it could not be saved into REPAIR ({e})");
@@ -1891,13 +1968,13 @@ pub fn run(
         }
         let _ = std::fs::remove_dir_all(&tmp);
         say(&format!("{}  {}  {}", a.id, a.fate.word(), a.path));
+        // Logged at once: a run cut off (the window closed, a power cut)
+        // keeps what it did, and carries on after it.
+        o.log = Some(append_log(&repair, std::slice::from_ref(&a))?);
         o.attempts.push(a);
         amount(n as u64 + 1, total);
     }
     let _ = std::fs::remove_dir_all(&temp_root);
-    if !o.attempts.is_empty() {
-        o.log = Some(append_log(&repair, &o.attempts)?);
-    }
     Ok(o)
 }
 
@@ -1925,11 +2002,20 @@ pub fn summary(o: &Outcome) -> Vec<String> {
                 commas(twins as u64)
             ));
         }
-        let nothing = o.attempts.iter().filter(|a| a.fate == Fate::NotRepaired && a.next == Next::Nothing).count();
+        let as_before = o.attempts.iter().filter(|a| a.fate != Fate::Repaired && a.how.contains(READ_WHOLE)).count();
+        let nothing =
+            o.attempts.iter().filter(|a| a.fate == Fate::NotRepaired && a.next == Next::Nothing && !a.how.contains(READ_WHOLE)).count();
         if nothing > 0 {
             t.push(format!(
                 "{} open or play as they are, with a glitch where data was lost: nothing can bring that part back.",
                 commas(nothing as u64)
+            ));
+        }
+        if as_before > 0 {
+            t.push(format!(
+                "{} were read whole from the old drive, so they are exactly as they were on it: what a checking tool found in \
+                 them was so already. They stay as they are in WORK (anything a tool made of them is kept in REPAIR\\salvaged).",
+                commas(as_before as u64)
             ));
         }
         let mac = o.attempts.iter().filter(|a| a.fate != Fate::Repaired && a.next == Next::Mac).count();
