@@ -128,6 +128,18 @@ hunt and a clean-up of the repository. Found and fixed:
   original's size and dates (an intact twin): those are checked again.
 - The second copy skipped a put-back file with its original's size and dates:
   put-back files are now compared by contents.
+- MP3val and qpdf (older Windows programs) can't open paths with letters
+  outside ASCII, or long ones: the extra checks give them a short-named copy
+  (auto_check.py has an intact MP3 named in three alphabets and a PDF at the
+  end of a 300-character path).
+- Get ready: "Try it" for AIM Toolkit (opens the self-test image read-only,
+  checks Windows reads it and it can't be written, closes it; aim_cli's
+  options and messages checked against C:\Program Files\AIM Toolkit\aim_cli.exe
+  on the PC: Arsenal's .NET aim_cli, --background via --detach and a READY
+  token, device numbers in hex); Defender exclusions already there are shown
+  (the user excluded SPARE by hand in the old Phase -1, on 19 Oct, with the
+  rest of Phase -1: updates paused, Automatically restart off, power and
+  sleep settings, a separate "Transfer" account).
 - tools/resume_check.py: Start stopped and killed at random in every stage,
   carried on each time, must end as one unbroken run (CI, both systems).
 - Clean-up: unused test seeds and Recovery Probe's own docs removed (its
