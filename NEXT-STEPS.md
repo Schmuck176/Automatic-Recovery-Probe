@@ -145,6 +145,16 @@ hunt and a clean-up of the repository. Found and fixed:
 - Clean-up: unused test seeds and Recovery Probe's own docs removed (its
   README kept for the steps tab, with a note); .gitignore and tools/README
   brought up to date; builds skipped for notes-only changes.
+- CI run 40088888927 (9fc5ba9), all green on both systems (Windows: unit
+  tests 104, automatic 54/54 with the PC's tool builds, resume 17/17 with
+  stops and kills in ready, mapcheck, extra, isolate and repair).
+- Delivered 24 Oct 2026, 12:38 BST: version 2026-10-24 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,320,192 bytes, SHA-256
+  2184ecf0a7e591b032d9871e24546d99a9bc57f4a0c49f5a20ea49d034c5fcb5 (staged
+  back and compared). main moved to it; the 2026-10-23 (1) main is kept as
+  branch version-2026-10-23-1.
+- [ ] On the PC (the user): open the new version, Check this PC, "Try it"
+  for AIM Toolkit, then Phase 2 (the rehearsal with SPARE, the folders).
 
 ## Not done / ideas for later
 
