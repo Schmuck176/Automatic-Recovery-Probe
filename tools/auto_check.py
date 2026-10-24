@@ -139,6 +139,7 @@ def make_media(d):
     g[mid:mid + 3000] = rng.randbytes(3000)
     m["old-glitch.mp3"] = bytes(g)
     m["report.pdf"] = pdf_bytes()
+    m["statement.pdf"] = pdf_bytes(pages=2)
     m["report.docx"] = docx_bytes()
     m["notes.txt"] = b"Shopping list\r\n" * 300
     return m
@@ -147,8 +148,18 @@ def make_media(d):
 def build_disk(work):
     media = make_media(os.path.join(work, "media"))
     v = X.Volume(40 * X.MiB, cluster_size=CLUSTER, label="FINAL 1 TB", serial=0x5E1F7E58)
+    # Intact files whose paths old Windows programs can't open (letters
+    # outside plain ASCII; a path longer than Windows' old limit): no checking
+    # tool may call them damaged.
+    deep = "Documents/" + "/".join("A folder with a long name, level %d of the archive" % i for i in range(5))
     for folder in ["DCIM", "Backup", "Backup/Phone", "Music", "Documents", "RAW"]:
         v.mkdir(folder)
+    at = "Documents"
+    for part in deep.split("/")[1:]:
+        at += "/" + part
+        v.mkdir(at)
+    v.add_file("Music/Café Ünïcödé 日本.mp3", media["song.mp3"])
+    v.add_file(deep + "/statement.pdf", media["statement.pdf"])
     for i in (1, 2, 3):
         v.add_file("DCIM/IMG_000%d.MOV" % i, media["IMG_000%d.MOV" % i])
     for i in (5, 6, 7):
@@ -350,6 +361,9 @@ def main():
             check(fate("DCIM/IMG_0002.MOV") == "REPAIRED", "the video is rebuilt by untrunc")
         if tools["mp3val"]:
             check(fate("Music/song.mp3") in ("REPAIRED", "NOT REPAIRED"), "the MP3 is tried by MP3val")
+        # Intact, with a name or a path old programs can't open: not damaged.
+        odd = [k for k in log if "Café" in k or "statement.pdf" in k]
+        check(not odd, "intact files with letters outside ASCII or a long path are not called damaged (%s)" % odd)
         # Broken before, read whole: tried, but left as it was, and not handed off.
         og = log.get("Music/old-glitch.mp3", {})
         check(fate("Music/old-glitch.mp3") in ("SALVAGED", "NOT REPAIRED") and "read from the old drive" in og.get("how", "")

@@ -1480,7 +1480,11 @@ function renderAuto() {
   h = noteHtml("left");
   if (ar && ar.data) {
     const d = ar.data;
-    h += `<div class="figures">${figure(d.repaired, "repaired and put back")}${figure(d.salvaged, "with something salvaged")}${figure(d.not_repaired, "not repaired", true)}</div>`;
+    // From every file's latest attempt (the table below), not just the last run's.
+    const at = d.attempts || [];
+    const count = (r) => at.length ? at.filter((a) => a.result === r).length : null;
+    const rep = count("REPAIRED") ?? d.repaired, sal = count("SALVAGED") ?? d.salvaged, not = count("NOT REPAIRED") ?? d.not_repaired;
+    h += `<div class="figures">${figure(rep, "repaired and put back")}${figure(sal, "with something salvaged")}${figure(not, "not repaired", true)}</div>`;
     if ((d.attempts || []).length) {
       h += `<details><summary>Every damaged file, and what was done</summary><div class="scroll"><table><tr><th>No.</th><th>File</th><th>Result</th><th>How</th></tr>` +
         d.attempts.map((a) => `<tr><td>${esc(a.id)}</td><td class="path">${esc(a.path)}</td><td class="verdict">${esc(a.result)}</td><td class="small">${esc(a.how)}${a.note ? ` <span class="soft">(${esc(a.note)})</span>` : ""}</td></tr>`).join("") +

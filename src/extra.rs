@@ -395,7 +395,34 @@ fn limit_for(check: Check, size: u64) -> Duration {
     })
 }
 
+/// A path every Windows program can open: plain ASCII, and short.
+fn plain_path(p: &Path) -> bool {
+    p.to_str().is_some_and(|s| s.is_ascii() && s.len() < 240)
+}
+
 fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
+    // MP3val and qpdf (older kinds of Windows program) can't open every
+    // name: a file whose path has letters outside plain ASCII, or is long, is
+    // checked as a short-named copy (which it can't tell from the file).
+    let mut copy: Option<PathBuf> = None;
+    if cfg!(windows) && matches!(check, Check::Mp3 | Check::Pdf) && !plain_path(path) {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!("arp-extra-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let c = dir.join(format!("f{}.{}", N.fetch_add(1, Ordering::Relaxed), ext_lower(&path.to_string_lossy())));
+        match std::fs::copy(path, &c) {
+            Ok(_) => copy = Some(c),
+            Err(e) => return Verdict::NotChecked(format!("a short-named copy of it could not be made to check ({e})")),
+        }
+    }
+    let v = check_path(check, exe, copy.as_deref().unwrap_or(path), size, stop);
+    if let Some(c) = copy {
+        let _ = std::fs::remove_file(c);
+    }
+    v
+}
+
+fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
     let p = path.as_os_str().to_os_string();
     let args: Vec<OsString> = match check {
         // A made-up password: an archive that has one says "Wrong password"
@@ -624,6 +651,8 @@ pub fn run(
     for l in lines.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
         say(&l);
     }
+    // (The short-named copies' folder, empty again.)
+    let _ = std::fs::remove_dir(std::env::temp_dir().join(format!("arp-extra-{}", std::process::id())));
     o.stopped = stop();
     let mut results = results.into_inner().unwrap_or_else(|e| e.into_inner());
     results.extend(remembered);
