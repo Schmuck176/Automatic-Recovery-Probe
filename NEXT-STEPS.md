@@ -51,6 +51,15 @@ The user's answers (23 Oct, 15:05):
   repos work; building code cloned from elsewhere was not allowed.
 - Here: ffmpeg, qpdf, ImageMagick 6 (`convert`), zip/unzip. Not here: 7z,
   mp3val, untrunc (the Linux CI run installs them with apt / builds untrunc).
+- The program builds here for Linux (no dependencies to download). A debug
+  build needs `RUSTFLAGS="-C overflow-checks=off"`: the exFAT checksums add
+  with wrapping, which a debug build stops at (release builds don't check).
+  Chromium and Playwright are here (/opt/npm-tools/node_modules/playwright),
+  so both page tests run here, and Xvfb gives a real `--app` window. For
+  previews: Barlow Semi Condensed (in ~/.fonts) and Inter stand in for
+  Bahnschrift and Segoe UI (fontconfig aliases); to see the page as GitHub's
+  Linux machine does, a FONTCONFIG_FILE that rejects them (DejaVu Sans then,
+  which is wider: what fits here may not fit there).
 
 ## The PC ("biggamer", Windows, user's own account)
 
@@ -252,6 +261,23 @@ about 1350 CSS pixels in a maximised window).
   the 7th numbered part on the whole page (step 1 of the steps tab, since the
   Automatic tab came first); they go to step 7 now (ui_check.js checks).
 - Version 2026-10-25 (2).
+- CI run 40200607237 (313f8b3), all green on both systems (Windows: unit
+  tests 110 with edge_is_found, page 67/67, Automatic tab 19/19, automatic
+  69/69, resume 17/17, disk protection 20/20, unplugged 35/35; Linux: page
+  66/66, Automatic tab 19/19, automatic 68/68). The run before (8797723)
+  failed only Linux's phone-width page check (17 px too wide): buttons were
+  kept on one line, and DejaVu Sans is wider. Buttons now wrap between words;
+  the tabs stay on one line in their sideways-scrolling row.
+- Delivered 25 Oct 2026, 14:32 GMT: version 2026-10-25 (2),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,435,904 bytes, SHA-256
+  6280f2d1af2ecbc0ea001d67df014d37d27255dd3f033c385a104f4c67c45775 (staged
+  back and compared). main moved to it; the 2026-10-25 (1) main is kept as
+  branch version-2026-10-25-1.
+- [ ] On the PC (the user): open the new version (it opens in Edge's own
+  window, filling the screen), look the page over, then carry on as before:
+  the rehearsal again (This is SPARE: check it, Switch SPARE off, unplug,
+  plug in the same way, check again, unplug SPARE), 3. The folders (C:\IMAGE,
+  SPARE's WORK, C:\COPY 2), then Start.
 
 ## Not done / ideas for later
 
@@ -261,3 +287,8 @@ about 1350 CSS pixels in a maximised window).
 - HEIC salvage on Windows with FFmpeg 8.1+ (as JPEG), before the Mac.
 - A Windows scheduled reminder every six months (the checklist says to set a
   phone reminder instead).
+- exfat.rs: write the checksums with wrapping_add (they rely on wrapping,
+  which only release builds do silently).
+- The checklist still says the page opens on "Automatic" (the tab is now
+  "Automatic recovery"): left as it is so its ticks are untouched; reword it
+  (with RENAMED entries) next time the checklist changes anyway.
