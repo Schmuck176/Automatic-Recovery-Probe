@@ -589,8 +589,17 @@ fn app_window(url: &str) -> bool {
     if is_elevated() {
         return false;
     }
+    // (Edge's address carries the page's random key, so Edge takes each run
+    // for a new app and opens it at its usual size: the page itself fills
+    // the screen the first time, see ui.html.)
     match edge() {
-        Some(e) => std::process::Command::new(e).arg(format!("--app={url}")).spawn().is_ok(),
+        Some(e) => std::process::Command::new(e)
+            .arg(format!("--app={url}"))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok(),
         None => false,
     }
 }

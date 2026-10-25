@@ -664,7 +664,9 @@ pub fn serve(cfg: Config) -> i32 {
     }
     println!("Keep this window open while you use it. Close it when you are done.");
     if cfg.open_browser {
-        crate::win::open_browser(&url);
+        // (Edge's own window only without administrator rights: with them,
+        // the usual browser, through Explorer.)
+        crate::win::open_app_window(&url);
     }
     let token = Arc::new(cfg.token.clone());
     for stream in listener.incoming() {

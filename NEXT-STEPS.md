@@ -227,7 +227,15 @@ about 1350 CSS pixels in a maximised window).
   It now opens in Edge's app window (`msedge --app=`: no tabs or address bar,
   its own taskbar button), started by the launcher, which has no
   administrator rights (win::open_app_window); without Edge, or from a copy
-  that has administrator rights, the usual browser as before.
+  that has administrator rights, the usual browser as before. Edge takes
+  each run for a new app (the random key is in the address) and would open
+  it about 1,050 px wide, so the page fills the screen the first time it
+  opens in such a window (display-mode standalone; once per window, kept in
+  sessionStorage: a size chosen afterwards stays). Tried here in Chromium's
+  own app window under Xvfb: 1050x900 became 2559x1439, and a smaller size
+  set afterwards survived a reload. (`--start-maximized` was not used: when
+  Edge is not running yet it would apply to every Edge window until Edge
+  closes.)
 - src/ui.html redone: three fixed places - where you are (the parts in order,
   with their states), the guide (top to bottom, as before), "Now" (the job
   running, Stop, what Start waits for you to do, what is next); below

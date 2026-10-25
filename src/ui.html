@@ -2535,7 +2535,23 @@ function renderChecklist() {
   renderRail();
 }
 
+// In Edge's own window (no tabs or address bar), the first time it opens:
+// fill the screen, so everything is in its place side by side. Edge would
+// otherwise open it at its usual size, since each run's address is new to
+// it. Once per window: a size chosen afterwards is kept, through reloads too.
+function fillScreen() {
+  try {
+    if (!window.matchMedia("(display-mode: standalone)").matches) return; // a tab in a browser: left as it is
+    if (sessionStorage.getItem("arp-filled")) return;
+    sessionStorage.setItem("arp-filled", "1");
+    if (window.outerWidth >= screen.availWidth - 8 && window.outerHeight >= screen.availHeight - 8) return;
+    window.moveTo(screen.availLeft || 0, screen.availTop || 0);
+    window.resizeTo(screen.availWidth, screen.availHeight);
+  } catch { /* not allowed here: the window stays as it is */ }
+}
+
 async function start() {
+  fillScreen();
   showView(["auto", "steps", "checklist"].includes(view) ? view : "auto", false);
   loadChecklist();
   await refresh();
