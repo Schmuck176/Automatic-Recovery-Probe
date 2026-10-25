@@ -195,6 +195,21 @@ hunt and a clean-up of the repository. Found and fixed:
 - auto_check.py: the videos' made dates are an hour before their dates on
   the card; it checks the dates of put-back files, their folders, salvaged
   files, COPY 2, and the rebuilt video's made date (with untrunc: CI).
+- CI run 40189925331 (058a5ce), all green on both systems (Windows: unit
+  tests 109, automatic 69/69 with the PC's tool builds - the rebuilt video
+  says 2023-07-16T11:00:00Z, its own date - resume 17/17, disk protection
+  20/20, unplugged 35/35; Linux: automatic 68/68 with untrunc built from
+  source).
+- Delivered 25 Oct 2026, 12:09 GMT (the clocks went back that morning):
+  version 2026-10-25 (1), C:\RECOVERY-TOOLS\automatic-recovery-probe.exe,
+  5,374,464 bytes, SHA-256
+  03091d75f4cd29edc03bbc1cd2f8a474471d0242396c306d7d5273d3612790fc (staged
+  back and compared). main moved to it; the 2026-10-24 (1) main is kept as
+  branch version-2026-10-24-1.
+- [ ] On the PC (the user): the rehearsal again with the new version (This
+  is SPARE: check it, Switch SPARE off, unplug, plug in the same way, check
+  again, unplug SPARE), then 3. The folders (C:\IMAGE, SPARE's WORK,
+  C:\COPY 2), then Start.
 
 ## Not done / ideas for later
 
