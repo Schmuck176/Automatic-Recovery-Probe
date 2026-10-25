@@ -1432,9 +1432,12 @@ function renderAuto() {
     if (windows && !S.policy_to_restore) {
       h += `<div class="row"><button data-prep="1">First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
     } else if (verdict !== "passed") {
-      // SPARE: a drive labelled SPARE, or switched off with no drive letters
-      // (the server checks it is the disk the rehearsal saw before).
-      const isSpare = (d) => (d.drives || []).some((v) => (v.label || "").toUpperCase() === "SPARE") || (!(d.drives || []).length && d.offline === true);
+      // SPARE: a drive labelled SPARE; switched off with no drive letters
+      // (the server checks it is the disk the rehearsal saw before); or the
+      // disk checked as SPARE before, still empty.
+      const drv = (d) => d.drives || [];
+      const isSpare = (d) => drv(d).some((v) => (v.label || "").toUpperCase() === "SPARE") || (!drv(d).length && d.offline === true)
+        || (`${d.model}|${d.size}` === setting("spare_disk") && drv(d).length && drv(d).every((v) => v.total > 0 && v.total - v.free < 2 * 1024 ** 3));
       const cands = disks.filter((d) => !d.system && !isCopy(d) && !d.test);
       const offNow = verdict === "switch-off" && cands.find((d) => String(d.number) === setting("spare_number") && d.offline === false);
       if (verdict === "switch-off" && offNow) {

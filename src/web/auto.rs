@@ -1293,6 +1293,11 @@ fn is_spare(app: &Arc<Mutex<App>>, d: &crate::win::Disk) -> Result<(), String> {
         if d.drives.iter().any(|v| v.label.eq_ignore_ascii_case("SPARE")) {
             return Ok(());
         }
+        // The disk checked as SPARE before (labelled otherwise), still empty.
+        let remembered = lock(app).setting("spare_disk");
+        if remembered == format!("{}|{}", d.model, d.size) && d.drives.iter().all(|v| v.total > 0 && v.total.saturating_sub(v.free) < 2 << 30) {
+            return Ok(());
+        }
         let shown: Vec<String> = d.drives.iter().map(|v| format!("{} {}", v.letter, v.label)).collect();
         return Err(format!(
             "disk {} holds {}, not SPARE: click the disk whose drive is labelled SPARE",
@@ -1418,7 +1423,7 @@ pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> 
         let mut a = lock(app);
         a.settings.insert("spare_disk".to_string(), id);
         a.settings.insert("spare_number".to_string(), n.to_string());
-        if let Some(l) = d.drives.iter().find(|v| v.label.eq_ignore_ascii_case("SPARE")).map(|v| v.letter.clone()) {
+        if let Some(l) = d.drives.iter().find(|v| v.label.eq_ignore_ascii_case("SPARE")).or(d.drives.first()).map(|v| v.letter.clone()) {
             a.settings.insert("spare_letter".to_string(), l);
         }
         a.settings.insert("rehearsal".to_string(), verdict.to_string());
@@ -1434,7 +1439,8 @@ pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> 
 static WATCHING_UNPLUG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Watch, every second for up to three hours, for SPARE (disk `n`, `id`) to
-/// be unplugged after Switch SPARE off: seen gone even once, the check that
+/// be unplugged after Switch SPARE off: seen gone (twice running, so that a
+/// moment Windows would not answer is not taken for it), the check that
 /// follows shows what Windows remembers.
 fn watch_unplug(app: &Arc<Mutex<App>>, n: u32, id: &str) {
     if !cfg!(windows) || WATCHING_UNPLUG.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -1444,13 +1450,15 @@ fn watch_unplug(app: &Arc<Mutex<App>>, n: u32, id: &str) {
     let id = id.to_string();
     std::thread::spawn(move || {
         let until = std::time::Instant::now() + std::time::Duration::from_secs(3 * 3600);
+        let mut gone = 0;
         while std::time::Instant::now() < until {
             std::thread::sleep(std::time::Duration::from_secs(1));
             if lock(&app).setting("rehearsal") != "switch-off" {
                 break;
             }
             let here = crate::win::disk_identity(n).is_some_and(|(m, s)| format!("{m}|{s}") == id);
-            if !here {
+            gone = if here { 0 } else { gone + 1 };
+            if gone >= 2 {
                 let mut a = lock(&app);
                 a.settings.insert("rehearsal_unplugged".to_string(), "1".to_string());
                 a.save();
