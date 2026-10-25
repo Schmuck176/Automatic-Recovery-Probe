@@ -568,6 +568,49 @@ pub fn open_browser(url: &str) -> bool {
     r.is_ok()
 }
 
+/// Open the page in a window of its own: Microsoft Edge's app window (no
+/// tabs or address bar to get lost among, its own button on the taskbar,
+/// the page laid out the same every time), or, where Edge is not found, in
+/// the PC's usual browser. True: Edge's window opened.
+///
+/// Only the copy without administrator rights opens Edge itself (the
+/// browser must never run with them); a copy that has them always goes
+/// through `open_browser`.
+pub fn open_app_window(url: &str) -> bool {
+    if app_window(url) {
+        return true;
+    }
+    open_browser(url);
+    false
+}
+
+#[cfg(windows)]
+fn app_window(url: &str) -> bool {
+    if is_elevated() {
+        return false;
+    }
+    match edge() {
+        Some(e) => std::process::Command::new(e).arg(format!("--app={url}")).spawn().is_ok(),
+        None => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn app_window(_url: &str) -> bool {
+    false
+}
+
+/// Microsoft Edge, where Windows installs it (in Program Files, which only
+/// an administrator can change), or None.
+#[cfg(windows)]
+fn edge() -> Option<PathBuf> {
+    ["ProgramFiles(x86)", "ProgramFiles"]
+        .iter()
+        .filter_map(|v| std::env::var_os(v))
+        .map(|d| PathBuf::from(d).join(r"Microsoft\Edge\Application\msedge.exe"))
+        .find(|p| p.is_file())
+}
+
 /// Show a folder (or select a file) in Explorer.
 pub fn open_folder(path: &Path) -> bool {
     #[cfg(windows)]
@@ -602,6 +645,14 @@ mod tests {
             assert_eq!(p, std::path::PathBuf::from("diskpart.exe"));
             assert_eq!(e, std::path::PathBuf::from("explorer.exe"));
         }
+    }
+
+    /// The page opens in Edge's own window: Edge is where Windows puts it.
+    #[cfg(windows)]
+    #[test]
+    fn edge_is_found() {
+        let e = super::edge().expect("Microsoft Edge is installed on every Windows 10 and 11");
+        assert!(e.to_string_lossy().to_lowercase().ends_with(r"\microsoft\edge\application\msedge.exe"), "{}", e.display());
     }
 
     #[test]

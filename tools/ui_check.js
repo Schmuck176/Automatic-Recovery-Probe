@@ -7,7 +7,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 let chromium;
-for (const p of ["playwright", "/home/claude/.npm-global/lib/node_modules/@playwright/mcp/node_modules/playwright"]) {
+for (const p of ["playwright", "/opt/npm-tools/node_modules/playwright", "/home/claude/.npm-global/lib/node_modules/@playwright/mcp/node_modules/playwright"]) {
   try { ({ chromium } = require(p)); break; } catch (e) { /* next */ }
 }
 const [exe, work, disk, mapfile] = process.argv.slice(2);
@@ -46,6 +46,21 @@ function freePort() {
 }
 let port;
 const key = "uitestkey0123456789abcdef";
+// Icons shown with no words beside them (in their own element or the one
+// around it), which the page must never have. (Hidden ones don't count.)
+function iconsWithoutWords(page) {
+  return page.evaluate(() => {
+    const bad = [];
+    for (const svg of document.querySelectorAll("svg.ic")) {
+      if (!svg.getClientRects().length) continue;
+      const near = [svg.parentElement, svg.parentElement && svg.parentElement.parentElement];
+      if (!near.some((el) => el && el.textContent.trim())) {
+        bad.push((svg.querySelector("use") || { getAttribute: () => "?" }).getAttribute("href") + " in ." + svg.parentElement.className);
+      }
+    }
+    return bad;
+  });
+}
 const results = [];
 const pageErrors = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
@@ -321,6 +336,14 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
       "step 8: undo puts the original back in WORK");
   }
   await shot("3b-repair");
+  const mute = await iconsWithoutWords(page);
+  check(mute.length === 0, "the steps tab: every icon has words beside it" + (mute.length ? ": " + mute.slice(0, 5).join(" | ") : ""));
+  // "Step 7" in the checklist goes to step 7 (not the 7th numbered part on the page).
+  await page.click("#tab-checklist");
+  await page.evaluate(() => goStep(7));
+  await page.waitForTimeout(400);
+  const top7 = await page.evaluate(() => Math.round(document.getElementById("s-scan").getBoundingClientRect().top));
+  check(Math.abs(top7) < 60, "the checklist's “step 7” goes to step 7 (" + top7 + " px from the top)");
 
   // A job that cannot start says why.
   await page.fill("#copy-to", "");

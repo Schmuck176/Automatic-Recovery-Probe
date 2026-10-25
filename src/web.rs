@@ -4,7 +4,9 @@
 //!
 //! Double-clicking the program starts a copy of it with administrator
 //! rights (Windows asks first: reading the recovered SSD directly needs
-//! them) in a window of its own, then opens the page. Each step that takes a
+//! them) in a window of its own, then opens the page in Microsoft Edge's
+//! app window (a window of its own, no tabs; the PC's usual browser if Edge
+//! is not there). Each step that takes a
 //! while runs as a "job" in the background; the page asks how it is going
 //! once a second. What each step found is kept in the results folder, so
 //! closing the program and opening it again loses nothing.
@@ -654,7 +656,7 @@ pub fn serve(cfg: Config) -> i32 {
     let url = format!("http://127.0.0.1:{port}/{}/", cfg.token);
     println!("{} {} is running in your web browser.", crate::APP, crate::VERSION);
     println!();
-    println!("If the page did not open, copy this address into the browser:");
+    println!("If the page did not open, or its window was closed, copy this address into a browser:");
     println!("  {url}");
     println!();
     if !elevated {
@@ -2365,9 +2367,15 @@ pub fn launch() -> i32 {
             let t = Instant::now();
             while t.elapsed() < Duration::from_secs(60) {
                 if TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, port).into(), Duration::from_millis(300)).is_ok() {
-                    crate::win::open_browser(&url);
+                    // (This copy has no administrator rights: it may start
+                    // Edge itself, in a window of its own.)
+                    let own = crate::win::open_app_window(&url);
                     println!();
-                    println!("It is open in your web browser now. This window can be closed.");
+                    if own {
+                        println!("It is open in a window of its own now (Microsoft Edge). This window can be closed.");
+                    } else {
+                        println!("It is open in your web browser now. This window can be closed.");
+                    }
                     pause(5);
                     return 0;
                 }

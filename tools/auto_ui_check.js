@@ -29,6 +29,22 @@ function freePort() {
 }
 let port;
 const key = "autouikey0123456789abcdef";
+// Icons shown with no words beside them (in their own element or the one
+// around it), which the page must never have: a picture alone says nothing
+// sure. (Hidden ones don't count.)
+function iconsWithoutWords(page) {
+  return page.evaluate(() => {
+    const bad = [];
+    for (const svg of document.querySelectorAll("svg.ic")) {
+      if (!svg.getClientRects().length) continue;
+      const near = [svg.parentElement, svg.parentElement && svg.parentElement.parentElement];
+      if (!near.some((el) => el && el.textContent.trim())) {
+        bad.push((svg.querySelector("use") || { getAttribute: () => "?" }).getAttribute("href") + " in ." + svg.parentElement.className);
+      }
+    }
+    return bad;
+  });
+}
 
 (async () => {
   port = await freePort();
@@ -97,10 +113,36 @@ const key = "autouikey0123456789abcdef";
     await page.waitForFunction(() => /Done|Needs attention/.test(document.getElementById("ast-final").textContent), null, { timeout: 300000 });
     check(/Finalised/.test(await text("#ar-final")), "Finalise finishes");
     await shot("auto-4-finalised", true);
+    // Every icon on the page comes with words saying what it is for.
+    check((await page.locator("#rail .rail-item").count()) === 6, "the list on the left names the six parts");
+    const mute = await iconsWithoutWords(page);
+    check(mute.length === 0, "every icon has words beside it" + (mute.length ? ": " + mute.slice(0, 5).join(" | ") : ""));
+    // The parts stay where they belong as the window changes size. At the
+    // PC's own (a 27-inch 4K screen at 150%: 2560 by about 1350): where you
+    // are, the guide and what is happening now, side by side.
+    const box = (sel) => page.locator(sel).boundingBox();
+    const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    await page.setViewportSize({ width: 2560, height: 1352 });
+    await page.waitForTimeout(300);
+    let [r, m, n] = [await box("#rail"), await box("#main"), await box("#now")];
+    check(r && m && n && r.x + r.width <= m.x && m.x + m.width <= n.x && Math.abs(r.y - n.y) < 40 && (await sideways()) <= 1,
+      "at 2560 px: where you are, the guide and Now side by side");
+    await shot("auto-6-wide");
+    // Half the screen: Now goes under where you are.
+    await page.setViewportSize({ width: 1265, height: 1352 });
+    await page.waitForTimeout(300);
+    [r, m, n] = [await box("#rail"), await box("#main"), await box("#now")];
+    check(r && m && n && n.y >= r.y + r.height - 1 && n.x + n.width <= m.x && (await sideways()) <= 1,
+      "at half the screen: Now under where you are, the guide beside them");
+    // Narrower: where you are on top, Now only while something runs.
+    await page.setViewportSize({ width: 900, height: 1000 });
+    await page.waitForTimeout(300);
+    [r, m, n] = [await box("#rail"), await box("#main"), await box("#now")];
+    check(r && m && r.y + r.height <= m.y && !n && (await sideways()) <= 1, "at 900 px: where you are on top, and nothing running in the way");
     // Narrow window (a phone-sized one): nothing sticks out sideways.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(300);
-    const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    const wide = await sideways();
     check(wide <= 1, "nothing sticks out of a narrow window (" + wide + " px)");
     await shot("auto-5-narrow");
   } catch (e) {

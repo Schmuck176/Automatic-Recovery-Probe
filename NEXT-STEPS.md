@@ -32,9 +32,10 @@ The user's answers (23 Oct, 15:05):
   C:\RECOVERY-TOOLS and checked byte for byte there; the version it replaces
   is kept in a branch `version-YYYY-MM-DD-N`. No tags (the session's GitHub
   access cut tag pushes off).
-- Private repo: Actions minutes are limited, Windows counts double. Batch
-  changes, push with `[skip ci]` when there is nothing new to build, cancel
-  superseded runs.
+- The repository is public since 25 Oct 2026 (the user made it so):
+  GitHub's own runners cost no Actions minutes for a public repository (the
+  2,000 a month counted only while it was private). Still push with
+  `[skip ci]` when there is nothing new to build, and cancel superseded runs.
 - Deliver to the PC under a fresh staged name, then stage back and compare
   the SHA-256 (a reused /mnt/user-data/outputs name once delivered an old file).
   The exe is locked while it runs: delivery fails while the program is open.
@@ -210,6 +211,39 @@ hunt and a clean-up of the repository. Found and fixed:
   is SPARE: check it, Switch SPARE off, unplug, plug in the same way, check
   again, unplug SPARE), then 3. The folders (C:\IMAGE, SPARE's WORK,
   C:\COPY 2), then Start.
+
+## 25 Oct 2026 (afternoon): the page made clearer
+
+The user asked (12:44 GMT): wording an average person understands, a page
+that looks better, icons or pictures but never without words saying what
+they are for, contents that stay where they belong when the window is
+resized, and whether showing it in a browser is still worth it. Keep the
+page scrolling top to bottom (they read the process in order while it is
+being developed). Their screen: 27-inch 4K, Windows 11 at 150% (2560 by
+about 1350 CSS pixels in a maximised window).
+
+- The browser stays: Edge draws the page sharp at 150% and keeps its
+  layout; a native window would mean rewriting the page and all its tests.
+  It now opens in Edge's app window (`msedge --app=`: no tabs or address bar,
+  its own taskbar button), started by the launcher, which has no
+  administrator rights (win::open_app_window); without Edge, or from a copy
+  that has administrator rights, the usual browser as before.
+- src/ui.html redone: three fixed places - where you are (the parts in order,
+  with their states), the guide (top to bottom, as before), "Now" (the job
+  running, Stop, what Start waits for you to do, what is next); below
+  1680 px "Now" goes under where you are, below 1100 px where you are becomes
+  a row of numbered circles on top and "Now" docks at the bottom while
+  something runs. "Where your files go": the recovered SSD, the image, WORK,
+  REPAIR, COPY 2, lit up as Start gets each done. Start's 15 stages grouped
+  the way the files travel, in plain words. Icons: Lucide (ISC licence, its
+  notice in the page), 64 of them embedded as one sprite; every one has words
+  beside it (auto_ui_check.js and ui_check.js check that). Every button the
+  checklist names keeps its exact name, so the checklist (and its ticks) did
+  not change.
+- Found on the way: the checklist's "step 7" links and "Go to step 7" went to
+  the 7th numbered part on the whole page (step 1 of the steps tab, since the
+  Automatic tab came first); they go to step 7 now (ui_check.js checks).
+- Version 2026-10-25 (2).
 
 ## Not done / ideas for later
 

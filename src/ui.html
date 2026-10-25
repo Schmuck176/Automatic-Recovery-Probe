@@ -1,456 +1,958 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Automatic Recovery Probe</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231d5c8c'/%3E%3Cg transform='translate(4 4)' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 16h.01'/%3E%3Cpath d='M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3Cpath d='M21.946 12.013H2.054'/%3E%3Cpath d='M6 16h.01'/%3E%3C/g%3E%3C/svg%3E">
 <style>
+/* The look, in short: colour means the same everywhere, as on the map of the
+   old drive - green read / safe / done, red damaged / stop, blue the program
+   at work and the buttons, amber your turn. Bahnschrift (Windows' own DIN
+   face, the lettering of labels on equipment) for headings, numbers and
+   states; Segoe UI for reading. Every icon comes with words. */
 :root {
-  --paper: #eef1ef;
+  --paper: #edf1ee;
   --sheet: #fbfcfb;
-  --ink: #16232a;
-  --ink-soft: #52616a;
-  --rule: #cfd7d3;
+  --ink: #15232a;
+  --ink-soft: #4e5e66;
+  --rule: #cbd5d0;
+  --rule-strong: #a7b6af;
   --read: #2e7d57;
-  --unread: #c03a2b;
+  --read-bg: #dcefe4;
+  --unread: #bf3a2b;
+  --bad-bg: #f8e1dd;
+  --act: #1d5c8c;
+  --act-ink: #ffffff;
+  --act-hover: #164a72;
+  --act-bg: #e2ecf5;
+  --turn: #7a4a00;
+  --turn-bg: #fcefd0;
+  --turn-line: #d99a2b;
   --folder: #7b3fa0;
   --quiet: #9aa7a1;
-  --act: #1b5a86;
-  --act-ink: #ffffff;
-  --act-hover: #154a6f;
-  --caution-bg: #fbefd3;
-  --caution-ink: #6f4a00;
-  --bad-bg: #f8e1dd;
-  --good-bg: #dcefe4;
   --focus: #e09a00;
+  --shadow: 0 1px 2px rgb(21 35 42 / 0.06), 0 10px 30px rgb(21 35 42 / 0.10);
   --head: "Bahnschrift", "DIN Alternate", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", "DejaVu Sans", sans-serif;
+  --mono: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #10181c; --sheet: #172127; --ink: #e4ebee; --ink-soft: #a3b1b7; --rule: #2b3a41;
-    --read: #5fb685; --unread: #ff6e5f; --folder: #c58ae8; --quiet: #5d6d74;
-    --act: #5aa8dd; --act-ink: #08131a; --act-hover: #7dbbe6;
-    --caution-bg: #3a2e12; --caution-ink: #f2cf83; --bad-bg: #3d1f1b; --good-bg: #173326; color-scheme: dark;
+    --paper: #0f171b; --sheet: #162027; --ink: #e3eaed; --ink-soft: #a1afb5; --rule: #2a3940; --rule-strong: #3d4f57;
+    --read: #5fb685; --read-bg: #173326; --unread: #ff6e5f; --bad-bg: #3d1f1b;
+    --act: #62ace0; --act-ink: #07131a; --act-hover: #86c0e8; --act-bg: #15303f;
+    --turn: #f2cf83; --turn-bg: #3a2e12; --turn-line: #b07d1f;
+    --folder: #c58ae8; --quiet: #5d6d74; --focus: #f0b232;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 30px rgb(0 0 0 / 0.35);
+    color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #10181c; --sheet: #172127; --ink: #e4ebee; --ink-soft: #a3b1b7; --rule: #2b3a41;
-  --read: #5fb685; --unread: #ff6e5f; --folder: #c58ae8; --quiet: #5d6d74;
-  --act: #5aa8dd; --act-ink: #08131a; --act-hover: #7dbbe6;
-  --caution-bg: #3a2e12; --caution-ink: #f2cf83; --bad-bg: #3d1f1b; --good-bg: #173326; color-scheme: dark;
+  --paper: #0f171b; --sheet: #162027; --ink: #e3eaed; --ink-soft: #a1afb5; --rule: #2a3940; --rule-strong: #3d4f57;
+  --read: #5fb685; --read-bg: #173326; --unread: #ff6e5f; --bad-bg: #3d1f1b;
+  --act: #62ace0; --act-ink: #07131a; --act-hover: #86c0e8; --act-bg: #15303f;
+  --turn: #f2cf83; --turn-bg: #3a2e12; --turn-line: #b07d1f;
+  --folder: #c58ae8; --quiet: #5d6d74; --focus: #f0b232;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 30px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html { background: var(--paper); }
+/* (Whatever a rule below says about showing it, hidden means hidden.) */
+[hidden] { display: none !important; }
+/* (The scroll bar's room is kept, so nothing shifts sideways when a long
+   result makes the page scroll.) */
+html { background: var(--paper); font-size: 17px; scrollbar-gutter: stable; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
-  font: 16px/1.55 var(--body); font-variant-numeric: tabular-nums;
+  font: 400 1rem/1.55 var(--body); font-variant-numeric: tabular-nums;
 }
-main { max-width: 880px; margin: 0 auto; padding: 28px 20px 160px; }
-h1, h2, h3 { font-family: var(--head); font-weight: 600; letter-spacing: 0.005em; line-height: 1.2; }
-h1 { font-size: 2.1rem; margin: 0; font-stretch: semi-condensed; }
-h2 { font-size: 1.32rem; margin: 0 0 4px; font-stretch: semi-condensed; }
-h3 { font-size: 1.02rem; margin: 18px 0 6px; }
-p { margin: 6px 0 10px; max-width: 68ch; }
-p, li, td, .msg { overflow-wrap: anywhere; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ic {
+  width: 1.2em; height: 1.2em; flex: none; vertical-align: -0.24em;
+  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.ic.spin { animation: spin 1.8s linear infinite; }
+h1, h2, h3, h4, h5 { font-family: var(--head); font-weight: 600; line-height: 1.2; }
+h1 { font-size: 2.15rem; margin: 0; font-stretch: 87.5%; }
+h2 { font-size: 1.45rem; margin: 0; font-stretch: 87.5%; }
+h3 { font-size: 1.12rem; margin: 22px 0 8px; }
+[tabindex="-1"]:focus { outline: none; }
+p { margin: 8px 0 12px; max-width: 70ch; }
+p, li, td, .msg, .path { overflow-wrap: anywhere; }
 a { color: var(--act); }
 .soft { color: var(--ink-soft); }
-.small { font-size: 0.9rem; }
-code, .path { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 0.86em; overflow-wrap: anywhere; }
+.small { font-size: 0.875rem; }
+code, .path { font-family: var(--mono); font-size: 0.86em; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-header.top { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; justify-content: space-between; }
-.rights { font-size: 0.92rem; padding: 3px 10px; border-radius: 4px; background: var(--good-bg); }
-.rights.no { background: var(--caution-bg); color: var(--caution-ink); }
-.banner { margin: 16px 0 0; padding: 12px 14px; border-radius: 6px; background: var(--caution-bg); color: var(--caution-ink); }
-.banner p { margin: 0 0 8px; }
-
-/* The map of the old drive: the one picture on the page. */
-.map { margin: 22px 0 8px; padding: 18px 18px 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
-.map .lead { font-family: var(--head); font-size: 1.18rem; margin: 0 0 14px; max-width: none; }
-.map svg { display: block; width: 100%; height: auto; overflow: visible; }
-.map .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 0.86rem; color: var(--ink-soft); }
-.key { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
-
-/* The steps: a sequence, so numbered and joined by a line. */
-ol.steps { list-style: none; margin: 26px 0 0; padding: 0; counter-reset: step; }
-ol.steps > li { position: relative; padding: 0 0 30px 58px; counter-increment: step; }
-ol.steps > li::before {
-  content: counter(step); position: absolute; left: 0; top: -2px; width: 38px; height: 38px; border-radius: 50%;
-  display: grid; place-items: center; font: 600 1.1rem var(--head); background: var(--sheet); border: 2px solid var(--rule); color: var(--ink-soft);
+/* ------------------------------------------------------------ the frame */
+.shell { max-width: 1880px; margin: 0 auto; padding: 22px 32px 72px; }
+.masthead {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 32px;
+  padding-bottom: 18px; border-bottom: 1px solid var(--rule);
 }
-ol.steps > li::after { content: ""; position: absolute; left: 19px; top: 40px; bottom: 4px; width: 2px; background: var(--rule); }
-ol.steps > li:last-child::after { display: none; }
-ol.steps > li.done::before { content: "\2713"; background: var(--read); border-color: var(--read); color: #fff; }
-ol.steps > li.problem::before { background: var(--unread); border-color: var(--unread); color: #fff; }
-ol.steps > li.running::before { border-color: var(--act); color: var(--act); }
-.step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
-.state { font-size: 0.86rem; color: var(--ink-soft); }
-.state.done { color: var(--read); }
-.state.problem { color: var(--unread); }
+.brand { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+.brand-mark {
+  display: grid; place-items: center; width: 58px; height: 58px; flex: none; border-radius: 15px;
+  background: var(--act); color: var(--act-ink);
+}
+.brand-mark .ic { width: 32px; height: 32px; }
+.tagline { margin: 3px 0 0; color: var(--ink-soft); max-width: 64ch; }
+.masthead-side { display: flex; min-width: 0; }
+.rights {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 10px; border-radius: 999px;
+  font: 600 0.92rem/1.3 var(--head); background: var(--read-bg); color: var(--read);
+}
+.rights.no { background: var(--turn-bg); color: var(--turn); }
+#version { margin: 4px 0 0; max-width: 90ch; }
 
-.panel { margin-top: 10px; padding: 14px 16px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+nav.views { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 26px; }
+nav.views button {
+  display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 9px 18px; border-radius: 10px;
+  background: transparent; color: var(--ink-soft); border: 1px solid transparent; font: 600 1rem var(--body);
+}
+nav.views button:hover { background: var(--sheet); color: var(--ink); border-color: var(--rule); }
+nav.views button[aria-selected="true"] {
+  background: var(--sheet); color: var(--act); border-color: var(--rule-strong); box-shadow: inset 0 -3px 0 var(--act);
+}
+#tab-count { font-weight: 400; color: var(--ink-soft); }
+
+/* Three fixed places: where you are (left), the guide (middle), what is
+   happening now (right). Narrower windows keep the order, in fewer columns:
+   below 1680 px "Now" moves under "where you are"; below 1100 px "where you
+   are" goes on top and "Now" docks at the bottom while something runs. */
+.layout { display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: 40px; align-items: start; }
+.side {
+  position: sticky; top: 18px; display: grid; gap: 18px; min-width: 0;
+  max-height: calc(100vh - 36px); overflow: auto; overscroll-behavior: contain; padding: 2px;
+}
+main { min-width: 0; max-width: 1080px; }
+@media (min-width: 1680px) {
+  .layout { grid-template-columns: 268px minmax(0, 1fr) 380px; }
+  .side { display: contents; }
+  .rail, .now { position: sticky; top: 18px; grid-row: 1; max-height: calc(100vh - 36px); overflow: auto; padding: 2px; }
+  .rail { grid-column: 1; }
+  main { grid-column: 2; grid-row: 1; }
+  .now { grid-column: 3; }
+}
+
+/* Where you are. */
+.rail-title { font: 600 0.88rem var(--head); color: var(--ink-soft); margin: 0 0 8px 10px; }
+ol.rail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+ol.rail-list > li { position: relative; }
+ol.rail-list > li:not(:last-child)::after {
+  content: ""; position: absolute; left: 25px; top: 44px; bottom: -8px; width: 2px; background: var(--rule);
+}
+.rail-item {
+  position: relative; z-index: 1; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 8px 10px; border-radius: 10px; color: var(--ink); text-decoration: none;
+}
+.rail-item:hover { background: var(--sheet); }
+.rail-item[aria-current="true"] { background: var(--sheet); box-shadow: inset 3px 0 0 var(--act); }
+.rail-num {
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 0.98rem var(--head); background: var(--paper); border: 2px solid var(--rule-strong); color: var(--ink-soft);
+}
+.rail-item.done .rail-num { background: var(--read); border-color: var(--read); color: #fff; }
+.rail-item.problem .rail-num { background: var(--unread); border-color: var(--unread); color: #fff; }
+.rail-item.running .rail-num, .rail-item.next .rail-num { border-color: var(--act); color: var(--act); background: var(--act-bg); }
+.rail-item.turn .rail-num { border-color: var(--turn-line); color: var(--turn); background: var(--turn-bg); }
+.rail-name { display: block; font-weight: 600; line-height: 1.3; }
+.rail-state { display: flex; align-items: center; gap: 5px; margin-top: 1px; font: 600 0.82rem/1.3 var(--head); color: var(--ink-soft); }
+.rail-state .ic { width: 1.1em; height: 1.1em; }
+.rail-item.done .rail-state { color: var(--read); }
+.rail-item.problem .rail-state { color: var(--unread); }
+.rail-item.running .rail-state, .rail-item.next .rail-state { color: var(--act); }
+.rail-item.turn .rail-state { color: var(--turn); }
+.rail-now { display: none; align-items: center; justify-content: center; gap: 6px; margin: 6px 0 0; font-weight: 600; text-align: center; }
+.rail-now .ic { color: var(--act); }
+
+/* What is happening now. */
+.now-card {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px 18px 18px; border-radius: 14px;
+  background: var(--sheet); border: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+.now-card > * { min-width: 0; }
+.now-head { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; }
+.now-icon {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--paper); color: var(--ink-soft); border: 1px solid var(--rule);
+}
+.now-icon .ic { width: 24px; height: 24px; }
+.now-icon.running { background: var(--act-bg); color: var(--act); border-color: transparent; }
+.now-icon.turn { background: var(--turn-bg); color: var(--turn); border-color: transparent; }
+.now-head h2 { font-size: 1.2rem; }
+.now-head p { margin: 1px 0 0; }
+#job { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+#job > * { grid-column: 1 / -1; min-width: 0; }
+#job > .job-title { grid-column: 1; font-weight: 600; }
+#job > .row { grid-column: 2; grid-row: 1; margin: 0; }
+.job-last { font-size: 0.86rem; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yourturn {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start;
+  padding: 12px 14px; border-radius: 12px; background: var(--turn-bg); color: var(--turn); border: 2px solid var(--turn-line);
+}
+.yourturn .ic { width: 22px; height: 22px; margin-top: 1px; }
+.yourturn b { font: 600 1.06rem/1.3 var(--head); }
+.yourturn p { grid-column: 2; margin: 0; color: var(--ink); max-width: none; }
+.yourturn.calm { border-width: 1px; }
+.now-label { margin: 0 0 6px; font: 600 0.88rem var(--head); color: var(--ink-soft); }
+.now-next button { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; }
+@media (max-width: 1099px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .side { display: contents; }
+  .now { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 0 12px 12px; }
+  .now:not(.active) { display: none; }
+  .now-card { max-width: 900px; margin: 0 auto; gap: 10px; padding: 12px 16px 14px; }
+  .now-next, .job-last { display: none; }
+  body.now-active main { padding-bottom: 260px; }
+  /* Where you are: a row of numbered circles, and one line saying what is next. */
+  .rail-title { display: none; }
+  ol.rail-list { display: flex; gap: 0; overflow-x: auto; }
+  ol.rail-list > li { flex: 1 1 0; min-width: 38px; display: flex; justify-content: center; }
+  ol.rail-list > li:not(:last-child)::after { left: calc(50% + 19px); right: calc(-50% + 19px); top: 19px; bottom: auto; width: auto; height: 2px; }
+  .rail-item { grid-template-columns: 30px; padding: 4px; }
+  .rail-num { width: 30px; height: 30px; }
+  .rail-item > span + span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .rail-now { display: flex; }
+}
+
+/* ------------------------------------------------------------ the guide */
+.banner {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0 0 18px; padding: 14px 16px;
+  border-radius: 12px; background: var(--turn-bg); color: var(--turn); border: 1px solid var(--turn-line);
+}
+.banner .ic { width: 24px; height: 24px; }
+.banner p { margin: 0 0 8px; color: var(--ink); max-width: none; }
+.banner.lost { background: var(--bad-bg); color: var(--unread); border-color: var(--unread); }
+.where { margin: 0 0 18px; }
+.where .msg { align-items: center; }
+.where .msg-text { flex: 1 1 320px; }
+.where .msg button { min-height: 34px; padding: 5px 12px; }
+
+/* The journey of the files: the one picture on the Automatic tab. */
+.journey {
+  container-type: inline-size; margin: 0 0 34px; padding: 20px 22px 22px;
+  background: var(--sheet); border: 1px solid var(--rule); border-radius: 16px;
+}
+.journey-head { display: grid; gap: 4px; }
+.journey-head h2 { font-size: 1.3rem; }
+.journey-head p { margin: 0; color: var(--ink-soft); max-width: 60ch; }
+ol.track { list-style: none; margin: 20px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.node { position: relative; display: grid; justify-items: center; align-content: start; gap: 3px; padding: 0 8px; text-align: center; }
+/* The stretch of track from the node before: green once this node is done. */
+.node + .node::before {
+  content: ""; position: absolute; top: 27px; right: 50%; width: 100%; height: 8px; border-radius: 4px; background: var(--rule);
+}
+.node.done::before { background: var(--read); }
+.node.running::before, .node.turn::before {
+  background: repeating-linear-gradient(-45deg, var(--act) 0 7px, color-mix(in srgb, var(--act) 45%, var(--sheet)) 7px 14px);
+}
+.node.problem::before { background: var(--unread); }
+.node-tile {
+  position: relative; z-index: 1; width: 62px; height: 62px; margin-bottom: 6px; border-radius: 16px; display: grid; place-items: center;
+  background: var(--paper); color: var(--ink-soft); border: 2px solid var(--rule-strong);
+}
+.node-tile .ic { width: 30px; height: 30px; }
+.node.done .node-tile { background: var(--read-bg); color: var(--read); border-color: var(--read); }
+.node.running .node-tile { background: var(--act-bg); color: var(--act); border-color: var(--act); }
+.node.turn .node-tile { background: var(--turn-bg); color: var(--turn); border-color: var(--turn-line); }
+.node.problem .node-tile { background: var(--bad-bg); color: var(--unread); border-color: var(--unread); }
+.node-name { font: 600 1.08rem/1.25 var(--head); }
+.node-text { font-size: 0.86rem; line-height: 1.4; color: var(--ink-soft); }
+.node-path { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+.node .state { margin-top: 6px; }
+@container (max-width: 760px) {
+  ol.track { grid-template-columns: minmax(0, 1fr); }
+  .node { grid-template-columns: 62px minmax(0, 1fr); justify-items: start; column-gap: 16px; padding: 0 0 20px; text-align: left; }
+  .node-tile { grid-row: 1 / span 5; margin: 0; }
+  .node + .node::before { display: none; }
+  .node:not(:last-child)::after {
+    content: ""; position: absolute; left: 27px; top: 62px; bottom: 0; width: 8px; background: var(--rule);
+  }
+  .node:has(+ .node.done)::after { background: var(--read); }
+  .node:has(+ .node.running)::after, .node:has(+ .node.turn)::after { background: var(--act); }
+  .node .state { margin-top: 4px; }
+}
+
+/* The parts and the steps: a sequence, numbered and joined by a line. */
+ol.parts { list-style: none; margin: 0; padding: 0; }
+.part { position: relative; padding: 0 0 46px 66px; scroll-margin-top: 18px; }
+.part::before { content: ""; position: absolute; left: 21px; top: 50px; bottom: 6px; width: 2px; background: var(--rule); }
+.part:last-child::before { display: none; }
+.part-num {
+  position: absolute; left: 0; top: 0; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 1.2rem var(--head); background: var(--sheet); border: 2px solid var(--rule-strong); color: var(--ink-soft);
+}
+.part.done .part-num { background: var(--read); border-color: var(--read); color: #fff; }
+.part.problem .part-num { background: var(--unread); border-color: var(--unread); color: #fff; }
+.part.running .part-num { background: var(--act-bg); border-color: var(--act); color: var(--act); }
+.part.turn .part-num { background: var(--turn-bg); border-color: var(--turn-line); color: var(--turn); }
+.part-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 44px; }
+.part-head h2 { display: flex; align-items: center; gap: 10px; }
+.part-head h2 .ic { color: var(--act); width: 1.05em; height: 1.05em; }
+.lead { font-size: 1.04rem; margin: 6px 0 14px; }
+.state {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 8px; border-radius: 999px;
+  font: 600 0.88rem/1.4 var(--head); background: var(--paper); color: var(--ink-soft); border: 1px solid var(--rule);
+}
+.state:empty { display: none; }
+.state .ic { width: 1.15em; height: 1.15em; }
+.state.done { background: var(--read-bg); color: var(--read); border-color: transparent; }
+.state.problem { background: var(--bad-bg); color: var(--unread); border-color: transparent; }
+.state.running { background: var(--act-bg); color: var(--act); border-color: transparent; }
+.state.turn { background: var(--turn-bg); color: var(--turn); border-color: transparent; }
+
+.panel { margin-top: 14px; padding: 16px 18px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; }
+.panel > :first-child { margin-top: 0; }
 .panel.quiet { background: transparent; border-style: dashed; }
-.row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0 0; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0 0; }
+.inputrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 8px; }
 button {
-  font: 600 0.98rem var(--body); padding: 9px 16px; border-radius: 6px; border: 1px solid var(--act);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 16px;
+  font: 600 0.96rem/1.2 var(--body); white-space: nowrap; border-radius: 8px; border: 1px solid var(--act);
   background: var(--act); color: var(--act-ink); cursor: pointer;
 }
+button .ic { width: 1.15em; height: 1.15em; }
 button:hover { background: var(--act-hover); border-color: var(--act-hover); }
-button.second { background: transparent; color: var(--act); }
-button.second:hover { background: color-mix(in srgb, var(--act) 10%, transparent); }
+button.second { background: var(--sheet); color: var(--act); border-color: var(--rule-strong); }
+button.second:hover { background: var(--act-bg); border-color: var(--act); }
+button.stop { color: var(--unread); }
+button.stop:hover { background: var(--bad-bg); border-color: var(--unread); }
+button.big { min-height: 54px; padding: 12px 30px; font-size: 1.14rem; border-radius: 10px; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, label:focus-within {
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, label:focus-within {
   outline: 3px solid var(--focus); outline-offset: 2px;
 }
-input[type=text] {
-  font: 0.95rem var(--body); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px;
-  background: var(--paper); color: var(--ink); min-width: 0; flex: 1 1 320px;
+input[type=text], textarea {
+  width: 100%; min-width: 0; font: 400 1rem var(--body); padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--rule-strong); background: var(--sheet); color: var(--ink);
 }
-label.check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; max-width: 68ch; }
-label.check input { margin-top: 5px; }
-.choices { display: grid; gap: 8px; margin-top: 10px; }
-.choice { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; background: var(--paper); }
-.choice input { grid-row: span 3; margin-top: 4px; }
-.choice.match { border-color: var(--read); }
-.choice.system { cursor: default; opacity: 0.7; }
-.tag { display: inline-block; font-size: 0.8rem; padding: 0 7px; border-radius: 3px; background: var(--paper); border: 1px solid var(--rule); margin-left: 6px; white-space: nowrap; }
-.tag.ok { background: var(--good-bg); border-color: transparent; }
-.tag.warn { background: var(--caution-bg); color: var(--caution-ink); border-color: transparent; }
-.msg { margin: 10px 0 0; padding: 9px 12px; border-radius: 6px; }
-.msg.ok { background: var(--good-bg); }
-.msg.err { background: var(--bad-bg); }
-.msg.warn { background: var(--caution-bg); color: var(--caution-ink); }
-.figures { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 4px 0 6px; }
-.figure b { display: block; font: 600 1.55rem var(--head); }
+textarea { min-height: 3.4em; resize: vertical; }
+input[type=checkbox], input[type=radio] { width: 19px; height: 19px; margin: 3px 0 0; accent-color: var(--act); flex: none; }
+label.check { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; max-width: 72ch; }
+.msg {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 11px 14px; border-radius: 10px;
+  background: var(--sheet); border: 1px solid var(--rule);
+}
+.msg > .ic { width: 20px; height: 20px; margin-top: 2px; }
+.msg-text { flex: 1 1 200px; min-width: 0; }
+.msg.ok { background: var(--read-bg); border-color: transparent; }
+.msg.ok > .ic { color: var(--read); }
+.msg.err { background: var(--bad-bg); border-color: transparent; }
+.msg.err > .ic { color: var(--unread); }
+.msg.warn { background: var(--turn-bg); border-color: transparent; }
+.msg.warn > .ic { color: var(--turn); }
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 24px; margin: 4px 0 8px; }
+.figure b { display: block; font: 600 1.7rem/1.15 var(--head); }
 .figure span { font-size: 0.88rem; color: var(--ink-soft); }
 .figure.bad b { color: var(--unread); }
+.tag {
+  display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 4px; white-space: nowrap;
+  font-size: 0.8rem; background: var(--paper); border: 1px solid var(--rule);
+}
+.tag.ok { background: var(--read-bg); color: var(--read); border-color: transparent; }
+.tag.warn { background: var(--turn-bg); color: var(--turn); border-color: transparent; }
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin-top: 8px; }
-th, td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 th { font-weight: 600; color: var(--ink-soft); }
 td.num, th.num { text-align: right; white-space: nowrap; }
 td.verdict { white-space: nowrap; overflow-wrap: normal; }
-/* The safety check: one row per stage, from the SSD to the copies. */
 .safety h3 { margin-top: 0; }
-td.mark { width: 1.6em; text-align: center; font-weight: 700; padding-right: 0; }
+td.mark { white-space: nowrap; font: 600 0.86rem var(--head); padding-right: 0; }
+td.mark .ic { width: 1.15em; height: 1.15em; margin-right: 4px; }
 td.mark.good { color: var(--read); }
 td.mark.bad { color: var(--unread); }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--act); font-weight: 600; }
-pre.report { white-space: pre-wrap; font: 0.82rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; background: var(--paper); padding: 10px 12px; border-radius: 6px; max-height: 420px; overflow: auto; }
-.scroll { max-height: 340px; overflow: auto; }
+pre.report {
+  white-space: pre-wrap; margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; max-height: 420px; overflow: auto;
+  font: 0.82rem/1.45 var(--mono); background: var(--paper);
+}
+.scroll { max-height: 360px; overflow: auto; }
 ul.groups { list-style: none; margin: 8px 0 0; padding: 0; }
 ul.groups li { padding: 8px 0; border-bottom: 1px solid var(--rule); }
 ul.groups li:last-child { border-bottom: 0; }
-
-/* The job running now. */
-#job { position: fixed; left: 0; right: 0; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); box-shadow: 0 -6px 24px rgb(0 0 0 / 0.08); }
-#job .inner { max-width: 880px; margin: 0 auto; padding: 12px 20px 14px; }
-#job .line1 { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
-#job .title { font: 600 1.05rem var(--head); }
-.bar { height: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; margin: 8px 0 6px; }
+.bar { height: 10px; margin: 10px 0 6px; overflow: hidden; border-radius: 5px; background: var(--paper); border: 1px solid var(--rule); }
 .bar > div { height: 100%; width: 0; background: var(--act); transition: width 0.4s ease; }
 .bar.unknown > div { width: 30%; animation: slide 1.6s ease-in-out infinite; }
 @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
-#job .last { font-size: 0.88rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-dialog { border: 1px solid var(--rule); border-radius: 10px; padding: 0; width: min(720px, calc(100vw - 32px)); background: var(--sheet); color: var(--ink); }
-dialog::backdrop { background: rgb(10 20 25 / 0.45); }
-dialog .dhead { padding: 14px 16px 8px; border-bottom: 1px solid var(--rule); }
-dialog .dbody { padding: 8px 16px; max-height: 55vh; overflow: auto; }
-dialog .dfoot { padding: 10px 16px 14px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.entry { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font: 0.95rem var(--body); cursor: pointer; }
-.entry:hover { background: var(--paper); }
-.entry .soft { white-space: nowrap; }
-/* Two views: the checklist, and the program's steps. */
-nav.views { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
-nav.views button { background: transparent; color: var(--act); }
-nav.views button[aria-selected="true"] { background: var(--act); color: var(--act-ink); }
-.where { margin: 12px 0 0; }
-.where .msg { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
-.where .msg button { padding: 5px 12px; font-size: 0.9rem; }
-.where .nexttext { flex: 1 1 320px; }
-.progress { height: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+/* What you do: a few numbered moves, each with its picture and words. */
+ol.howto { list-style: none; counter-reset: how; margin: 4px 0 6px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+ol.howto > li {
+  counter-increment: how; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start;
+  padding: 12px 14px; border-radius: 12px; background: var(--sheet); border: 1px solid var(--rule);
+}
+ol.howto .how-ic {
+  position: relative; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--act-bg); color: var(--act);
+}
+ol.howto .how-ic::after {
+  content: counter(how); position: absolute; right: -7px; bottom: -7px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font: 600 0.8rem var(--head); background: var(--act); color: var(--act-ink);
+}
+ol.howto .how-title { display: block; line-height: 1.3; font-weight: 600; }
+ol.howto .how-text { font-size: 0.9rem; color: var(--ink-soft); }
+ul.does { list-style: none; margin: 4px 0 10px; padding: 0; display: grid; gap: 8px; }
+ul.does li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+ul.does .ic { color: var(--act); margin-top: 2px; }
+details.more { margin: 10px 0 0; }
+details.more > summary { display: inline-flex; align-items: center; gap: 6px; }
+details.more > div { margin-top: 6px; padding: 2px 0 2px 16px; border-left: 3px solid var(--rule); }
+
+/* Get ready's list. */
+.checkgroups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 6px 20px; }
+.checkgroups h3 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; }
+.checkgroups h3 .ic { color: var(--act); }
+ul.checks { list-style: none; margin: 0; padding: 0; border-radius: 12px; background: var(--sheet); border: 1px solid var(--rule); }
+ul.checks > li {
+  display: grid; grid-template-columns: 7.2em minmax(0, 1fr) auto; gap: 4px 14px; align-items: start;
+  padding: 11px 14px; border-top: 1px solid var(--rule);
+}
+ul.checks > li:first-child { border-top: 0; }
+.mk { display: inline-flex; align-items: center; gap: 6px; font: 600 0.88rem/1.6 var(--head); }
+.mk .ic { width: 1.15em; height: 1.15em; }
+.mk.good { color: var(--read); }
+.mk.bad { color: var(--unread); }
+.mk.note { color: var(--turn); }
+.mk.todo { color: var(--ink-soft); }
+.what { min-width: 0; }
+.what b { display: flex; align-items: center; gap: 8px; line-height: 1.35; }
+.what b .ic { color: var(--ink-soft); }
+.what .small { display: block; margin-top: 2px; }
+ul.checks button { min-height: 34px; padding: 5px 12px; font-size: 0.9rem; }
+
+/* Start's stages. */
+.stagegroup h3 { display: flex; align-items: center; gap: 8px; margin: 20px 0 8px; font-size: 1.02rem; color: var(--ink-soft); }
+.stagegroup h3 .ic { color: var(--act); }
+ul.stages { list-style: none; margin: 0; padding: 0; border-radius: 12px; background: var(--sheet); border: 1px solid var(--rule); overflow: hidden; }
+ul.stages > li {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 2px 12px; align-items: start;
+  padding: 10px 14px; border-top: 1px solid var(--rule);
+}
+ul.stages > li:first-child { border-top: 0; }
+ul.stages .st-mark { color: var(--quiet); }
+ul.stages .st-mark .ic { width: 22px; height: 22px; }
+ul.stages .st-title { font-weight: 600; }
+ul.stages .st-num { font: 600 0.9rem var(--head); color: var(--ink-soft); margin-right: 6px; }
+ul.stages .st-when { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 10px; font: 600 0.84rem/1.6 var(--head); color: var(--ink-soft); white-space: nowrap; }
+ul.stages .st-sum { grid-column: 2 / 4; font-size: 0.88rem; color: var(--ink-soft); }
+ul.stages details { grid-column: 2 / 4; margin: 2px 0 0; }
+ul.stages details summary { font-size: 0.86rem; font-weight: 400; }
+ul.stages li.pending .st-title { font-weight: 500; color: var(--ink-soft); }
+ul.stages li.done .st-mark, ul.stages li.skipped .st-mark, ul.stages li.done .st-when { color: var(--read); }
+ul.stages li.running { background: var(--act-bg); }
+ul.stages li.running .st-mark, ul.stages li.running .st-when { color: var(--act); }
+ul.stages li.waiting { background: var(--turn-bg); }
+ul.stages li.waiting .st-mark, ul.stages li.waiting .st-when { color: var(--turn); }
+ul.stages li.failed, ul.stages li.stopped { background: var(--bad-bg); }
+ul.stages li.failed .st-mark, ul.stages li.stopped .st-mark, ul.stages li.failed .st-when, ul.stages li.stopped .st-when { color: var(--unread); }
+ul.stages li.failed .st-sum { color: var(--unread); }
+
+/* The folders. */
+.field { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 2px 14px; padding: 16px 0; border-top: 1px solid var(--rule); }
+.field:first-child { border-top: 0; padding-top: 4px; }
+.field-icon {
+  grid-row: 1 / span 3; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--sheet); color: var(--act); border: 1px solid var(--rule);
+}
+.field-icon .ic { width: 24px; height: 24px; }
+.field label.lab { font-weight: 600; }
+.field .hint { margin: 0; font-size: 0.88rem; color: var(--ink-soft); }
+.field label.check { margin: 0; }
+
+/* Lists of disks, mapfiles. */
+.choices { display: grid; gap: 8px; margin-top: 10px; }
+.choice {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; padding: 11px 14px; cursor: pointer;
+  border-radius: 10px; background: var(--sheet); border: 1px solid var(--rule);
+}
+.choice input { grid-row: span 3; }
+.choice b .ic { color: var(--ink-soft); margin-right: 4px; }
+.choice.match { border-color: var(--read); box-shadow: inset 3px 0 0 var(--read); }
+.choice.system { cursor: default; opacity: 0.7; }
+
+/* The map of the old drive (steps tab). */
+.map { margin: 0 0 30px; padding: 18px 20px 16px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 16px; }
+.map .lead { display: flex; gap: 10px; align-items: flex-start; font-family: var(--head); font-size: 1.16rem; margin: 0 0 14px; max-width: none; }
+.map .lead .ic { color: var(--act); margin-top: 2px; }
+#map-picture svg { display: block; width: 100%; height: auto; overflow: visible; }
+.map .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 0.86rem; color: var(--ink-soft); }
+.key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+.intro { display: flex; gap: 12px; align-items: flex-start; }
+.intro > .ic { color: var(--act); width: 22px; height: 22px; margin-top: 3px; }
+.intro p { margin: 0; max-width: none; }
+
+/* The checklist. */
+.progress { height: 10px; margin: 10px 0; overflow: hidden; border-radius: 5px; background: var(--paper); border: 1px solid var(--rule); }
 .progress > div { height: 100%; background: var(--read); }
 ul.phases { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
 ul.phases a { text-decoration: none; }
-ul.phases .tick { color: var(--read); font-weight: 700; display: inline-block; width: 1.3em; }
+ul.phases .tick { display: inline-flex; width: 1.4em; color: var(--read); }
 ul.phases .warn { color: var(--unread); }
 .checklist { margin-top: 18px; }
-.checklist h2 { font-size: 1.5rem; margin-top: 8px; }
-.checklist h2.phase-title { font-size: 1.32rem; margin-top: 30px; padding-top: 16px; border-top: 2px solid var(--rule); }
-.checklist h3 { font-size: 1.08rem; margin-top: 20px; }
+.checklist h1 { font-size: 1.7rem; }
+.checklist h2 { font-size: 1.45rem; margin-top: 8px; }
+.checklist h2.phase-title { margin-top: 34px; padding-top: 18px; border-top: 2px solid var(--rule); scroll-margin-top: 18px; }
+.checklist h3 { font-size: 1.1rem; margin-top: 22px; }
 .checklist h4, .checklist h5 { font: 600 1rem var(--head); margin: 16px 0 6px; }
-.phcount { font: 0.86rem var(--body); color: var(--ink-soft); white-space: nowrap; }
+.checklist section[id^="ph-"] { scroll-margin-top: 18px; }
+.phcount { font: 600 0.86rem var(--head); color: var(--ink-soft); white-space: nowrap; }
 .phcount.all { color: var(--read); }
 .checklist ul.boxes { list-style: none; padding-left: 0; margin: 8px 0; }
-.checklist li.box { position: relative; padding: 4px 6px 4px 36px; border-radius: 6px; margin: 2px 0; }
-.checklist li.box > input.tick { position: absolute; left: 6px; top: 7px; width: 20px; height: 20px; margin: 0; accent-color: var(--read); cursor: pointer; }
+.checklist li.box { position: relative; padding: 6px 8px 6px 40px; border-radius: 8px; margin: 2px 0; }
+.checklist li.box > input.tick { position: absolute; left: 9px; top: 9px; width: 20px; height: 20px; margin: 0; accent-color: var(--read); cursor: pointer; }
 .checklist li.box > input.tick:disabled { cursor: default; }
 .checklist li.box.done > .box-text { color: var(--ink-soft); }
-.checklist li.box.next { background: color-mix(in srgb, var(--focus) 14%, transparent); }
-.checklist li.box.checkpoint { background: var(--sheet); border: 1px solid var(--rule); padding: 9px 10px 9px 40px; margin: 10px 0; }
-.checklist li.box.checkpoint > input.tick { left: 10px; top: 12px; }
+.checklist li.box.next { background: color-mix(in srgb, var(--focus) 15%, transparent); }
+.checklist li.box.checkpoint { background: var(--sheet); border: 1px solid var(--rule); padding: 10px 12px 10px 44px; margin: 12px 0; }
+.checklist li.box.checkpoint > input.tick { left: 12px; top: 13px; }
 .checklist li.box.flash { outline: 3px solid var(--focus); outline-offset: 2px; }
 .cp { font-size: 0.92rem; margin-top: 6px; }
 .cp:empty { display: none; }
 .cp.passed, .cp.skipped { color: var(--read); }
 .cp.failed { color: var(--unread); font-weight: 600; }
-.cp.due, .cp.partly { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--caution-bg); color: var(--caution-ink); }
+.cp.due, .cp.partly { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--turn-bg); color: var(--turn); }
 .cp.after { color: var(--ink-soft); }
 .boxnote { font-size: 0.9rem; margin-top: 4px; color: var(--unread); }
-.checklist blockquote { margin: 12px 0; padding: 8px 14px; border-left: 4px solid var(--rule); background: var(--sheet); border-radius: 0 6px 6px 0; }
+.checklist blockquote { margin: 14px 0; padding: 10px 16px; border-left: 4px solid var(--rule-strong); background: var(--sheet); border-radius: 0 10px 10px 0; }
 .checklist blockquote p { max-width: none; }
-.checklist pre.code { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; overflow-x: auto; max-width: 100%;
-  font: 0.84rem/1.45 "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; white-space: pre; }
+.checklist pre.code {
+  max-width: 100%; overflow-x: auto; padding: 10px 12px; border-radius: 8px; white-space: pre;
+  font: 0.84rem/1.45 var(--mono); background: var(--sheet); border: 1px solid var(--rule);
+}
 .checklist ol, .checklist ul { padding-left: 24px; }
 .checklist td[data-num] { font-weight: 600; }
 .checklist .tablewrap { overflow-x: auto; max-width: 100%; }
 .checklist section.ph > hr:last-child { display: none; }
 .checklist hr { border: 0; border-top: 1px solid var(--rule); margin: 18px 0; }
-/* The Automatic view. */
-.intro p { max-width: none; }
-.checks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
-.checks li { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 2px 8px; align-items: start; padding: 6px 0; border-bottom: 1px solid var(--rule); }
-.checks li:last-child { border-bottom: 0; }
-.checks .mk { font-weight: 700; text-align: center; }
-.checks .mk.good { color: var(--read); }
-.checks .mk.bad { color: var(--unread); }
-.checks .mk.meh { color: var(--caution-ink); }
-.checks .what { min-width: 0; }
-.checks .what .small { display: block; }
-.checks button { padding: 5px 12px; font-size: 0.9rem; }
-ul.stages { list-style: none; margin: 12px 0 0; padding: 0; }
-ul.stages li { display: grid; grid-template-columns: 1.8em 1fr auto; gap: 2px 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
-ul.stages li:last-child { border-bottom: 0; }
-ul.stages .ic { font-weight: 700; text-align: center; color: var(--quiet); }
-ul.stages li.done .ic, ul.stages li.skipped .ic { color: var(--read); }
-ul.stages li.running .ic, ul.stages li.waiting .ic { color: var(--act); }
-ul.stages li.failed .ic, ul.stages li.stopped .ic { color: var(--unread); }
-ul.stages li.pending .st-title { color: var(--ink-soft); }
-ul.stages li.running .st-title, ul.stages li.waiting .st-title { font-weight: 600; }
-ul.stages .st-sum { font-size: 0.88rem; color: var(--ink-soft); grid-column: 2 / 4; }
-ul.stages li.failed .st-sum { color: var(--unread); }
-ul.stages details { margin: 2px 0 0; grid-column: 2 / 4; }
-ul.stages details summary { font-size: 0.86rem; font-weight: 400; }
-.waitcard { margin: 12px 0 0; padding: 14px 16px; border-radius: 8px; border: 2px solid var(--act); background: color-mix(in srgb, var(--act) 9%, var(--sheet)); }
-.waitcard b { font-family: var(--head); font-size: 1.05rem; }
-button.big { font-size: 1.1rem; padding: 12px 26px; }
-textarea { font: 0.95rem var(--body); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); width: 100%; min-height: 3.2em; }
-.folder-row { margin-top: 12px; }
-.folder-row label.lab { display: block; font-weight: 600; margin-bottom: 2px; }
-@media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; } }
+
+/* Choosing a folder. */
+dialog {
+  width: min(760px, calc(100vw - 32px)); padding: 0; border-radius: 14px;
+  border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); box-shadow: var(--shadow);
+}
+dialog::backdrop { background: rgb(10 20 25 / 0.45); }
+dialog .dhead { padding: 16px 18px 10px; border-bottom: 1px solid var(--rule); }
+dialog .dhead h2 { font-size: 1.25rem; }
+dialog .dbody { padding: 8px 12px; max-height: 55vh; overflow: auto; }
+dialog .dfoot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--rule); }
+.entry {
+  display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 0; padding: 8px 10px; border: 0; border-radius: 8px;
+  text-align: left; font: 400 0.98rem var(--body); background: transparent; color: var(--ink);
+}
+.entry:hover { background: var(--paper); }
+.entry > span:first-child { display: inline-flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.entry .ic { color: var(--act); }
+.entry .soft { white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ic.spin { animation: none; }
+  .bar > div { transition: none; }
+  .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; }
+}
+@media (max-width: 760px) {
+  .masthead-side { justify-items: start; }
+  #version { text-align: left; }
+  ul.checks > li { grid-template-columns: minmax(0, 1fr) auto; }
+  ul.checks > li > .mk { grid-column: 1 / -1; }
+}
 @media (max-width: 560px) {
-  main { padding: 18px 16px 170px; }
-  ol.steps > li { padding-left: 46px; }
-  ol.steps > li::before { width: 32px; height: 32px; font-size: 1rem; }
-  ol.steps > li::after { left: 16px; top: 34px; }
-  h1 { font-size: 1.7rem; }
+  html { font-size: 16px; }
+  nav.views { flex-wrap: nowrap; overflow-x: auto; margin-right: -14px; padding-right: 14px; }
+  .shell { padding: 16px 14px 72px; }
+  .brand-mark { width: 46px; height: 46px; border-radius: 12px; }
+  .brand-mark .ic { width: 26px; height: 26px; }
+  h1 { font-size: 1.75rem; }
+  .part { padding-left: 52px; }
+  .part-num { width: 38px; height: 38px; font-size: 1.05rem; }
+  .part::before { left: 18px; top: 44px; }
+  .inputrow { grid-template-columns: minmax(0, 1fr); }
+  .field { grid-template-columns: minmax(0, 1fr); }
+  .field-icon { display: none; }
+  ul.checks > li { grid-template-columns: minmax(0, 1fr); }
+  ul.stages > li { grid-template-columns: 24px minmax(0, 1fr); }
+  ul.stages .st-when { grid-column: 2; justify-content: flex-start; }
 }
 </style>
 </head>
 <body>
-<main>
-  <header class="top">
-    <h1>Automatic Recovery Probe</h1>
-    <span id="rights" class="rights">…</span>
+<!-- Icons: Lucide (https://lucide.dev), ISC License, Copyright (c) 2026 Lucide Icons and Contributors.
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby
+granted, provided that the above copyright notice and this permission notice appear in all copies.
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE. -->
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M10 16h.01"/><path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M21.946 12.013H2.054"/><path d="M6 16h.01"/></symbol>
+<symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></symbol>
+<symbol id="i-folder-check" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9 13 2 2 4-4"/></symbol>
+<symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+<symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></symbol>
+<symbol id="i-laptop" viewBox="0 0 24 24"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></symbol>
+<symbol id="i-clipboard-check" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+<symbol id="i-usb" viewBox="0 0 24 24"><circle cx="10" cy="7" r="1"/><circle cx="4" cy="20" r="1"/><path d="M4.7 19.3 19 5"/><path d="m21 3-3 1 2 2Z"/><path d="M9.26 7.68 5 12l2 5"/><path d="m10 14 5 2 3.5-3.5"/><path d="m18 12 1-1 1 1-1 1Z"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+<symbol id="i-circle-play" viewBox="0 0 24 24"><path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"/><circle cx="12" cy="12" r="10"/></symbol>
+<symbol id="i-step-forward" viewBox="0 0 24 24"><path d="M10.029 4.285A2 2 0 0 0 7 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"/><path d="M3 4v16"/></symbol>
+<symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+<symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+<symbol id="i-list-ordered" viewBox="0 0 24 24"><path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-shield-alert" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="i-shield-plus" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9 12h6"/><path d="M12 9v6"/></symbol>
+<symbol id="i-monitor-check" viewBox="0 0 24 24"><path d="m9 10 2 2 4-4"/><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M12 17v4"/><path d="M8 21h8"/></symbol>
+<symbol id="i-flask-conical" viewBox="0 0 24 24"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></symbol>
+<symbol id="i-scan-search" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></symbol>
+<symbol id="i-file-search" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.3 16.3 15 18"/></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+<symbol id="i-power-off" viewBox="0 0 24 24"><path d="M18.36 6.64A9 9 0 0 1 20.77 15"/><path d="M6.16 6.16a9 9 0 1 0 12.68 12.68"/><path d="M12 2v4"/><path d="m2 2 20 20"/></symbol>
+<symbol id="i-hard-drive-download" viewBox="0 0 24 24"><path d="M12 2v8"/><path d="m16 6-4 4-4-4"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="i-undo-2" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+<symbol id="i-folder-input" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
+<symbol id="i-map" viewBox="0 0 24 24"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></symbol>
+<symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></symbol>
+<symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="m12.296 3.464 3.02 3.956"/><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m6.18 5.276 3.1 3.899"/></symbol>
+<symbol id="i-audio-lines" viewBox="0 0 24 24"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></symbol>
+<symbol id="i-file-text" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="i-file-archive" viewBox="0 0 24 24"><path d="M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M8 12v-1"/><path d="M8 18v-2"/><path d="M8 7V6"/><circle cx="8" cy="20" r="2"/></symbol>
+<symbol id="i-scan-eye" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-circle-dashed" viewBox="0 0 24 24"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/></symbol>
+<symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+<symbol id="i-circle-minus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></symbol>
+<symbol id="i-circle-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+<symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
+<symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+<symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></symbol>
+<symbol id="i-calendar-clock" viewBox="0 0 24 24"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+</defs></svg>
+<div class="shell">
+  <header class="masthead">
+    <div class="brand">
+      <span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="#i-hard-drive"></use></svg></span>
+      <div>
+        <h1>Automatic Recovery Probe</h1>
+        <p class="tagline">Gets your files back off the recovered SSD, checks every one and repairs what it can. It never writes to the SSD.</p>
+        <p class="small soft" id="version"></p>
+      </div>
+    </div>
+    <div class="masthead-side">
+      <span id="rights" class="rights">…</span>
+    </div>
   </header>
-  <p class="soft small" id="version"></p>
-  <div id="restore-banner" role="status"></div>
 
   <nav class="views" role="tablist" aria-label="What to show">
-    <button role="tab" id="tab-auto" aria-controls="view-auto" aria-selected="true">Automatic</button>
-    <button role="tab" id="tab-checklist" aria-controls="view-checklist" aria-selected="false">The checklist <span id="tab-count"></span></button>
-    <button role="tab" id="tab-steps" aria-controls="view-steps" aria-selected="false">The program's steps, one at a time</button>
+    <button role="tab" id="tab-auto" aria-controls="view-auto" aria-selected="true"><svg class="ic" aria-hidden="true"><use href="#i-circle-play"></use></svg><span>Automatic recovery</span></button>
+    <button role="tab" id="tab-checklist" aria-controls="view-checklist" aria-selected="false"><svg class="ic" aria-hidden="true"><use href="#i-list-checks"></use></svg><span>The checklist</span> <span id="tab-count"></span></button>
+    <button role="tab" id="tab-steps" aria-controls="view-steps" aria-selected="false"><svg class="ic" aria-hidden="true"><use href="#i-list-ordered"></use></svg><span>The program's steps, one at a time</span></button>
   </nav>
-  <div id="where" class="where" role="status"></div>
 
-  <div id="view-auto" role="tabpanel" aria-labelledby="tab-auto">
-    <div class="panel intro">
-      <p><b>The whole recovery, by itself.</b> Get the PC ready, rehearse with <code>SPARE</code>, choose the folders, then press <b>Start</b>: it makes the image, finds what the damage touched, copies everything into <code>WORK</code>, checks every file, repairs every damaged one it can with open-source tools and puts each repaired file back (the damaged original is kept, and every repair can be undone), and checks everything again. It waits where you have to plug something in, and stops and says why if any check finds something. What no tool here can repair is made ready for the Mac or a paid repair tool, to bring back afterwards.</p>
-      <p class="small soft">Nothing is ever written to the recovered SSD or the image. The open-source tools only read the copies in <code>WORK</code>, and only repair copies of the damaged files, in <code>REPAIR</code>. The program's steps, one at a time, are still there in the third tab.</p>
+  <div class="layout">
+    <div class="side">
+      <nav class="rail" id="rail" aria-label="Where you are"></nav>
+      <aside class="now" id="now" aria-label="What is happening now">
+        <div class="now-card">
+          <div class="now-head" id="now-head"></div>
+          <div id="job" hidden>
+            <div class="job-title" id="job-title"></div>
+            <div class="row"><button class="second stop" id="b-stop"><svg class="ic" aria-hidden="true"><use href="#i-square"></use></svg>Stop</button></div>
+            <div class="bar" id="job-bar"><div></div></div>
+            <div class="small soft" id="job-numbers"></div>
+            <div class="job-last" id="job-last"></div>
+          </div>
+          <div id="now-turn"></div>
+          <div class="now-next" id="now-next"></div>
+        </div>
+      </aside>
     </div>
-    <ol class="steps">
-      <li id="a-ready">
-        <div class="step-head"><h2>Get ready</h2><span class="state" id="ast-ready"></span></div>
-        <p>The program checks this PC and the tools it uses. Do this first, while the recovered SSD is <b>not</b> plugged in.</p>
-        <div class="row"><button id="b-ready">Check this PC</button><button class="second" id="b-ready-test">Run the self-test</button></div>
-        <div id="ar-ready"></div>
-      </li>
-      <li id="a-rehearse">
-        <div class="step-head"><h2>The rehearsal with SPARE</h2><span class="state" id="ast-rehearse"></span></div>
-        <p>Windows can be told to leave a newly plugged-in disk switched off, so it cannot write to it - but some USB cases and adapters stop that working. So first plug in <code>SPARE</code> (it is empty: nothing to lose) <b>exactly the way the recovered SSD will be plugged in</b>: the same USB case or adapter, the same port and cable. The program looks at what Windows did with it.</p>
-        <div id="ar-rehearse"></div>
-      </li>
-      <li id="a-folders">
-        <div class="step-head"><h2>The folders it works in</h2><span class="state" id="ast-folders"></span></div>
-        <div class="folder-row"><label class="lab" for="af-image">The image (about 1,000 GB, on the PC's own second drive)</label>
-          <div class="row" style="margin-top:2px"><input type="text" id="af-image" placeholder="For example D:\IMAGE"><button class="second" id="b-af-image">Choose…</button></div></div>
-        <div class="folder-row"><label class="lab" for="af-work">The copies (WORK, on SPARE)</label>
-          <div class="row" style="margin-top:2px"><input type="text" id="af-work" placeholder="For example E:\WORK"><button class="second" id="b-af-work">Choose…</button></div>
-          <p class="small soft">REPAIR (the repairs) goes beside it, on the same drive.</p></div>
-        <div class="folder-row"><label class="lab" for="af-copy2">The second copy, made by Finalise (on the PC's second drive, beside the image)</label>
-          <div class="row" style="margin-top:2px"><input type="text" id="af-copy2" placeholder="For example D:\COPY 2"><button class="second" id="b-af-copy2">Choose…</button></div></div>
-        <div class="folder-row"><label class="lab" for="af-search">Older copies of your files, if you have any (optional)</label>
-          <textarea id="af-search" placeholder="One folder per line: an old backup, photos downloaded from a phone or iCloud…"></textarea>
-          <p class="small soft">A damaged file whose intact twin is found there (or anywhere in WORK) is restored exactly, not just repaired.</p></div>
-        <label class="check"><input type="checkbox" id="af-videos" checked> <span>Play every video through to find damage (thorough, but it can take hours to days for a big collection; it runs last and can be stopped).</span></label>
-        <div id="ar-folders"></div>
-      </li>
-      <li id="a-start">
-        <div class="step-head"><h2>Start</h2><span class="state" id="ast-start"></span></div>
-        <div class="row"><button class="big" id="b-auto-start">Start</button><button class="second" id="b-auto-over">Start over</button></div>
-        <div id="ar-start"></div>
-      </li>
-      <li id="a-left">
-        <div class="step-head"><h2>What is left: the Mac, or a paid tool</h2><span class="state" id="ast-left"></span></div>
-        <div id="ar-left"><p class="soft">After Start: what no open-source tool could repair, made ready in <code>REPAIR\hand-off</code>.</p></div>
-      </li>
-      <li id="a-final">
-        <div class="step-head"><h2>Finalise</h2><span class="state" id="ast-final"></span></div>
-        <p>Keeps it safe: a <code>RECORDS</code> folder beside WORK, the second copy (WORK, REPAIR and RECORDS) in the second-copy folder, then the final check of both copies and of the image, and Windows' settings put back as they were. Run it again twice a year: it checks everything again.</p>
-        <div class="row"><button id="b-finalise">Finalise</button></div>
-        <div id="ar-final"></div>
-      </li>
-    </ol>
-  </div>
 
-  <div id="view-checklist" role="tabpanel" aria-labelledby="tab-checklist" hidden>
-    <div class="panel" id="cl-top"></div>
-    <div class="checklist" id="cl-body"><p class="soft">Loading the checklist…</p></div>
-  </div>
+    <main id="main">
+      <div id="restore-banner" role="status"></div>
+      <div id="where" class="where" role="status"></div>
 
-  <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
-  <section class="map" aria-labelledby="map-lead">
-    <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
-    <div id="map-picture"></div>
-    <div class="legend" id="map-legend"></div>
-  </section>
+      <div id="view-auto" role="tabpanel" aria-labelledby="tab-auto">
+        <section class="journey" aria-labelledby="journey-title">
+          <div class="journey-head">
+            <h2 id="journey-title">Where your files go</h2>
+            <p>The recovered SSD is read once and never written to. Everything after that works on copies.</p>
+          </div>
+          <ol class="track" id="journey"></ol>
+        </section>
 
-  <ol class="steps">
-    <li id="s-test">
-      <div class="step-head"><h2>Check the program works on this PC</h2><span class="state" id="st-test"></span></div>
-      <p>The program checks itself on sample files and a small damaged test disk it carries, where every right answer is known. It takes a few seconds and touches nothing of yours.</p>
-      <div class="row"><button id="b-test">Run the self-test</button></div>
-      <div id="r-test"></div>
-    </li>
+        <ol class="parts">
+          <li class="part" id="a-ready">
+            <span class="part-num" aria-hidden="true">1</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-clipboard-check"></use></svg>Get ready</h2><span class="state" id="ast-ready"></span></div>
+            <p class="lead">First the program checks this PC and the free tools it uses. Do this while the recovered SSD is <b>not</b> plugged in.</p>
+            <div class="row">
+              <button id="b-ready"><svg class="ic" aria-hidden="true"><use href="#i-monitor-check"></use></svg>Check this PC</button>
+              <button class="second" id="b-ready-test"><svg class="ic" aria-hidden="true"><use href="#i-flask-conical"></use></svg>Run the self-test</button>
+            </div>
+            <div id="ar-ready"></div>
+          </li>
 
-    <li id="s-map">
-      <div class="step-head"><h2>Your ddrescue mapfile</h2><span class="state" id="st-map"></span></div>
-      <p>The mapfile is the small file ddrescue wrote while it copied the old drive. It lists every place on the drive it could not read. If there was more than one attempt, choose the last one.</p>
-      <div id="map-choices" class="choices"></div>
-      <div class="row"><button class="second" id="b-mapfile">Choose another file…</button></div>
-      <div id="r-map"></div>
-    </li>
+          <li class="part" id="a-rehearse">
+            <span class="part-num" aria-hidden="true">2</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-usb"></use></svg>The rehearsal with SPARE</h2><span class="state" id="ast-rehearse"></span></div>
+            <p class="lead">Before the recovered SSD goes in, make sure Windows will keep it switched off, so nothing can write to it. You try it out with <code>SPARE</code>: it is empty, so there is nothing to lose.</p>
+            <ol class="howto">
+              <li><span class="how-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"></use></svg></span><div><span class="how-title">Keep new disks switched off</span><span class="how-text">Click <b>First: make Windows leave new disks switched off</b>.</span></div></li>
+              <li><span class="how-ic"><svg class="ic" aria-hidden="true"><use href="#i-usb"></use></svg></span><div><span class="how-title">Plug SPARE in, the same way</span><span class="how-text">Exactly as the recovered SSD will be: the same USB case or adapter, the same port and cable.</span></div></li>
+              <li><span class="how-ic"><svg class="ic" aria-hidden="true"><use href="#i-scan-search"></use></svg></span><div><span class="how-title">Let the program check it</span><span class="how-text">In the list of disks, click <b>This is SPARE: check it</b>. You want “SPARE arrived switched off”.</span></div></li>
+            </ol>
+            <details class="more"><summary><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>Why SPARE, and what if it arrives switched on?</summary>
+              <div><p>Some USB cases and adapters make Windows switch a disk on anyway, often because Windows remembers the case itself. The recovered SSD in that same case would then arrive switched on too.</p>
+              <p>If SPARE arrives switched on, click <b>Switch SPARE off</b>, unplug it, plug it back in exactly the same way and check it again. If it now arrives switched off, so will the recovered SSD. If the program says to stop, don't plug the recovered SSD in that way.</p></div>
+            </details>
+            <div id="ar-rehearse"></div>
+          </li>
 
-    <li id="s-connect">
-      <div class="step-head"><h2>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
-      <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until the SSD is unplugged again; step 9 then puts the setting back.</p>
-      <div id="connect"></div>
-    </li>
+          <li class="part" id="a-folders">
+            <span class="part-num" aria-hidden="true">3</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>The folders</h2><span class="state" id="ast-folders"></span></div>
+            <p class="lead">Where the program puts what it makes. It suggests these; change them only if you need to.</p>
+            <div class="panel">
+              <div class="field">
+                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-disc"></use></svg></span>
+                <label class="lab" for="af-image">The image: an exact copy of the whole SSD, in one file</label>
+                <p class="hint">About 1,000 GB, on a drive inside this PC with that much room.</p>
+                <div class="inputrow"><input type="text" id="af-image" placeholder="For example D:\IMAGE"><button class="second" id="b-af-image"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+              </div>
+              <div class="field">
+                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-folder-check"></use></svg></span>
+                <label class="lab" for="af-work">Your copied files: WORK, on SPARE</label>
+                <p class="hint">Every file is copied here and checked. REPAIR, where the repairs are made, goes beside it on the same drive.</p>
+                <div class="inputrow"><input type="text" id="af-work" placeholder="For example E:\WORK"><button class="second" id="b-af-work"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+              </div>
+              <div class="field">
+                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg></span>
+                <label class="lab" for="af-copy2">The second copy, made by Finalise</label>
+                <p class="hint">On this PC, beside the image.</p>
+                <div class="inputrow"><input type="text" id="af-copy2" placeholder="For example D:\COPY 2"><button class="second" id="b-af-copy2"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+              </div>
+              <div class="field">
+                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg></span>
+                <label class="lab" for="af-search">Older copies of your files, if you have any (optional)</label>
+                <p class="hint">If an undamaged copy of a damaged file is found there (or anywhere in WORK), it is restored exactly instead of repaired.</p>
+                <textarea id="af-search" placeholder="One folder per line: an old backup, photos downloaded from a phone or iCloud…"></textarea>
+              </div>
+              <div class="field">
+                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-film"></use></svg></span>
+                <label class="check"><input type="checkbox" id="af-videos" checked> <span><b>Play every video through to find damage.</b> Thorough, but it can take hours or days for a big collection. It runs last, and can be stopped.</span></label>
+              </div>
+            </div>
+            <div id="ar-folders"></div>
+          </li>
 
-    <li id="s-image">
-      <div class="step-head"><h2>Make an image of the SSD: a second copy</h2><span class="state" id="st-image"></span></div>
-      <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed. If the SSD struggles at a place, the image reads around it carefully, steps over what will not read (and lists it) and goes on, rather than wearing the SSD down there; Stop works at any moment, and starting again carries on where it stopped. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code> on the PC's own second drive.</p>
-      <div class="row">
-        <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example D:\IMAGE">
-        <button class="second" id="b-image-to">Choose…</button>
+          <li class="part" id="a-start">
+            <span class="part-num" aria-hidden="true">4</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-play"></use></svg>Start</h2><span class="state" id="ast-start"></span></div>
+            <p class="lead">Press <b>Start</b> and the program does the rest by itself, stage by stage. It tells you when to plug something in, and stops and says why if any check finds a problem. After a stop, a closed window or a power cut, press <b>Carry on</b>: it picks up where it stopped.</p>
+            <div class="row">
+              <button class="big" id="b-auto-start"><svg class="ic" aria-hidden="true"><use href="#i-play"></use></svg>Start</button>
+              <button class="second" id="b-auto-over"><svg class="ic" aria-hidden="true"><use href="#i-rotate-ccw"></use></svg>Start over</button>
+            </div>
+            <div id="ar-start"></div>
+          </li>
+
+          <li class="part" id="a-left">
+            <span class="part-num" aria-hidden="true">5</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-laptop"></use></svg>What is left: the Mac, or a paid tool</h2><span class="state" id="ast-left"></span></div>
+            <p class="lead">What no free tool could repair is made ready in <code>REPAIR\hand-off</code>: for the Mac, for a paid repair tool, or for the file's own program. When repaired files come back, <b>Bring back</b> puts each one in its place and checks everything again.</p>
+            <div id="ar-left"><p class="soft">This fills in once Start is done.</p></div>
+          </li>
+
+          <li class="part" id="a-final">
+            <span class="part-num" aria-hidden="true">6</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-archive"></use></svg>Finalise</h2><span class="state" id="ast-final"></span></div>
+            <p class="lead">Keeps everything safe, once Start (and any Bring back) is done. Finalise:</p>
+            <ul class="does">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-folder"></use></svg><span>makes a <code>RECORDS</code> folder beside WORK: the results, the mapfile and the checklists;</span></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg><span>copies WORK, REPAIR and RECORDS into the second-copy folder, every file keeping its dates;</span></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-badge-check"></use></svg><span>checks both copies, and the image, one last time;</span></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-undo-2"></use></svg><span>puts back the Windows settings the program changed.</span></li>
+            </ul>
+            <p class="small soft"><svg class="ic" aria-hidden="true"><use href="#i-calendar-clock"></use></svg> Run it again twice a year: it checks everything again and names any file that has changed.</p>
+            <div class="row"><button id="b-finalise"><svg class="ic" aria-hidden="true"><use href="#i-archive"></use></svg>Finalise</button></div>
+            <div id="ar-final"></div>
+          </li>
+        </ol>
       </div>
-      <p class="small soft" id="image-space"></p>
-      <div class="row"><button id="b-image">Make the image</button></div>
-      <div id="r-image"></div>
-      <div id="imagecheck" hidden>
-        <h3>Is the image still exactly as it was made?</h3>
-        <p class="small">This reads the image back and compares it with the SHA-256 saved beside it when it was made. The SSD is not needed. Use it before relying on the image (Phase 8), and once or twice a year with the copies. It changes nothing.</p>
-        <div class="row"><button class="second" id="b-imagecheck">Check the image is unchanged</button></div>
-        <div id="r-imagecheck"></div>
+
+      <div id="view-checklist" role="tabpanel" aria-labelledby="tab-checklist" hidden>
+        <div class="panel" id="cl-top"></div>
+        <div class="checklist" id="cl-body"><p class="soft">Loading the checklist…</p></div>
       </div>
-    </li>
 
-    <li id="s-check">
-      <div class="step-head"><h2>See what the damage touched</h2><span class="state" id="st-check"></span></div>
-      <p>The program reads the image (or the recovered SSD itself, if no image was made) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list. It never writes to either. If the image is open read-only as a drive (with AIM Toolkit), it also checks itself against what Windows lists there.</p>
-      <p class="small soft" id="check-source"></p>
-      <div class="row"><button id="b-check">Find what the damage touched</button></div>
-      <div id="r-check"></div>
-    </li>
+      <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
+        <div class="panel intro" style="margin: 0 0 22px"><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>
+          <p>These are the program's own steps, one at a time: the same work <b>Start</b> does by itself, and what Start did shows here too. Use them to look at a result in detail, or to do one step again.</p></div>
+        <section class="map" aria-labelledby="map-lead">
+          <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
+          <div id="map-picture"></div>
+          <div class="legend" id="map-legend"></div>
+        </section>
 
-    <li id="s-copy">
-      <div class="step-head"><h2>Copy everything off the SSD</h2><span class="state" id="st-copy"></span></div>
-      <p>Every file and folder is copied straight off the image (or the SSD) into a folder on another drive: also the files Windows cannot list, and the data no folder names any more. Each copy's SHA-256 goes into the list of every file (<code>rescue-log.csv</code>), so it can be checked later. Choose an empty folder on a drive with room for everything, such as <code>SPARE\WORK</code>.</p>
-      <p class="small soft" id="copy-source"></p>
-      <div class="row">
-        <input type="text" id="copy-to" aria-label="Copy everything into this folder" placeholder="For example E:\WORK">
-        <button class="second" id="b-copy-to">Choose…</button>
+        <ol class="steps parts">
+          <li class="part" id="s-test">
+            <span class="part-num" aria-hidden="true">1</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-flask-conical"></use></svg>Check the program works on this PC</h2><span class="state" id="st-test"></span></div>
+            <p>The program checks itself on sample files and a small damaged test disk it carries, where every right answer is known. It takes a few seconds and touches nothing of yours.</p>
+            <div class="row"><button id="b-test"><svg class="ic" aria-hidden="true"><use href="#i-flask-conical"></use></svg>Run the self-test</button></div>
+            <div id="r-test"></div>
+          </li>
+
+          <li class="part" id="s-map">
+            <span class="part-num" aria-hidden="true">2</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-map"></use></svg>Your ddrescue mapfile</h2><span class="state" id="st-map"></span></div>
+            <p>The mapfile is the small file ddrescue wrote while it copied the old drive. It lists every place on the drive it could not read. If there was more than one attempt, choose the last one.</p>
+            <div id="map-choices" class="choices"></div>
+            <div class="row"><button class="second" id="b-mapfile"><svg class="ic" aria-hidden="true"><use href="#i-file"></use></svg>Choose another file…</button></div>
+            <div id="r-map"></div>
+          </li>
+
+          <li class="part" id="s-connect">
+            <span class="part-num" aria-hidden="true">3</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield-check"></use></svg>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
+            <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until the SSD is unplugged again; step 9 then puts the setting back.</p>
+            <div id="connect"></div>
+          </li>
+
+          <li class="part" id="s-image">
+            <span class="part-num" aria-hidden="true">4</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-disc"></use></svg>Make an image of the SSD: a second copy</h2><span class="state" id="st-image"></span></div>
+            <p>The whole SSD is read once, from start to end, into one file on another drive: a complete second copy, checked by reading it back. After that the SSD is not needed any more (it goes back in its drawer), and the next steps read the image instead, as often as needed.</p>
+            <details class="more"><summary><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>More about making the image</summary>
+              <div><p>If the SSD struggles at a place, the image reads around it carefully, steps over what will not read (and lists it) and goes on, rather than wearing the SSD down there. Stop works at any moment, and starting again carries on where it stopped. The image is about 1,000 GB: choose a folder on a drive formatted NTFS with that much free, such as <code>IMAGE</code> on the PC's own second drive.</p></div>
+            </details>
+            <div class="inputrow">
+              <input type="text" id="image-to" aria-label="Put the image in this folder" placeholder="For example D:\IMAGE">
+              <button class="second" id="b-image-to"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button>
+            </div>
+            <p class="small soft" id="image-space"></p>
+            <div class="row"><button id="b-image"><svg class="ic" aria-hidden="true"><use href="#i-disc"></use></svg>Make the image</button></div>
+            <div id="r-image"></div>
+            <div id="imagecheck" hidden>
+              <h3>Is the image still exactly as it was made?</h3>
+              <p class="small">This reads the image back and compares it with the SHA-256 saved beside it when it was made. The SSD is not needed. Use it before relying on the image, and once or twice a year with the copies. It changes nothing.</p>
+              <div class="row"><button class="second" id="b-imagecheck"><svg class="ic" aria-hidden="true"><use href="#i-badge-check"></use></svg>Check the image is unchanged</button></div>
+              <div id="r-imagecheck"></div>
+            </div>
+          </li>
+
+          <li class="part" id="s-check">
+            <span class="part-num" aria-hidden="true">5</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-scan-search"></use></svg>See what the damage touched</h2><span class="state" id="st-check"></span></div>
+            <p>The program reads the image (or the recovered SSD itself, if no image was made) and works out which files and folders sit on the places ddrescue never read, and which files Windows cannot even list. It never writes to either. If the image is open read-only as a drive (with AIM Toolkit), it also checks itself against what Windows lists there.</p>
+            <p class="small soft" id="check-source"></p>
+            <div class="row"><button id="b-check"><svg class="ic" aria-hidden="true"><use href="#i-scan-search"></use></svg>Find what the damage touched</button></div>
+            <div id="r-check"></div>
+          </li>
+
+          <li class="part" id="s-copy">
+            <span class="part-num" aria-hidden="true">6</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg>Copy everything off the SSD</h2><span class="state" id="st-copy"></span></div>
+            <p>Every file and folder is copied straight off the image (or the SSD) into a folder on another drive: also the files Windows cannot list, and the data no folder names any more. Each copy's SHA-256 goes into the list of every file (<code>rescue-log.csv</code>), so it can be checked later. Choose an empty folder on a drive with room for everything, such as <code>SPARE\WORK</code>.</p>
+            <p class="small soft" id="copy-source"></p>
+            <div class="inputrow">
+              <input type="text" id="copy-to" aria-label="Copy everything into this folder" placeholder="For example E:\WORK">
+              <button class="second" id="b-copy-to"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button>
+            </div>
+            <p class="small soft" id="copy-space"></p>
+            <label class="check"><input type="checkbox" id="copy-lost" checked> <span>Also save the data no folder names any more, each piece as its own file in “lost data (no name)”. These are usually files whose folder record was lost.</span></label>
+            <div class="row"><button id="b-copy"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg>Start copying</button></div>
+            <div id="r-copy"></div>
+          </li>
+
+          <li class="part" id="s-scan">
+            <span class="part-num" aria-hidden="true">7</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-file-search"></use></svg>Check every copied file</h2><span class="state" id="st-scan"></span></div>
+            <p>Every file’s structure is read to find damage that looks fine on screen: a photo cut short, a block of zeros where the drive could not be read. With the results of step 5, a file the drive lost data from is marked <b>NEVER_READ</b> even when it looks fine.</p>
+            <div class="inputrow">
+              <input type="text" id="scan-folder" aria-label="Check the files in this folder" placeholder="The folder the copies went into">
+              <button class="second" id="b-scan-folder"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button>
+            </div>
+            <label class="check"><input type="checkbox" id="scan-holes" checked> <span>Look for holes: blocks of zeros where the drive could not be read (slower: every byte is read).</span></label>
+            <label class="check"><input type="checkbox" id="scan-join" checked> <span>Use what step 5 found.</span></label>
+            <div class="row"><button id="b-scan"><svg class="ic" aria-hidden="true"><use href="#i-file-search"></use></svg>Check every copied file</button></div>
+            <div id="r-scan"></div>
+            <h3>Are the copies still exactly what came off the SSD?</h3>
+            <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares, then adds it all up in a safety check: the files step 5 found on the SSD, the files in the list of copies, and the files here now. Use it after every phase of the checklist, after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
+            <div class="row"><button class="second" id="b-verify"><svg class="ic" aria-hidden="true"><use href="#i-badge-check"></use></svg>Check the copies are unchanged</button></div>
+            <div id="r-verify"></div>
+          </li>
+
+          <li class="part" id="s-repair">
+            <span class="part-num" aria-hidden="true">8</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-wrench"></use></svg>Repair the damaged files: isolate, repair, put back</h2><span class="state" id="st-repair"></span></div>
+            <p>The copies in WORK stay as they are. The damaged ones are <b>copied</b> into a <code>REPAIR</code> folder beside WORK, sorted by what can repair them, each with a number in its name (like <code style="white-space:nowrap">[R0012]</code>) that says exactly where it belongs. Repaired, they go back to exactly that place, and the damaged originals are kept in <code>REPAIR\originals</code>. Nothing is ever taken out of a package (a Photos library, an app, a Pages document): what is damaged inside one goes back to the same place inside it.</p>
+            <p class="small soft" id="repair-where"></p>
+            <h3>1. Isolate</h3>
+            <div class="row"><button id="b-isolate"><svg class="ic" aria-hidden="true"><use href="#i-folder"></use></svg>Copy the damaged files out</button></div>
+            <div id="r-isolate"></div>
+            <h3>2. Repair</h3>
+            <p class="small">Each folder in <code>REPAIR\to-repair</code> is named after what repairs its files. Repair those copies only, and save each repaired file anywhere in <code>REPAIR\repaired</code>, keeping its number in its name (<code>IMG_0003 [R0012]_repaired.JPG</code> is fine), in the same format as the original. What can't take the original's place (a TIFF of a damaged RAW photo, what 7-Zip takes out of a damaged archive) goes in <code>REPAIR\salvaged</code> instead. <code>REPAIR\READ ME.txt</code> says more.</p>
+            <div class="row" id="repair-open"></div>
+            <h3>3. Put back</h3>
+            <div class="row"><button id="b-putback"><svg class="ic" aria-hidden="true"><use href="#i-folder-input"></use></svg>Put the repaired files back</button></div>
+            <div class="row"><input type="text" id="undo-id" aria-label="Number of the file to undo" placeholder="R0012" style="max-width:9em"><button class="second" id="b-undo"><svg class="ic" aria-hidden="true"><use href="#i-undo-2"></use></svg>Undo a put-back</button></div>
+            <div id="r-putback"></div>
+            <h3>4. Evaluate</h3>
+            <div class="row"><button class="second" id="b-evaluate"><svg class="ic" aria-hidden="true"><use href="#i-clipboard-check"></use></svg>Evaluate what is damaged</button></div>
+            <div id="r-evaluate"></div>
+          </li>
+
+          <li class="part" id="s-finish">
+            <span class="part-num" aria-hidden="true">9</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-power-off"></use></svg>Finish</h2><span class="state" id="st-finish"></span></div>
+            <div id="finish"></div>
+          </li>
+        </ol>
       </div>
-      <p class="small soft" id="copy-space"></p>
-      <label class="check"><input type="checkbox" id="copy-lost" checked> <span>Also save the data no folder names any more, each piece as its own file in “lost data (no name)”. These are usually files whose folder record was lost.</span></label>
-      <div class="row"><button id="b-copy">Start copying</button></div>
-      <div id="r-copy"></div>
-    </li>
-
-    <li id="s-scan">
-      <div class="step-head"><h2>Check every copied file</h2><span class="state" id="st-scan"></span></div>
-      <p>Every file’s structure is read to find damage that looks fine on screen: a photo cut short, a block of zeros where the drive could not be read. With the results of step 5, a file the drive lost data from is marked <b>NEVER_READ</b> even when it looks fine.</p>
-      <div class="row">
-        <input type="text" id="scan-folder" aria-label="Check the files in this folder" placeholder="The folder the copies went into">
-        <button class="second" id="b-scan-folder">Choose…</button>
-      </div>
-      <label class="check"><input type="checkbox" id="scan-holes" checked> <span>Look for holes: blocks of zeros where the drive could not be read (slower: every byte is read).</span></label>
-      <label class="check"><input type="checkbox" id="scan-join" checked> <span>Use what step 5 found.</span></label>
-      <div class="row"><button id="b-scan">Check every copied file</button></div>
-      <div id="r-scan"></div>
-      <h3>Are the copies still exactly what came off the SSD?</h3>
-      <p class="small">Every copy's SHA-256 was written into <code>rescue-log.csv</code> as it was made. This reads every copy back and compares, then adds it all up in a safety check: the files step 5 found on the SSD, the files in the list of copies, and the files here now. Use it after every phase of the checklist, after a power cut, before the copies go anywhere, and once or twice a year after that. It changes nothing.</p>
-      <div class="row"><button class="second" id="b-verify">Check the copies are unchanged</button></div>
-      <div id="r-verify"></div>
-    </li>
-
-    <li id="s-repair">
-      <div class="step-head"><h2>Repair the damaged files: isolate, repair, put back</h2><span class="state" id="st-repair"></span></div>
-      <p>The copies in WORK stay as they are. The damaged ones are <b>copied</b> into a <code>REPAIR</code> folder beside WORK, sorted by what can repair them, each with a number in its name (like <code style="white-space:nowrap">[R0012]</code>) that says exactly where it belongs. Repaired, they go back to exactly that place, and the damaged originals are kept in <code>REPAIR\originals</code>. Nothing is ever taken out of a package (a Photos library, an app, a Pages document): what is damaged inside one goes back to the same place inside it.</p>
-      <p class="small soft" id="repair-where"></p>
-      <h3>1. Isolate</h3>
-      <div class="row"><button id="b-isolate">Copy the damaged files out</button></div>
-      <div id="r-isolate"></div>
-      <h3>2. Repair</h3>
-      <p class="small">Each folder in <code>REPAIR\to-repair</code> is named after what repairs its files. Repair those copies only, and save each repaired file anywhere in <code>REPAIR\repaired</code>, keeping its number in its name (<code>IMG_0003 [R0012]_repaired.JPG</code> is fine), in the same format as the original. What can't take the original's place — a TIFF of a damaged RAW photo, what 7-Zip takes out of a damaged archive — goes in <code>REPAIR\salvaged</code> instead. <code>REPAIR\READ ME.txt</code> says more.</p>
-      <div class="row" id="repair-open"></div>
-      <h3>3. Put back</h3>
-      <div class="row"><button id="b-putback">Put the repaired files back</button></div>
-      <div class="row"><input type="text" id="undo-id" aria-label="Number of the file to undo" placeholder="R0012" style="max-width:9em"><button class="second" id="b-undo">Undo a put-back</button></div>
-      <div id="r-putback"></div>
-      <h3>4. Evaluate</h3>
-      <div class="row"><button class="second" id="b-evaluate">Evaluate what is damaged</button></div>
-      <div id="r-evaluate"></div>
-    </li>
-
-    <li id="s-finish">
-      <div class="step-head"><h2>Finish</h2><span class="state" id="st-finish"></span></div>
-      <div id="finish"></div>
-    </li>
-  </ol>
-  </div>
-</main>
-
-<div id="job" hidden>
-  <div class="inner">
-    <div class="line1"><span class="title" id="job-title"></span><span class="small soft" id="job-numbers"></span></div>
-    <div class="bar" id="job-bar"><div></div></div>
-    <div class="line1"><span class="last" id="job-last"></span><button class="second" id="b-stop">Stop</button></div>
+    </main>
   </div>
 </div>
 
 <dialog id="picker" aria-labelledby="picker-title">
   <div class="dhead">
     <h2 id="picker-title">Choose a folder</h2>
-    <div class="row"><input type="text" id="picker-path" aria-label="Folder"><button class="second" id="picker-go">Go</button></div>
+    <div class="inputrow"><input type="text" id="picker-path" aria-label="Folder"><button class="second" id="picker-go"><svg class="ic" aria-hidden="true"><use href="#i-chevron-right"></use></svg>Go</button></div>
   </div>
   <div class="dbody" id="picker-list"></div>
   <div class="dfoot">
-    <button class="second" id="picker-up">Up</button>
-    <button class="second" id="picker-cancel">Cancel</button>
-    <button id="picker-ok">Choose this folder</button>
+    <button class="second" id="picker-up"><svg class="ic" aria-hidden="true"><use href="#i-arrow-up"></use></svg>Up</button>
+    <button class="second" id="picker-cancel"><svg class="ic" aria-hidden="true"><use href="#i-x"></use></svg>Cancel</button>
+    <button id="picker-ok"><svg class="ic" aria-hidden="true"><use href="#i-check"></use></svg>Choose this folder</button>
   </div>
 </dialog>
 
@@ -503,6 +1005,20 @@ async function act(fields) {
 }
 function lines(arr) { return (arr || []).map(esc).join("\n"); }
 
+// An icon (always beside words that say the same: the icon only helps the eye).
+const ic = (name, cls) => `<svg class="ic${cls ? " " + cls : ""}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+const MSG_ICON = { ok: "circle-check", err: "circle-x", warn: "triangle-alert" };
+// A message: its icon, its words, and (after) a button to act on it.
+function msg(kind, html, after) {
+  return `<div class="msg ${kind || ""}">${ic(MSG_ICON[kind] || "info")}<div class="msg-text">${html}</div>${after || ""}</div>`;
+}
+// A state: its icon and its word.
+const STATE_ICON = { done: "circle-check", problem: "circle-x", running: "loader-circle", turn: "hand", next: "chevron-right", "": "circle-dashed" };
+function stateHtml(cls, text) {
+  return text ? ic(STATE_ICON[cls] || "info", cls === "running" ? "spin" : "") + `<span>${esc(text)}</span>` : "";
+}
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 let S = null;          // the program's state
 let mapInfo = null;    // the chosen mapfile, read
 let disks = [];        // the disks, last asked
@@ -511,6 +1027,8 @@ let copiesWhenPicked = []; // the copies ddrescue made in the list at that momen
 let mapfiles = null;   // mapfiles found in the program's folder
 let lastJobId = 0;
 const notes = {};      // short messages per step, from actions
+const partState = {};  // the Automatic tab's parts: [class, words]
+const stepState = {};  // the steps tab's steps: [class, words]
 
 function setting(k) { return (S && S.settings && S.settings[k]) || ""; }
 // What steps 5 and 6 read: the image once it is made and checked, otherwise the SSD itself.
@@ -535,16 +1053,17 @@ function stateText(j) {
 }
 function setStep(id, cls, text) {
   const li = $("s-" + id);
-  li.classList.remove("done", "problem", "running");
+  li.classList.remove("done", "problem", "running", "turn");
   if (cls) li.classList.add(cls);
   const st = $("st-" + id);
   st.className = "state " + (cls || "");
-  st.textContent = text || "";
+  put(st, stateHtml(cls, text));
+  stepState[id] = [cls || "", text || ""];
 }
 function note(step, kind, text) { notes[step] = text ? { kind, text } : null; render(); }
 function noteHtml(step) {
   const n = notes[step];
-  return n ? `<div class="msg ${n.kind}">${esc(n.text)}</div>` : "";
+  return n ? msg(n.kind, esc(n.text)) : "";
 }
 function busy() { return S && S.job && S.job.state === "running"; }
 
@@ -552,9 +1071,10 @@ function busy() { return S && S.job && S.job.state === "running"; }
 
 function drawMap() {
   const lead = $("map-lead"), pic = $("map-picture"), legend = $("map-legend");
+  const say = (t) => put(lead, ic("map") + `<span>${esc(t)}</span>`);
   if (!mapInfo || !mapInfo.ok) {
-    lead.textContent = mapInfo && mapInfo.error ? "The mapfile could not be read: " + mapInfo.error
-      : "Choose the mapfile in step 2 to see where the old drive was damaged.";
+    say(mapInfo && mapInfo.error ? "The mapfile could not be read: " + mapInfo.error
+      : "Choose the mapfile in step 2 to see where the old drive was damaged.");
     pic.innerHTML = ""; legend.innerHTML = ""; return;
   }
   const m = mapInfo, end = m.domain_end || 1, start = m.domain_start || 0, span = Math.max(1, end - start);
@@ -562,10 +1082,10 @@ function drawMap() {
   const hits = check && check.state === "done" && check.data ? check.data.areas : null;
   const areas = m.areas;
   if (!areas.length) {
-    lead.textContent = `ddrescue read all of this ${nominal(span)} drive: nothing was left unread.`;
+    say(`ddrescue read all of this ${nominal(span)} drive: nothing was left unread.`);
   } else {
-    lead.textContent = `ddrescue never read ${commas(m.bad_bytes)} bytes of this ${nominal(span)} drive, in ${commas(m.bad_count)} places` +
-      ` — all between ${size(areas[0][0])} and ${size(areas[areas.length - 1][1])} from its start.`;
+    say(`ddrescue never read ${commas(m.bad_bytes)} bytes of this ${nominal(span)} drive, in ${commas(m.bad_count)} places,` +
+      ` all between ${size(areas[0][0])} and ${size(areas[areas.length - 1][1])} from its start.`);
   }
   const W = 1000, H1 = 34, gap = 46, H2 = 34;
   const x = (v) => ((v - start) / span) * W;
@@ -585,7 +1105,7 @@ function drawMap() {
     const w = Math.max(2, x(a[1]) - x(a[0]));
     marks += `<rect x="${x(a[0]).toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${H1}" fill="${colour(i)}"><title>${esc(size(a[0]))}: ${commas(a[1] - a[0])} bytes never read</title></rect>`;
     const zw = Math.max(1.5, zx(a[1]) - zx(a[0]));
-    const tip = hits && hits[i] && hits[i][3] ? " — " + hits[i][3] : "";
+    const tip = hits && hits[i] && hits[i][3] ? ": " + hits[i][3] : "";
     zmarks += `<rect x="${zx(a[0]).toFixed(2)}" y="${H1 + gap}" width="${zw.toFixed(2)}" height="${H2}" fill="${colour(i)}"><title>${esc(commas(a[0]))}: ${commas(a[1] - a[0])} bytes never read${esc(tip)}</title></rect>`;
   });
   const showZoom = areas.length && (hi - lo) < span * 0.6;
@@ -602,7 +1122,7 @@ function drawMap() {
     svg += `<text x="${W / 2}" y="${H1 + gap + H2 + 16}" font-size="13" fill="var(--ink-soft)" text-anchor="middle">enlarged</text>`;
   }
   svg += "</svg>";
-  pic.innerHTML = svg;
+  put(pic, svg);
   let leg = `<span><i class="key" style="background:var(--read)"></i>read</span>`;
   if (hits) {
     leg += `<span><i class="key" style="background:var(--unread)"></i>never read: in a file</span>`;
@@ -611,26 +1131,25 @@ function drawMap() {
   } else {
     leg += `<span><i class="key" style="background:var(--unread)"></i>never read (step 5 shows what each place held)</span>`;
   }
-  legend.innerHTML = leg;
+  put(legend, leg);
 }
 
 // ------------------------------------------------------------ steps
 
 function renderTop() {
   const r = $("rights");
-  if (S.elevated) { r.className = "rights"; r.textContent = "Running with administrator rights"; }
-  else { r.className = "rights no"; r.textContent = "Without administrator rights: steps 3 to 6 cannot read the SSD"; }
+  if (S.elevated) { r.className = "rights"; put(r, ic("shield-check") + "<span>Running with administrator rights</span>"); }
+  else { r.className = "rights no"; put(r, ic("shield-alert") + "<span>No administrator rights: it can't read the recovered SSD</span>"); }
   $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
   // While the program is not answering, its banner (set by refresh) stays.
   if (lost) return;
   const b = $("restore-banner");
   const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue" || S.job.kind === "image");
   if (S.policy_to_restore && reading) {
-    const h = `<div class="banner"><p>Windows leaves newly plugged-in disks switched off while the recovered SSD is plugged in, so the SSD stays protected even if it comes unplugged and goes back in.</p></div>`;
-    if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; }
+    put(b, `<div class="banner">${ic("shield-check")}<div><p>Windows leaves newly plugged-in disks switched off while the recovered SSD is plugged in, so the SSD stays protected even if it comes unplugged and goes back in.</p></div></div>`);
   } else if (S.policy_to_restore) {
-    const h = `<div class="banner"><p>Windows is set to leave newly plugged-in disks switched off (the program did this, to protect the recovered SSD). It stays like that while the SSD is plugged in. Once you have switched the SSD off and unplugged it, put the setting back.</p>
-      <button id="b-restore-top">Put Windows' setting back</button>${noteHtml("restore")}</div>`;
+    const h = `<div class="banner">${ic("shield")}<div><p>Windows is set to leave newly plugged-in disks switched off (the program did this, to protect the recovered SSD). It stays like that while the SSD is plugged in. Once you have switched the SSD off and unplugged it, put the setting back.</p>
+      <button id="b-restore-top">${ic("undo-2")}Put Windows' setting back</button>${noteHtml("restore")}</div></div>`;
     if (b.dataset.html !== h) { b.innerHTML = h; b.dataset.html = h; $("b-restore-top").onclick = restorePolicy; }
   } else if (b.dataset.html) { b.innerHTML = ""; b.dataset.html = ""; }
 }
@@ -643,7 +1162,7 @@ function renderTest() {
   let h = noteHtml("test");
   if (j && j.state !== "running") {
     const ok = j.state === "done";
-    h += `<div class="msg ${ok ? "ok" : "err"}">${esc((j.summary || [])[0] || j.error)}</div>`;
+    h += msg(ok ? "ok" : "err", esc((j.summary || [])[0] || j.error));
     if ((j.summary || []).length > 1) h += `<details><summary>What was checked</summary><pre class="report">${lines(j.summary.slice(1))}</pre></details>`;
   }
   put($("r-test"), h);
@@ -653,10 +1172,10 @@ function renderMapStep() {
   const chosen = setting("mapfile");
   let h = "";
   if (mapfiles && mapfiles.length) {
-    mapfiles.forEach((m, i) => {
+    mapfiles.forEach((m) => {
       const name = m.path.split(/[\\/]/).pop();
       h += `<label class="choice"><input type="radio" name="mapfile" value="${esc(m.path)}" ${m.path === chosen ? "checked" : ""}>
-        <span><b>${esc(name)}</b>${m.finished ? "" : '<span class="tag warn">stopped before the end</span>'}</span>
+        <span><b>${ic("map")}${esc(name)}</b>${m.finished ? "" : '<span class="tag warn">stopped before the end</span>'}</span>
         <span class="small soft">${esc(nominal(m.disk_size))} drive; ${commas(m.bad_bytes)} bytes never read</span>
         <span class="small soft path">${esc(m.path)}</span></label>`;
     });
@@ -665,7 +1184,7 @@ function renderMapStep() {
   }
   if (chosen && !(mapfiles || []).some((m) => m.path === chosen)) {
     h += `<label class="choice"><input type="radio" name="mapfile" value="${esc(chosen)}" checked>
-      <span><b>${esc(chosen.split(/[\\/]/).pop())}</b></span><span class="small soft path">${esc(chosen)}</span></label>`;
+      <span><b>${ic("map")}${esc(chosen.split(/[\\/]/).pop())}</b></span><span class="small soft path">${esc(chosen)}</span></label>`;
   }
   const box = $("map-choices");
   if (box.dataset.html !== h) {
@@ -683,10 +1202,10 @@ function renderMapStep() {
       <p class="small soft">${m.finished ? "ddrescue finished." : "<b>ddrescue was stopped before the end</b>: the parts it never reached count as never read."}
       Started ${esc(m.start_time || "?")}, last saved ${esc(m.current_time || "?")}${m.version ? ", ddrescue " + esc(m.version) : ""}.</p>
       ${(m.by_status || []).map((s) => `<span class="tag">${esc(s.name)}: ${commas(s.count)} ${s.count === 1 ? "place" : "places"}, ${commas(s.bytes)} bytes</span>`).join(" ")}
-      ${(m.warnings || []).map((w) => `<div class="msg warn">${esc(w)}</div>`).join("")}</div>`;
+      ${(m.warnings || []).map((w) => msg("warn", esc(w))).join("")}</div>`;
     setStep("map", "done", "Chosen");
   } else if (mapInfo && !mapInfo.ok) {
-    r += `<div class="msg err">${esc(mapInfo.error)}</div>`;
+    r += msg("err", esc(mapInfo.error));
     setStep("map", "problem", "Needs attention");
   } else setStep("map", "", "");
   put($("r-map"), r);
@@ -733,21 +1252,20 @@ function diskLine(d) {
   // partition table is made for itself.)
   if (det.table_disk_size && det.table_disk_size !== d.size) what += `${what ? "; " : ""}partition table made for a ${commas(det.table_disk_size)}-byte drive`;
   if (det.error) what += `${what ? "; " : ""}${esc(det.error)}`;
-  return { title: `Disk ${d.number}: ${bits.join(", ")}`, tags, what };
+  return { title: `${ic("hard-drive")}Disk ${d.number}: ${bits.join(", ")}`, tags, what };
 }
 
 function renderConnect() {
   const el = $("connect");
   const chosen = setting("disk");
   const prepared = !!S.policy_to_restore;
-  const protectedDisk = disks.find((d) => d.spec === chosen && d.read_only);
   let h = "";
   if (!S.elevated) {
-    h += `<div class="msg warn">This step needs administrator rights. Close the program's window, double-click it again and click <b>Yes</b> when Windows asks.</div>`;
+    h += msg("warn", "This step needs administrator rights. Close the program's window, double-click it again and click <b>Yes</b> when Windows asks.");
   } else {
     h += `<div class="panel"><h3 style="margin-top:0">If the recovered SSD is not plugged in yet</h3>
       <p>First click the button, then plug the SSD in. (Plug in the drive the copies go to, such as SPARE, <i>before</i> clicking, or it will arrive switched off too.)</p>
-      <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>Get Windows ready</button>
+      <div class="row"><button id="b-prepare" ${prepared ? "disabled" : ""}>${ic("shield")}Get Windows ready</button>
       ${prepared ? '<span class="tag ok">ready: plug the recovered SSD in now</span>' : ""}</div>
       ${prepared ? '<p class="small soft">Any other drive plugged in now arrives switched off too: choose it in the list below and click <b>Switch disk N on, writable</b>. Windows stays set like this until the recovered SSD has been unplugged (step 9 puts it back).</p>' : ""}${noteHtml("prepare")}</div>`;
   }
@@ -764,7 +1282,7 @@ function renderConnect() {
   } else {
     h += `<p class="soft">${S.windows ? "No disks found yet." : "Disks are only listed on Windows."}</p>`;
   }
-  h += `<div class="row"><button class="second" id="b-look">Look again</button></div>`;
+  h += `<div class="row"><button class="second" id="b-look">${ic("refresh-cw")}Look again</button></div>`;
   const sel = disks.find((d) => d.spec === chosen);
   // Protected means: marked read-only by this page, and still read-only.
   // (A disk Windows keeps switched off is read-only too, but only for now.)
@@ -773,25 +1291,25 @@ function renderConnect() {
     // Another drive (SPARE, say): nothing to protect.
     h += `<p class="small">Disk ${sel.number} is not the copy ddrescue made, so it needs no protecting: the recovered SSD is the disk marked “the copy ddrescue made”.</p>`;
     if (sel.removable) {
-      h += `<div class="msg warn">Windows says disk ${sel.number} is removable media. Windows' setting to leave new disks switched off does not work for removable disks. If the recovered SSD would be plugged in the same way (the same USB case or cable), it would not be kept switched off: ask for help before plugging it in.</div>`;
+      h += msg("warn", `Windows says disk ${sel.number} is removable media. Windows' setting to leave new disks switched off does not work for removable disks. If the recovered SSD would be plugged in the same way (the same USB case or cable), it would not be kept switched off: ask for help before plugging it in.`);
     } else if (prepared && sel.offline) {
       h += `<p class="small soft">It arrived switched off, so Windows' setting works for a disk plugged in this way.</p>`;
     }
     if (sel.offline || sel.read_only) {
       h += `<p class="small soft">It is ${sel.offline ? "switched off (it was plugged in while Windows was set to leave new disks switched off)" : "read-only"}. To copy onto it, switch it on:</p>
-        <div class="row"><button class="second" id="b-release">Switch disk ${sel.number} on, writable</button></div>`;
+        <div class="row"><button class="second" id="b-release">${ic("power")}Switch disk ${sel.number} on, writable</button></div>`;
     }
   } else if (sel && !sel.test && S.elevated) {
     h += `<div class="row">`;
-    if (!isProtected) h += `<button id="b-protect">Protect disk ${sel.number}</button>`;
-    else if (sel.offline) h += `<button class="second" id="b-online">Switch it on, read-only (to look at it in File Explorer)</button>`;
-    else h += `<button class="second" id="b-offline">Switch it off</button>`;
+    if (!isProtected) h += `<button id="b-protect">${ic("shield-check")}Protect disk ${sel.number}</button>`;
+    else if (sel.offline) h += `<button class="second" id="b-online">${ic("power")}Switch it on, read-only (to look at it in File Explorer)</button>`;
+    else h += `<button class="second" id="b-offline">${ic("power-off")}Switch it off</button>`;
     h += `</div>`;
     if (sel.removable) {
-      h += `<div class="msg err">Windows says this disk is removable media (like a USB stick). For removable disks Windows' setting to leave new disks switched off does not work, so Windows may write to it while it is plugged in. ${isProtected ? "It is read-only now. Make the image (step 4) straight away, then switch it off and unplug it, and ask for help before plugging it in again." : `Click <b>Protect disk ${sel.number}</b> now (that marks it read-only), then make the image (step 4) straight away and unplug it. Ask for help before plugging it in again.`}</div>`;
+      h += msg("err", `Windows says this disk is removable media (like a USB stick). For removable disks Windows' setting to leave new disks switched off does not work, so Windows may write to it while it is plugged in. ${isProtected ? "It is read-only now. Make the image (step 4) straight away, then switch it off and unplug it, and ask for help before plugging it in again." : `Click <b>Protect disk ${sel.number}</b> now (that marks it read-only), then make the image (step 4) straight away and unplug it. Ask for help before plugging it in again.`}`);
     }
     if (sel.read_only === false && !sel.offline && prepared && isCopy(sel)) {
-      h += `<div class="msg warn">Windows switched this disk on by itself, although it was set to leave new disks switched off. Click <b>Protect disk ${sel.number}</b> now. If that gives an error, unplug the recovered SSD and ask for help before going on.</div>`;
+      h += msg("warn", `Windows switched this disk on by itself, although it was set to leave new disks switched off. Click <b>Protect disk ${sel.number}</b> now. If that gives an error, unplug the recovered SSD and ask for help before going on.`);
     } else if (sel.read_only === false && !sel.offline) {
       h += `<p class="small soft">It is switched on and Windows can write to it. Protecting it marks it read-only and switches it off and on again, so Windows uses it read-only from then on.</p>`;
     }
@@ -800,7 +1318,6 @@ function renderConnect() {
   if (isProtected) setStep("connect", "done", sel.test ? "Test disk" : "Protected");
   else if (sel) setStep("connect", "", "Not protected yet");
   else setStep("connect", "", "");
-  void protectedDisk;
   if (el.dataset.html !== h) {
     el.innerHTML = h; el.dataset.html = h;
     el.querySelectorAll("input[name=disk]").forEach((r) => r.onchange = () => {
@@ -827,12 +1344,12 @@ function renderImage() {
   if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("image_dir");
   let h = noteHtml("image");
   if (setting("image") && setting("image_sha") && !(j && j.state === "running")) {
-    h += `<div class="msg ok">The image <span class="path">${esc(setting("image"))}</span> is made and checked. The recovered SSD is not needed any more: switch it off and unplug it (step 9), then put Windows' setting back. Steps 5 and 6 read the image.</div>`;
+    h += msg("ok", `The image <span class="path">${esc(setting("image"))}</span> is made and checked. The recovered SSD is not needed any more: switch it off and unplug it (step 9), then put Windows' setting back. Steps 5 and 6 read the image.`);
   }
   if (j && j.state !== "running") {
-    if (j.state === "failed" && j.error) h += `<div class="msg err">${esc(j.error)}</div>`;
-    const lines = j.summary || [];
-    if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
+    if (j.state === "failed" && j.error) h += msg("err", esc(j.error));
+    const ls = j.summary || [];
+    if (ls.length) h += `<div class="panel">${ls.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
   }
   put($("r-image"), h);
   // Checking the image made earlier.
@@ -842,9 +1359,9 @@ function renderImage() {
   let k = noteHtml("imagecheck");
   if (c && c.state !== "running") {
     const d = c.data || {};
-    if (c.state === "failed" && c.error) k += `<div class="msg err">${esc(c.error)}</div>`;
-    const lines = c.summary || [];
-    if (lines.length) k += `<div class="msg ${d.verified ? "ok" : d.stopped ? "warn" : "err"}">${lines.map(esc).join("<br>")}</div>`;
+    if (c.state === "failed" && c.error) k += msg("err", esc(c.error));
+    const ls = c.summary || [];
+    if (ls.length) k += msg(d.verified ? "ok" : d.stopped ? "warn" : "err", ls.map(esc).join("<br>"));
   }
   put($("r-imagecheck"), k);
 }
@@ -856,12 +1373,12 @@ function renderVerify() {
   if (j && j.state !== "running") {
     const d = j.data || {};
     const good = j.state === "done" && !d.stopped;
-    if (j.error && j.state === "failed" && !(j.summary || []).length) h += `<div class="msg err">${esc(j.error)}</div>`;
-    const lines = j.summary || [];
+    if (j.error && j.state === "failed" && !(j.summary || []).length) h += msg("err", esc(j.error));
+    const ls = j.summary || [];
     const bad = (d.changed || 0) + (d.missing || 0) > 0;
-    if (lines.length) h += `<div class="msg ${good ? "ok" : (d.stopped ? "warn" : bad ? "err" : "warn")}">${lines.map(esc).join("<br>")}</div>`;
+    if (ls.length) h += msg(good ? "ok" : (d.stopped ? "warn" : bad ? "err" : "warn"), ls.map(esc).join("<br>"));
     h += safetyHtml(d.safety);
-    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the list of problems</button></div>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("external-link")}Show the list of problems</button></div>`;
   }
   if (!busy()) h += historyHtml(newestHistory());
   put($("r-verify"), h);
@@ -874,19 +1391,26 @@ function newestHistory() {
   return hs.sort((a, b) => b.count - a.count)[0] || null;
 }
 
+// A tick or a cross in a table, with its word.
+function markCell(ok) {
+  if (ok === true) return `<td class="mark good">${ic("circle-check")}OK</td>`;
+  if (ok === false) return `<td class="mark bad">${ic("circle-x")}Not OK</td>`;
+  return `<td class="mark">${ic("circle-dashed")}Not known</td>`;
+}
+
 // Every safety check so far, oldest first. Run after every phase, the same
-// numbers each time say nothing went missing; a ✗ after a ✓ says it went
-// wrong in between.
+// numbers each time say nothing went missing; "Not OK" after "OK" says it
+// went wrong in between.
 function historyHtml(hist) {
   if (!hist || !hist.items || !hist.items.length) return "";
-  const rows = hist.items.map((c) => `<tr><td>${esc(c.step)}<br><span class="small soft">${esc(c.when)} · <span class="path">${esc(c.folder)}</span></span></td>` +
+  const rows = hist.items.map((c) => `<tr><td>${esc(c.step)}<br><span class="small soft">${esc(c.when)}, <span class="path">${esc(c.folder)}</span></span></td>` +
     `<td class="num">${c.files == null ? "?" : commas(c.files)}</td><td class="num">${c.bytes == null ? "?" : esc(size(c.bytes))}</td>` +
-    `<td class="mark ${c.ok ? "good" : "bad"}" title="${esc(c.result)}" aria-label="${c.ok ? "as it should be" : "not as it should be"}">${c.ok ? "✓" : "✗"}</td></tr>`).join("");
+    markCell(!!c.ok).replace("<td ", `<td title="${esc(c.result)}" `) + `</tr>`).join("");
   const shown = hist.count > hist.items.length ? `The latest ${hist.items.length} of ${commas(hist.count)}. ` : "";
   return `<div class="panel safety history"><h3>Every safety check so far</h3>
-    <table><tr><th>Check</th><th class="num">Files</th><th class="num">Size</th><th></th></tr>${rows}</table>
-    <p class="small soft">${shown}Run this check after every phase: the same files each time means nothing went missing, and a ✗ after a ✓ means something happened in between. Every check is listed, with all its numbers, in <span class="path">${esc(hist.file)}</span>.</p>
-    <div class="row"><button class="second" data-open="${esc(hist.file)}">Show the list of every check</button></div></div>`;
+    <div class="scroll"><table><tr><th>Check</th><th class="num">Files</th><th class="num">Size</th><th>Result</th></tr>${rows}</table></div>
+    <p class="small soft">${shown}Run this check after every phase: the same files each time means nothing went missing, and “Not OK” after “OK” means something happened in between. Every check is listed, with all its numbers, in <span class="path">${esc(hist.file)}</span>.</p>
+    <div class="row"><button class="second" data-open="${esc(hist.file)}">${ic("external-link")}Show the list of every check</button></div></div>`;
 }
 
 function figure(n, label, bad) { return `<div class="figure ${bad && n > 0 ? "bad" : ""}"><b>${commas(n)}</b><span>${esc(label)}</span></div>`; }
@@ -896,15 +1420,11 @@ function figure(n, label, bad) { return `<div class="figure ${bad && n > 0 ? "ba
 // means nothing went missing on the way.
 function safetyHtml(s) {
   if (!s || !s.stages) return "";
-  const mark = (ok) => ok === true ? ["good", "✓", "as it should be"] : ok === false ? ["bad", "✗", "not as it should be"] : ["", "?", "not known"];
-  const rows = s.stages.map((g, i) => {
-    const [cls, sym, said] = mark(g.ok);
-    return `<tr><td>${i + 1}. ${esc(g.name)}${g.words ? `<br><span class="small soft">${esc(g.words)}</span>` : ""}</td>` +
-      `<td class="num">${g.files == null ? "?" : commas(g.files)}</td><td class="num">${g.bytes == null ? "?" : esc(size(g.bytes))}</td>` +
-      `<td class="mark ${cls}" title="${said}" aria-label="${said}">${sym}</td></tr>`;
-  }).join("");
-  const verdict = (s.verdict || []).map((v, i) => i === 0 ? `<div class="msg ${s.fine ? "ok" : "err"}">${esc(v)}</div>` : `<p class="small soft">${esc(v)}</p>`).join("");
-  return `<div class="panel safety"><h3>Safety check</h3><table><tr><th>Stage</th><th class="num">Files</th><th class="num">Size</th><th></th></tr>${rows}</table>${verdict}</div>`;
+  const rows = s.stages.map((g, i) => `<tr><td>${i + 1}. ${esc(g.name)}${g.words ? `<br><span class="small soft">${esc(g.words)}</span>` : ""}</td>` +
+    `<td class="num">${g.files == null ? "?" : commas(g.files)}</td><td class="num">${g.bytes == null ? "?" : esc(size(g.bytes))}</td>` +
+    markCell(g.ok) + `</tr>`).join("");
+  const verdict = (s.verdict || []).map((v, i) => i === 0 ? msg(s.fine ? "ok" : "err", esc(v)) : `<p class="small soft">${esc(v)}</p>`).join("");
+  return `<div class="panel safety"><h3>Safety check</h3><table><tr><th>Stage</th><th class="num">Files</th><th class="num">Size</th><th>Result</th></tr>${rows}</table>${verdict}</div>`;
 }
 
 function renderCheck() {
@@ -915,7 +1435,7 @@ function renderCheck() {
   $("check-source").textContent = sourceText();
   let h = noteHtml("check");
   if (j && j.state !== "running") {
-    if (j.state !== "done") h += `<div class="msg err">${esc(j.error || "It did not finish.")}</div>`;
+    if (j.state !== "done") h += msg("err", esc(j.error || "It did not finish."));
     const d = j.data;
     if (d) {
       h += `<div class="panel"><div class="figures">
@@ -924,20 +1444,20 @@ function renderCheck() {
         ${figure(d.folders_affected, "folders damaged", true)}
         <div class="figure"><b>${esc(size(d.lost_bytes))}</b><span>data no folder names any more</span></div>
         <div class="figure"><b>${commas(d.files_seen)}</b><span>files on the SSD${d.bytes_seen != null ? `, ${esc(size(d.bytes_seen))} in all` : ""}</span></div></div>`;
-      if (d.matches_mapfile === false) h += `<div class="msg warn">This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.</div>`;
+      if (d.matches_mapfile === false) h += msg("warn", "This disk's partition table was not made for the drive the mapfile describes. Make sure it is the recovered SSD.");
       // Windows' own reading of the volume, against this check's.
       const w = d.windows;
-      if (w && w.read_only === false) h += `<div class="msg err">${esc(w.root)} is not read-only: Windows can write to it. If it is the image, unmount it and open it again read-only (in AIM Toolkit, tick read-only). If it is the recovered SSD, switch it off in step 3 and protect it again.</div>`;
-      if (w && w.failed) h += `<div class="msg warn">Could not check against what Windows lists on ${esc(w.root)}: ${esc(w.failed)}.</div>`;
-      else if (w && w.agrees) h += `<div class="msg ok">Checked against Windows' own reading of the volume (drive ${esc(w.root)}): Windows lists ${commas(w.listed)} files and folders, exactly the ones this check says it can list, with the same sizes. Windows and this check read the volume independently, so this is a check of the check.</div>`;
-      else if (w) h += `<div class="msg err">Checked against Windows' own reading of the volume (drive ${esc(w.root)}): they differ. Windows lists ${commas(w.only_windows_count)} files and folders this check says it cannot list${w.only_windows.length ? ` (such as ${esc(w.only_windows[0])})` : ""}, and does not list ${commas(w.only_here_count)} that it says it can${w.only_here.length ? ` (such as ${esc(w.only_here[0])})` : ""}; ${commas(w.other_size_count)} have another size there. Tell Claude before going on: this check may read part of the volume wrongly (map-check-windows-compare.csv lists every difference).</div>`;
+      if (w && w.read_only === false) h += msg("err", `${esc(w.root)} is not read-only: Windows can write to it. If it is the image, unmount it and open it again read-only (in AIM Toolkit, tick read-only). If it is the recovered SSD, switch it off in step 3 and protect it again.`);
+      if (w && w.failed) h += msg("warn", `Could not check against what Windows lists on ${esc(w.root)}: ${esc(w.failed)}.`);
+      else if (w && w.agrees) h += msg("ok", `Checked against Windows' own reading of the volume (drive ${esc(w.root)}): Windows lists ${commas(w.listed)} files and folders, exactly the ones this check says it can list, with the same sizes. Windows and this check read the volume independently, so this is a check of the check.`);
+      else if (w) h += msg("err", `Checked against Windows' own reading of the volume (drive ${esc(w.root)}): they differ. Windows lists ${commas(w.only_windows_count)} files and folders this check says it cannot list${w.only_windows.length ? ` (such as ${esc(w.only_windows[0])})` : ""}, and does not list ${commas(w.only_here_count)} that it says it can${w.only_here.length ? ` (such as ${esc(w.only_here[0])})` : ""}; ${commas(w.other_size_count)} have another size there. Tell Claude before going on: this check may read part of the volume wrongly (map-check-windows-compare.csv lists every difference).`);
       else h += `<p class="small soft">Not checked against Windows' own reading of the volume: it has no drive letter here. To check, open the image read-only (AIM Toolkit, read-only ticked) and run this step again.</p>`;
       const left = (d.leftover_files || 0) + (d.leftover_folders || 0);
-      if (left) h += `<div class="msg warn">${commas(d.leftover_files)} file${d.leftover_files === 1 ? "" : "s"} and ${commas(d.leftover_folders)} folder${d.leftover_folders === 1 ? "" : "s"} are listed after a blank record that ddrescue <b>did</b> read: the old drive had that record blank too, so Windows never listed them there either. They are most likely leftovers of files deleted or replaced long ago, not files the damage hid. Step 6 still copies them; treat those copies as doubtful, and tell Claude.</div>`;
-      if ((d.claimed_twice || 0) + (d.claimed_free || 0)) h += `<div class="msg err">Some records point at space that is not theirs: ${(d.consistency_examples || []).map(esc).join("; ")}. The volume's own records never do that: such a record is damaged or a leftover, and what it points at may belong to another file. Tell Claude before relying on those files (map-check-consistency.csv lists them all).</div>`;
-      if (d.rebuilt_folders > 0) h += `<div class="msg ok">${commas(d.rebuilt_folders)} folder${d.rebuilt_folders === 1 ? "" : "s"} whose own record was lost ${d.rebuilt_folders === 1 ? "was" : "were"} found by ${d.rebuilt_folders === 1 ? "its" : "their"} contents: the ${commas(d.rebuilt_files)} file${d.rebuilt_files === 1 ? "" : "s"} inside keep their names, dates and folders. Step 6 copies them into “found folders (name lost)”, one folder each, named after where it starts on the disk.</div>`;
+      if (left) h += msg("warn", `${commas(d.leftover_files)} file${d.leftover_files === 1 ? "" : "s"} and ${commas(d.leftover_folders)} folder${d.leftover_folders === 1 ? "" : "s"} are listed after a blank record that ddrescue <b>did</b> read: the old drive had that record blank too, so Windows never listed them there either. They are most likely leftovers of files deleted or replaced long ago, not files the damage hid. Step 6 still copies them; treat those copies as doubtful, and tell Claude.`);
+      if ((d.claimed_twice || 0) + (d.claimed_free || 0)) h += msg("err", `Some records point at space that is not theirs: ${(d.consistency_examples || []).map(esc).join("; ")}. The volume's own records never do that: such a record is damaged or a leftover, and what it points at may belong to another file. Tell Claude before relying on those files (map-check-consistency.csv lists them all).`);
+      if (d.rebuilt_folders > 0) h += msg("ok", `${commas(d.rebuilt_folders)} folder${d.rebuilt_folders === 1 ? "" : "s"} whose own record was lost ${d.rebuilt_folders === 1 ? "was" : "were"} found by ${d.rebuilt_folders === 1 ? "its" : "their"} contents: the ${commas(d.rebuilt_files)} file${d.rebuilt_files === 1 ? "" : "s"} inside keep their names, dates and folders. Step 6 copies them into “found folders (name lost)”, one folder each, named after where it starts on the disk.`);
       if (d.newest && d.newest.after_copy) {
-        h += `<div class="msg warn">The newest date on the SSD is ${esc(d.newest.date)} (${esc(d.newest.path)}): after ddrescue finished (${esc(d.newest.copy_finished)}). Something may have changed the SSD after the copy (a computer it was plugged into, say), or that file's date is simply wrong. Ask before going on.</div>`;
+        h += msg("warn", `The newest date on the SSD is ${esc(d.newest.date)} (${esc(d.newest.path)}): after ddrescue finished (${esc(d.newest.copy_finished)}). Something may have changed the SSD after the copy (a computer it was plugged into, say), or that file's date is simply wrong. Ask before going on.`);
       } else if (d.newest) {
         h += `<p class="small soft">Newest date on the SSD: ${esc(d.newest.date)}${d.newest.copy_finished ? ` - before ddrescue finished (${esc(d.newest.copy_finished)}), so nothing on it is dated after the copy` : ""}.</p>`;
       }
@@ -955,7 +1475,7 @@ function renderCheck() {
       h += `</div>`;
     }
     if (j.summary && j.summary.length) h += `<details><summary>The full report</summary><pre class="report">${lines(j.summary)}</pre></details>`;
-    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the results folder</button></div>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("external-link")}Open the results folder</button></div>`;
   }
   put($("r-check"), h);
 }
@@ -970,18 +1490,18 @@ function renderCopy() {
   if (document.activeElement !== inp && !inp.dataset.touched) inp.value = setting("copy_to");
   let h = noteHtml("copy");
   if (j && j.state !== "running") {
-    if (j.state === "failed") h += `<div class="msg err">${esc(j.error)}</div>`;
+    if (j.state === "failed") h += msg("err", esc(j.error));
     const why = j.data && j.data.why_stopped;
-    let lines = j.summary || [];
-    if (j.state === "stopped" && why && lines.length) {
+    let ls = j.summary || [];
+    if (j.state === "stopped" && why && ls.length) {
       // Why it stopped, and what to do: the summary's first line.
-      h += `<div class="msg warn">${esc(lines[0])}</div>`;
-      lines = lines.slice(1);
+      h += msg("warn", esc(ls[0]));
+      ls = ls.slice(1);
     } else if (j.state === "stopped") {
-      h += `<div class="msg warn">Stopped before the end. Start it again to copy the rest: what is already copied is kept.</div>`;
+      h += msg("warn", "Stopped before the end. Start it again to copy the rest: what is already copied is kept.");
     }
-    if (lines.length) h += `<div class="panel">${lines.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
-      ${j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Open the folder</button>${j.outputs[1] ? `<button class="second" data-open="${esc(j.outputs[1])}">Show the list of every file</button>` : ""}</div>` : ""}</div>`;
+    if (ls.length) h += `<div class="panel">${ls.map((l) => `<p class="small">${esc(l)}</p>`).join("")}
+      ${j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("folder-open")}Open the folder</button>${j.outputs[1] ? `<button class="second" data-open="${esc(j.outputs[1])}">${ic("external-link")}Show the list of every file</button>` : ""}</div>` : ""}</div>`;
     h += safetyHtml(j.data && j.data.safety);
   }
   put($("r-copy"), h);
@@ -1011,7 +1531,7 @@ function renderScan() {
   }
   let h = noteHtml("scan");
   if (j && j.state !== "running") {
-    if (j.state === "failed") h += `<div class="msg err">${esc(j.error)}</div>`;
+    if (j.state === "failed") h += msg("err", esc(j.error));
     const d = j.data;
     if (d) {
       const c = d.counts || {};
@@ -1031,7 +1551,7 @@ function renderScan() {
       h += `</div>`;
     }
     if (j.summary && j.summary.length) h += `<details><summary>The full summary</summary><pre class="report">${lines(j.summary)}</pre></details>`;
-    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the results file</button></div>`;
+    if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("external-link")}Show the results file</button></div>`;
   }
   put($("r-scan"), h);
 }
@@ -1055,18 +1575,17 @@ function renderRepair() {
   $("b-putback").disabled = busy() || !f;
   $("b-undo").disabled = busy() || !f;
   const repair = jobs.map((j) => j.data && j.data.repair).find(Boolean);
-  const openHtml = repair ? `<button class="second" data-open="${esc(repair)}">Open the REPAIR folder</button>` : "";
-  if ($("repair-open").dataset.html !== openHtml) { $("repair-open").innerHTML = openHtml; $("repair-open").dataset.html = openHtml; }
+  put($("repair-open"), repair ? `<button class="second" data-open="${esc(repair)}">${ic("folder-open")}Open the REPAIR folder</button>` : "");
   const show = (kind, el, extra) => {
     const j = lastOf(kind);
     let h = noteHtml(kind);
     if (j && j.state !== "running") {
-      if (j.state === "failed" && j.error && !(j.summary || []).length) h += `<div class="msg err">${esc(j.error)}</div>`;
+      if (j.state === "failed" && j.error && !(j.summary || []).length) h += msg("err", esc(j.error));
       const ls = j.summary || [];
-      if (ls.length) h += `<div class="msg ${j.state === "done" ? "ok" : (j.state === "stopped" ? "warn" : "err")}">${ls.map(esc).join("<br>")}</div>`;
+      if (ls.length) h += msg(j.state === "done" ? "ok" : (j.state === "stopped" ? "warn" : "err"), ls.map(esc).join("<br>"));
       if (extra) h += extra(j);
     }
-    if ($(el).dataset.html !== h) { $(el).innerHTML = h; $(el).dataset.html = h; }
+    put($(el), h);
   };
   show("isolate", "r-isolate");
   show("put-back", "r-putback", (j) => {
@@ -1075,19 +1594,20 @@ function renderRepair() {
   });
   show("evaluate", "r-evaluate", (j) => {
     const pk = (j.data && j.data.damaged_packages) || [];
-    if (!pk.length) return j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the evaluation</button></div>` : "";
+    const open = j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("external-link")}Show the evaluation</button></div>` : "";
+    if (!pk.length) return open;
     return `<div class="scroll"><table><tr><th>Package</th><th class="num">Files</th><th class="num">Damaged</th><th class="num">Put back</th><th>What to do</th></tr>` +
       pk.map((p) => `<tr><td class="path">${esc(p.path)}<br><span class="small soft">${esc(p.what)}, ${esc(size(p.bytes))}</span></td><td class="num">${commas(p.files)}</td><td class="num">${commas(p.damaged)}</td><td class="num">${commas(p.put_back)}</td><td class="small">${esc(p.verdict)}</td></tr>`).join("") +
-      `</table></div>` + (j.outputs && j.outputs.length ? `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">Show the evaluation</button></div>` : "");
+      `</table></div>` + open;
   });
 }
 
 function renderFinish() {
   const chosen = disks.find((d) => d.spec === setting("disk"));
   let h = "";
-  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>`;
+  h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">${ic("power-off")}Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>`;
   if (S.policy_to_restore) {
-    h += `<p>Windows is still set to leave new disks switched off. Once the recovered SSD is unplugged, put the setting back:</p><div class="row"><button id="b-restore">Put Windows' setting back</button></div>${noteHtml("restore")}`;
+    h += `<p>Windows is still set to leave new disks switched off. Once the recovered SSD is unplugged, put the setting back:</p><div class="row"><button id="b-restore">${ic("undo-2")}Put Windows' setting back</button></div>${noteHtml("restore")}`;
     setStep("finish", "", "");
   } else {
     h += `<p>Windows' setting for new disks is as it was.</p>`;
@@ -1101,6 +1621,8 @@ function renderFinish() {
   }
 }
 
+// The job running now: in "Now", beside the guide (or along the bottom of
+// a narrow window).
 function renderJob() {
   const j = S.job, box = $("job");
   if (!j || j.state !== "running") { box.hidden = true; return; }
@@ -1126,6 +1648,7 @@ function renderJob() {
 function render() {
   if (!S) return;
   renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
+  renderJourney(); renderNow(); renderRail();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -1157,9 +1680,9 @@ async function protect(d) {
       await act({ action: "guard-online", disk: d.spec, on: "1" });
     }
     protectedHere.add(d.spec);
-    let msg = `Disk ${d.number} is read-only: Windows cannot write to it.`;
-    if (S.policy_to_restore) msg += " Windows stays set to leave new disks switched off until the SSD is unplugged.";
-    note("connect", "ok", msg);
+    let m = `Disk ${d.number} is read-only: Windows cannot write to it.`;
+    if (S.policy_to_restore) m += " Windows stays set to leave new disks switched off until the SSD is unplugged.";
+    note("connect", "ok", m);
   } catch (e) { note("connect", "err", e.message); }
   await refresh(); await loadDisks();
 }
@@ -1238,13 +1761,14 @@ async function openPicker(title, start, files, done) {
 async function pickerShow(path) {
   const r = await get(`api/list?path=${encodeURIComponent(path)}&show=${pick.files ? "files" : "dirs"}`);
   const list = $("picker-list");
-  if (r.ok === false) { list.innerHTML = `<div class="msg err">${esc(r.error)}</div>`; return; }
+  if (r.ok === false) { list.innerHTML = msg("err", esc(r.error)); return; }
   pick.path = r.path; pick.parent = r.parent;
   $("picker-path").value = r.path;
   let h = r.path ? "" : `<p class="small soft">Drives on this PC:</p>`;
   r.entries.forEach((e, i) => {
     const extra = e.dir ? (e.total ? `${size(e.free)} free of ${size(e.total)}` : "") : size(e.size);
-    h += `<button class="entry" data-i="${i}"><span>${e.dir ? "\u{1F4C1} " : ""}${esc(e.name)}</span><span class="soft small">${esc(extra)}</span></button>`;
+    const icon = !e.dir ? "file" : r.path ? "folder" : "hard-drive";
+    h += `<button class="entry" data-i="${i}"><span>${ic(icon)}${esc(e.name)}</span><span class="soft small">${esc(extra)}</span></button>`;
   });
   if (!r.entries.length) h += `<p class="soft">This folder is empty.</p>`;
   if (r.free != null && !pick.files) h += `<p class="small soft">${size(r.free)} free on this drive.</p>`;
@@ -1321,9 +1845,7 @@ async function refresh() {
   try { S = await get("api/state"); } catch {
     if (!lost) {
       lost = true;
-      const b = $("restore-banner");
-      b.innerHTML = `<div class="banner"><p><b>The program is not running any more</b>: its window was closed. Double-click Automatic Recovery Probe to start it again; what the steps found is kept.</p></div>`;
-      b.dataset.html = b.innerHTML;
+      put($("restore-banner"), `<div class="banner lost">${ic("circle-x")}<div><p><b>The program is not running any more</b>: its window was closed. Double-click Automatic Recovery Probe to start it again; what the steps found is kept.</p></div></div>`);
     }
     return;
   }
@@ -1345,19 +1867,15 @@ async function loadReady(fresh) {
   fillFolders();
   render();
 }
-function mk(ok) {
-  return ok === true ? '<span class="mk good" aria-label="fine">✓</span>'
-    : ok === false ? '<span class="mk bad" aria-label="needs doing">✗</span>' : '<span class="mk meh" aria-label="note">!</span>';
-}
 function setAuto(id, cls, text) {
   const li = $("a-" + id);
-  li.classList.remove("done", "problem", "running");
+  li.classList.remove("done", "problem", "running", "turn");
   if (cls) li.classList.add(cls);
   const st = $("ast-" + id);
   st.className = "state " + (cls || "");
-  st.textContent = text || "";
+  put(st, stateHtml(cls, text));
+  partState[id] = [cls || "", text || ""];
 }
-const ICON = { done: "✓", skipped: "–", running: "⟳", waiting: "⏸", failed: "✗", stopped: "■", pending: "○" };
 function autoRunning() { return busy() && S.job.kind === "auto"; }
 
 function fillFolders() {
@@ -1374,6 +1892,51 @@ function fillFolders() {
   $("af-videos").checked = setting("auto_videos") !== "0";
 }
 
+// One line of Get ready's list: how it stands (in a word, with its icon),
+// what it is, what that means, and a button when there is something to do.
+const MARK = { good: "circle-check", bad: "circle-x", note: "triangle-alert", todo: "circle-dashed" };
+function checkItem([kind, word, icon, title, detail, btn]) {
+  const mark = word === "Running" ? ic("loader-circle", "spin") : ic(MARK[kind]);
+  return `<li><span class="mk ${kind}">${mark}<span>${esc(word)}</span></span>` +
+    `<span class="what"><b>${ic(icon)}${esc(title)}</b><span class="small soft">${esc(detail)}</span></span><span>${btn || ""}</span></li>`;
+}
+const TOOL_ICON = { "7zip": "file-archive", ffmpeg: "clapperboard", ffprobe: "scan-eye", mp3val: "audio-lines", untrunc: "film", qpdf: "file-text", aim: "disc" };
+
+// Start's stages, in the words of what each one does, grouped the way the
+// files travel.
+const STAGE_TITLE = {
+  ready: "Check everything is ready",
+  image: "Make the image of the recovered SSD",
+  open: "Open the image read-only, to compare with Windows",
+  mapcheck: "Find which files the damage touched",
+  copy: "Copy every file into WORK",
+  verify: "Check every copy is exactly what was copied",
+  scan: "Look inside every file for damage",
+  extra: "Extra checks with the free tools (7-Zip, MP3val, qpdf, FFmpeg)",
+  isolate: "Set the damaged files aside in REPAIR",
+  repair: "Repair them with the free tools",
+  putback: "Put the repaired files back into WORK",
+  verify2: "Check every copy again",
+  scan2: "Look inside every file again",
+  evaluate: "Count what is still damaged",
+  handoff: "Get the rest ready for the Mac or a paid tool",
+};
+const STAGE_GROUPS = [
+  ["Getting ready", "clipboard-check", ["ready"]],
+  ["The image", "disc", ["image", "open"]],
+  ["Finding the damage", "scan-search", ["mapcheck"]],
+  ["Copying everything", "copy", ["copy", "verify"]],
+  ["Checking every file", "file-search", ["scan", "extra"]],
+  ["Repairing", "wrench", ["isolate", "repair", "putback"]],
+  ["Checking again", "badge-check", ["verify2", "scan2", "evaluate"]],
+  ["What is left", "laptop", ["handoff"]],
+];
+const STAGE_STATE = {
+  pending: ["circle-dashed", "Not yet"], running: ["loader-circle", "Running"], waiting: ["hand", "Waiting for you"],
+  done: ["circle-check", "Done"], skipped: ["circle-minus", "Not needed"], failed: ["circle-x", "Stopped here"], stopped: ["circle-stop", "Stopped"],
+};
+function stageTitle(s) { return STAGE_TITLE[s.key] || s.title; }
+
 function renderAuto() {
   if (!S) return;
   const running = busy();
@@ -1382,32 +1945,49 @@ function renderAuto() {
   let readyOk = false;
   if (READY) {
     const t = lastOf("selftest");
-    const items = [];
-    items.push([READY.elevated || !READY.windows, "Administrator rights", READY.elevated ? "The program can read the recovered SSD (it never writes to it)." : READY.windows ? "Close the program's window, double-click it again and click Yes when Windows asks." : "Not needed on this system.", ""]);
-    items.push([!!READY.mapfile, "The ddrescue mapfile", READY.mapfile || "Not found: put it in the program's folder.", ""]);
+    const pc = [];
+    pc.push(READY.elevated ? ["good", "OK", "shield-check", "Administrator rights", "The program can read the recovered SSD (it never writes to it).", ""]
+      : READY.windows ? ["bad", "Needs doing", "shield-alert", "Administrator rights", "Close the program's window, double-click it again and click Yes when Windows asks.", ""]
+      : ["good", "OK", "shield-check", "Administrator rights", "Not needed on this system.", ""]);
+    pc.push(READY.mapfile ? ["good", "OK", "map", "The ddrescue mapfile", READY.mapfile, ""]
+      : ["bad", "Missing", "map", "The ddrescue mapfile", "Not found: put it in the program's folder.", ""]);
     const testOk = t && t.state === "done";
-    items.push([testOk ? true : t && t.state !== "running" ? false : null, "The self-test", t ? (t.state === "running" ? "Running…" : (t.summary || [])[0] || t.error) : "Not run yet: click Run the self-test (a few seconds).", ""]);
+    pc.push(testOk ? ["good", "Passed", "flask-conical", "The self-test", (t.summary || [])[0] || "", ""]
+      : t && t.state === "running" ? ["todo", "Running", "flask-conical", "The self-test", "Running…", ""]
+      : t ? ["bad", "Failed", "flask-conical", "The self-test", (t.summary || [])[0] || t.error, ""]
+      : ["todo", "Not yet", "flask-conical", "The self-test", "Not run yet: click Run the self-test (a few seconds; it touches nothing of yours).", ""]);
+    const tools = [];
     if (READY.windows) {
-      items.push([READY.restart_pending === false, "Windows is not waiting to restart", READY.restart_pending ? "An update wants to restart the PC: restart it now, before the recovered SSD is plugged in." : "No restart is waiting.", ""]);
-      items.push([READY.restarts_after_crash === false ? true : null, "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "It does not restart by itself.", READY.restarts_after_crash ? '<button class="second" data-act="crash-restart-off">Turn that off</button>' : ""]);
-      items.push([READY.policy_to_restore ? true : null, "New disks arrive switched off", READY.policy_to_restore ? "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again." : "Not yet: the rehearsal (next) sets it.", ""]);
+      pc.push(READY.restart_pending === false ? ["good", "OK", "refresh-cw", "Windows is not waiting to restart", "No restart is waiting.", ""]
+        : ["bad", "Restart first", "refresh-cw", "Windows is not waiting to restart", READY.restart_pending ? "An update wants to restart the PC: restart it now, before the recovered SSD is plugged in." : "Could not tell whether Windows is waiting to restart.", ""]);
+      pc.push(READY.restarts_after_crash === false ? ["good", "OK", "power", "After a crash, Windows stops at the blue screen", "It does not restart by itself.", ""]
+        : ["note", "Note", "power", "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "Could not tell whether Windows restarts by itself after a crash.",
+          READY.restarts_after_crash ? `<button class="second" data-act="crash-restart-off">${ic("power-off")}Turn that off</button>` : ""]);
+      pc.push(READY.policy_to_restore ? ["good", "On", "usb", "New disks arrive switched off", "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again.", ""]
+        : ["todo", "Not yet", "usb", "New disks arrive switched off", "The rehearsal (next) turns this on.", ""]);
       const added = setting("defender_added");
       const has = READY.defender_has || [];
       const wanted = [setting("auto_image_dir"), setting("auto_work")].filter((x) => x).length;
       const allHas = wanted > 0 && has.length >= wanted;
-      items.push([added || allHas ? true : null, "Defender leaves the image folder and SPARE alone (optional)", added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : allHas ? "Excluded already: " + has.join(", ") + "." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file." + (has.length ? " (Excluded already: " + has.join(", ") + ".)" : ""), !added && !allHas && (setting("auto_image_dir") || setting("auto_work")) ? '<button class="second" data-defender="1">Exclude them</button>' : ""]);
+      pc.push([added || allHas ? "good" : "todo", added || allHas ? "Done" : "Optional", "shield", "Defender leaves the image folder and SPARE alone",
+        added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : allHas ? "Excluded already: " + has.join(", ") + "." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file." + (has.length ? " (Excluded already: " + has.join(", ") + ".)" : ""),
+        !added && !allHas && (setting("auto_image_dir") || setting("auto_work")) ? `<button class="second" data-defender="1">${ic("shield-plus")}Exclude them</button>` : ""]);
       const aim = (READY.tools || []).find((x) => x.key === "aim");
       const aimOk = !!(aim && aim.path && READY.aim_driver);
       const tried = setting("aim_test");
       const aimText = !aimOk ? "" : tried === "passed" ? setting("aim_test_text") : tried === "failed" ? "Tried, and it did not work: " + setting("aim_test_text") + " Start still works without it (the map check then cannot check itself against Windows)." : "Installed (" + aim.path + "). Try it once on a small test image before Start relies on it.";
-      items.push([aimOk ? (tried === "failed" ? false : tried === "passed" ? true : null) : null, "AIM Toolkit, to open the image read-only", aimOk ? aimText : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.", !aimOk && READY.aim_setup ? '<button class="second" data-act="aim-install">Install AIM Toolkit</button>' : aimOk && tried !== "passed" ? '<button class="second" data-aimtest="1">Try it</button>' : ""]);
+      tools.push([aimOk ? (tried === "failed" ? "bad" : tried === "passed" ? "good" : "todo") : "todo", aimOk ? (tried === "failed" ? "Didn't work" : tried === "passed" ? "Works" : "Try it") : READY.aim_setup ? "Optional" : "Missing",
+        "disc", "AIM Toolkit, to open the image read-only",
+        aimOk ? aimText : READY.aim_setup ? "Not installed yet. Without it the map check cannot check itself against Windows' own reading of the image (everything else works)." : "Not installed, and its installer (install.bat) was not found in the program's folder.",
+        !aimOk && READY.aim_setup ? `<button class="second" data-act="aim-install">${ic("hard-drive-download")}Install AIM Toolkit</button>` : aimOk && tried !== "passed" ? `<button class="second" data-aimtest="1">${ic("flask-conical")}Try it</button>` : ""]);
     }
     for (const x of READY.tools || []) {
       if (x.key === "aim") continue;
-      const btn = !x.path && x.download ? `<button class="second" data-dl="${esc(x.key)}">Download it (${esc(size(x.download.size))})</button>` : "";
-      items.push([x.path ? true : null, x.name, x.path ? (x.version || x.path) : `Not found: what it does (${x.used_for}) is left out.`, btn]);
+      const btn = !x.path && x.download ? `<button class="second" data-dl="${esc(x.key)}">${ic("download")}Download it (${esc(size(x.download.size))})</button>` : "";
+      tools.push([x.path ? "good" : "note", x.path ? "Found" : "Missing", TOOL_ICON[x.key] || "wrench", x.name, x.path ? (x.version || x.path) : `Not found: what it does (${x.used_for}) is left out.`, btn]);
     }
-    h += `<ul class="checks">${items.map(([ok, title, detail, btn]) => `<li>${mk(ok)}<span class="what"><b>${esc(title)}</b><span class="small soft">${esc(detail)}</span></span><span>${btn}</span></li>`).join("")}</ul>`;
+    h += `<div class="checkgroups"><div><h3>${ic("monitor-check")}This PC</h3><ul class="checks">${pc.map(checkItem).join("")}</ul></div>` +
+      `<div><h3>${ic("wrench")}The free tools it uses</h3><ul class="checks">${tools.map(checkItem).join("")}</ul></div></div>`;
     readyOk = (READY.elevated || !READY.windows) && !!READY.mapfile && testOk && READY.restart_pending !== true;
   }
   put($("ar-ready"), h);
@@ -1420,17 +2000,17 @@ function renderAuto() {
   const imageMade = !!(setting("image") && setting("image_sha"));
   h = noteHtml("rehearse");
   if (imageMade) {
-    h += `<div class="msg ok">The image is made, so the recovered SSD is not needed any more: no rehearsal needed.</div>`;
+    h += msg("ok", "The image is made, so the recovered SSD is not needed any more: no rehearsal needed.");
   } else {
     if (verdict === "ask") {
       // (An answer the version before this one asked for; this one finds it out.)
-      h += `<div class="msg warn">Check SPARE again (This is SPARE: check it, below): the program now finds out by itself whether Windows will keep the recovered SSD switched off in this case.</div>`;
+      h += msg("warn", "Check SPARE again (This is SPARE: check it, below): the program now finds out by itself whether Windows will keep the recovered SSD switched off in this case.");
     } else if (verdict) {
-      h += `<div class="msg ${verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn"}">${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span></div>`;
+      h += msg(verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn", `${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span>`);
     }
     const windows = READY ? READY.windows : S.windows;
     if (windows && !S.policy_to_restore) {
-      h += `<div class="row"><button data-prep="1">First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
+      h += `<div class="row"><button data-prep="1">${ic("shield")}First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
     } else if (verdict !== "passed") {
       // SPARE: a drive labelled SPARE; switched off with no drive letters
       // (the server checks it is the disk the rehearsal saw before); or the
@@ -1441,18 +2021,18 @@ function renderAuto() {
       const cands = disks.filter((d) => !d.system && !isCopy(d) && !d.test);
       const offNow = verdict === "switch-off" && cands.find((d) => String(d.number) === setting("spare_number") && d.offline === false);
       if (verdict === "switch-off" && offNow) {
-        h += `<div class="row"><button data-spareoff="${esc(offNow.spec)}">Switch SPARE off</button></div>`;
+        h += `<div class="row"><button data-spareoff="${esc(offNow.spec)}">${ic("power-off")}Switch SPARE off</button></div>`;
       }
       if (cands.length) {
         h += `<h3>Disks this PC can see</h3><div class="choices">` + cands.map((d) => {
           const l = diskLine(d);
-          const btn = isSpare(d) ? `<button class="second" data-spare="${esc(d.spec)}">This is SPARE: check it</button>` : `<span class="small soft">not SPARE</span>`;
+          const btn = isSpare(d) ? `<button class="second" data-spare="${esc(d.spec)}">${ic("scan-search")}This is SPARE: check it</button>` : `<span class="small soft">not SPARE</span>`;
           return `<div class="choice" style="cursor:default"><span></span><span><b>${l.title}</b>${l.tags}</span><span class="small soft">${l.what || "&nbsp;"}</span><span>${btn}</span></div>`;
         }).join("") + `</div>`;
       } else if (windows) {
         h += `<p class="soft">Plug SPARE in now. The list looks for it every couple of seconds.</p>`;
       }
-      if (copiesHere().length) h += `<div class="msg warn">A copy of the old drive is plugged in already (marked <i>the copy ddrescue made</i>). That's fine if it is the recovered SSD and it arrived switched off: Start protects it at once. Never the 4 TB SSD at the same time.</div>`;
+      if (copiesHere().length) h += msg("warn", "A copy of the old drive is plugged in already (marked <i>the copy ddrescue made</i>). That's fine if it is the recovered SSD and it arrived switched off: Start protects it at once. Never the 4 TB SSD at the same time.");
     }
   }
   put($("ar-rehearse"), h);
@@ -1472,26 +2052,39 @@ function renderAuto() {
   const n = A.stages.length;
   const allDone = n && A.resume_at >= n;
   const autoJob = lastOf("auto");
-  $("b-auto-start").textContent = allDone ? "Start (all done)" : A.resume_at > 0 ? "Carry on" : "Start";
+  put($("b-auto-start"), allDone ? ic("circle-check") + "Start (all done)" : A.resume_at > 0 ? ic("step-forward") + "Carry on" : ic("play") + "Start");
   $("b-auto-start").disabled = running || allDone;
   $("b-auto-over").disabled = running || A.resume_at === 0;
   h = noteHtml("start");
-  if (autoRunning() && A.waiting) h += `<div class="waitcard" role="status"><b>Your turn:</b> ${esc(A.waiting)}</div>`;
-  if (A.banner) h += `<div class="msg ok">${esc(A.banner)}</div>`;
-  h += `<ul class="stages">` + A.stages.map((s) => {
+  // (What Start waits for you to do is in "Now", always in view.)
+  if (A.banner) h += msg("ok", esc(A.banner));
+  const byKey = Object.fromEntries(A.stages.map((s, i) => [s.key, [s, i]]));
+  const grouped = new Set();
+  const stageRow = ([s, i]) => {
     const sum = (s.summary || []);
     const head = sum[0] ? `<span class="st-sum">${esc(sum[0])}</span>` : "";
     const more = sum.length > 1 ? `<details><summary>more</summary><pre class="report">${lines(sum.slice(1))}</pre></details>` : "";
     const time = s.seconds > 0 && s.state !== "running" ? duration(s.seconds) : "";
-    return `<li class="${esc(s.state)}"><span class="ic">${ICON[s.state] || "○"}</span><span class="st-title">${esc(s.title)}</span><span class="small soft">${esc(time)}</span>${head}${more}</li>`;
-  }).join("") + `</ul>`;
+    const [icon, word] = STAGE_STATE[s.state] || STAGE_STATE.pending;
+    return `<li class="${esc(s.state)}"><span class="st-mark">${ic(icon, s.state === "running" ? "spin" : "")}</span>` +
+      `<span class="st-title"><span class="st-num">${i + 1}</span>${esc(stageTitle(s))}</span>` +
+      `<span class="st-when"><span>${esc(word)}</span>${time ? `<span>${esc(time)}</span>` : ""}</span>${head}${more}</li>`;
+  };
+  for (const [title, icon, keys] of STAGE_GROUPS) {
+    const rows = keys.filter((k) => byKey[k]).map((k) => { grouped.add(k); return stageRow(byKey[k]); });
+    if (rows.length) h += `<div class="stagegroup"><h3>${ic(icon)}${esc(title)}</h3><ul class="stages">${rows.join("")}</ul></div>`;
+  }
+  const others = A.stages.map((s, i) => [s, i]).filter(([s]) => !grouped.has(s.key));
+  if (others.length) h += `<div class="stagegroup"><h3>${ic("list-ordered")}More</h3><ul class="stages">${others.map(stageRow).join("")}</ul></div>`;
   if (autoJob && autoJob.state !== "running" && autoJob.kind === "auto") {
     const ok = autoJob.state === "done";
-    h += `<div class="msg ${ok ? "ok" : autoJob.state === "stopped" ? "warn" : "err"}">${lines(autoJob.summary || [autoJob.error]).replace(/\n/g, "<br>")}</div>`;
+    h += msg(ok ? "ok" : autoJob.state === "stopped" ? "warn" : "err", lines(autoJob.summary || [autoJob.error]).replace(/\n/g, "<br>"));
   }
   put($("ar-start"), h);
   const failedStage = A.stages.find((s) => s.state === "failed");
-  setAuto("start", allDone ? "done" : failedStage ? "problem" : autoRunning() ? "running" : "", allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (A.waiting ? "Waiting for you" : "Running…") : A.resume_at > 0 ? "Stopped part-way" : "");
+  const waitingNow = autoRunning() && A.waiting;
+  setAuto("start", allDone ? "done" : failedStage ? "problem" : autoRunning() ? (waitingNow ? "turn" : "running") : "",
+    allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (waitingNow ? "Waiting for you" : "Running…") : A.resume_at > 0 ? "Stopped part-way" : "");
 
   // 5. What is left.
   const ho = lastOf("handoff"), ar = lastOf("autorepair"), bb = lastOf("bringback");
@@ -1502,21 +2095,23 @@ function renderAuto() {
     const at = d.attempts || [];
     const count = (r) => at.length ? at.filter((a) => a.result === r).length : null;
     const rep = count("REPAIRED") ?? d.repaired, sal = count("SALVAGED") ?? d.salvaged, not = count("NOT REPAIRED") ?? d.not_repaired;
-    h += `<div class="figures">${figure(rep, "repaired and put back")}${figure(sal, "with something salvaged")}${figure(not, "not repaired", true)}</div>`;
+    h += `<div class="panel"><div class="figures">${figure(rep, "repaired and put back")}${figure(sal, "with something salvaged")}${figure(not, "not repaired", true)}</div>`;
     if ((d.attempts || []).length) {
       h += `<details><summary>Every damaged file, and what was done</summary><div class="scroll"><table><tr><th>No.</th><th>File</th><th>Result</th><th>How</th></tr>` +
         d.attempts.map((a) => `<tr><td>${esc(a.id)}</td><td class="path">${esc(a.path)}</td><td class="verdict">${esc(a.result)}</td><td class="small">${esc(a.how)}${a.note ? ` <span class="soft">(${esc(a.note)})</span>` : ""}</td></tr>`).join("") +
         `</table></div></details>`;
     }
+    h += `</div>`;
   }
   if (ho && ho.data) {
     const d = ho.data;
     h += `<p>${lines(ho.summary || []).replace(/\n/g, "<br>")}</p>`;
-    h += `<div class="row"><button class="second" data-open="${esc(d.folder)}">Open the hand-off folder</button></div>`;
-    h += `<h3>Bring back</h3><p class="small">When repaired files come back - from the Mac (on the USB stick), or saved by a paid tool into <code>hand-off\\returned</code> - the program puts each one back where it belongs (by its number) and checks everything again.</p>
-      <div class="row"><input type="text" id="ab-from" value="${esc(d.returned || "")}" aria-label="Bring back from this folder"><button class="second" id="b-ab-from">Choose…</button><button id="b-bring">Bring back</button></div>`;
+    h += `<div class="row"><button class="second" data-open="${esc(d.folder)}">${ic("folder-open")}Open the hand-off folder</button></div>`;
+    h += `<h3>${ic("folder-input")} Bring back</h3><p class="small">When repaired files come back (from the Mac, on the USB stick, or saved by a paid tool into <code>hand-off\\returned</code>), the program puts each one back where it belongs, by its number, and checks everything again.</p>
+      <div class="inputrow"><input type="text" id="ab-from" value="${esc(d.returned || "")}" aria-label="Bring back from this folder"><button class="second" id="b-ab-from">${ic("folder-open")}Choose…</button></div>
+      <div class="row"><button id="b-bring">${ic("folder-input")}Bring back</button></div>`;
   }
-  if (bb && bb.state !== "running") h += `<div class="msg ${bb.state === "done" ? "ok" : "err"}">${lines(bb.summary || [bb.error]).replace(/\n/g, "<br>")}</div>`;
+  if (bb && bb.state !== "running") h += msg(bb.state === "done" ? "ok" : "err", lines(bb.summary || [bb.error]).replace(/\n/g, "<br>"));
   const leftBox = $("ar-left");
   const fromNow = $("ab-from") ? $("ab-from").value : null;
   if (ho || ar || bb) put(leftBox, h);
@@ -1526,12 +2121,153 @@ function renderAuto() {
   // 6. Finalise.
   const fi = lastOf("finalise");
   h = noteHtml("final");
-  if (fi && fi.state !== "running") h += `<div class="msg ${fi.state === "done" ? "ok" : fi.state === "stopped" ? "warn" : "err"}">${lines(fi.summary || [fi.error]).replace(/\n/g, "<br>")}</div>`;
+  if (fi && fi.state !== "running") h += msg(fi.state === "done" ? "ok" : fi.state === "stopped" ? "warn" : "err", lines(fi.summary || [fi.error]).replace(/\n/g, "<br>"));
   put($("ar-final"), h);
   $("b-finalise").disabled = running;
-  setAuto("final", fi && fi.state === "done" ? "done" : fi && fi.state === "failed" ? "problem" : "", fi && fi.state === "done" ? "Done " + (fi.started_at || "") : "");
+  setAuto("final", fi && fi.state === "done" ? "done" : fi && fi.state === "failed" ? "problem" : fi && fi.state === "running" ? "running" : "",
+    fi && fi.state === "done" ? "Done " + (fi.started_at || "") : fi && fi.state === "failed" ? "Needs attention" : fi && fi.state === "running" ? "Running…" : "");
 }
 function copiesHere() { return disks.filter((d) => isCopy(d) && !d.system); }
+
+// Where the files go: the recovered SSD, the image, the copies, the repairs,
+// the second copy - each lit up as Start gets it done.
+function stageOf(key) { const s = ((S.auto && S.auto.stages) || []).find((x) => x.key === key); return s ? s.state : "pending"; }
+function groupOf(keys) {
+  const st = keys.map(stageOf);
+  if (st.includes("failed")) return "problem";
+  if (st.includes("waiting")) return "turn";
+  if (st.includes("running")) return "running";
+  if (st.every((s) => s === "done" || s === "skipped")) return "done";
+  if (st.some((s) => s !== "pending")) return "partly";
+  return "";
+}
+function renderJourney() {
+  const imageMade = !!(setting("image") && setting("image_sha"));
+  const im = stageOf("image");
+  const work = setting("auto_work");
+  const repair = work ? work.replace(/[\\/]+$/, "").replace(/[^\\/]+$/, "REPAIR") : "";
+  const fi = lastOf("finalise");
+  const words = { done: "", running: "Running now", turn: "Waiting for you", problem: "Stopped: needs attention", partly: "Part-way", "": "Not yet" };
+  const node = (cls, icon, name, text, path, word) =>
+    `<li class="node ${cls === "partly" ? "" : cls}"><span class="node-tile">${ic(icon)}</span><span class="node-name">${esc(name)}</span>` +
+    `<span class="node-text">${esc(text)}</span>${path ? `<span class="node-path">${esc(path)}</span>` : ""}` +
+    `<span class="state ${cls === "partly" ? "" : cls}">${stateHtml(cls === "partly" ? "" : cls, word || words[cls])}</span></li>`;
+  const ssd = imageMade ? ["done", "Read into the image"] : im === "waiting" ? ["turn", "Plug it in now"] : im === "running" ? ["running", "Being read"] : ["", "In its drawer"];
+  const img = imageMade ? ["done", "Made and checked"] : im === "running" || stageOf("open") === "running" ? ["running", "Being made"] : im === "failed" ? ["problem", ""] : ["", "Not made yet"];
+  const wk = groupOf(["copy", "verify", "scan", "extra"]);
+  const rp = groupOf(["isolate", "repair", "putback", "verify2", "scan2", "evaluate", "handoff"]);
+  const c2 = fi && fi.state === "done" ? ["done", "Made and checked"] : fi && fi.state === "running" ? ["running", "Being made"] : fi && fi.state === "failed" ? ["problem", ""] : ["", "Made by Finalise"];
+  put($("journey"),
+    node(ssd[0], "hard-drive", "The recovered SSD", "The only copy of your files. Read once, never written to.", "", ssd[1]) +
+    node(img[0], "disc", "The image", "An exact copy of the whole SSD, in one file.", setting("image") || setting("auto_image_dir"), img[1]) +
+    node(wk, "folder-check", "Your copied files", "Every file copied out of the image, each one checked.", work, wk === "done" ? "Copied and checked" : "") +
+    node(rp, "wrench", "The repairs", "Damaged files repaired as copies, then put back.", repair, rp === "done" ? "Repaired what it could" : "") +
+    node(c2[0], "copy", "The second copy", "Everything again, on another drive, checked.", setting("auto_copy2"), c2[1]));
+}
+
+// ------------------------------------------------------------ where you are, and what is happening now
+
+const PARTS = [
+  ["ready", "Get ready"], ["rehearse", "The rehearsal with SPARE"], ["folders", "The folders"],
+  ["start", "Start"], ["left", "What is left"], ["final", "Finalise"],
+];
+const STEPS = [
+  ["test", "Check the program works"], ["map", "Your ddrescue mapfile"], ["connect", "Connect the SSD, protected"],
+  ["image", "Make an image of the SSD"], ["check", "See what the damage touched"], ["copy", "Copy everything off the SSD"],
+  ["scan", "Check every copied file"], ["repair", "Repair the damaged files"], ["finish", "Finish"],
+];
+let inView = "";   // the part on screen now
+function railItems() {
+  // (Without the time a step was done: the steps say that themselves.)
+  const short = (st) => [st[0], st[1].replace(/^(Done|Stopped)\s.*$/, "$1")];
+  if (view === "auto") return PARTS.map(([id, title], i) => ({ id: "a-" + id, num: String(i + 1), title, st: short(partState[id] || ["", ""]) }));
+  if (view === "steps") return STEPS.map(([id, title], i) => ({ id: "s-" + id, num: String(i + 1), title, st: short(stepState[id] || ["", ""]) }));
+  if (!CL || !CLS) return [];
+  return CL.phases.map((ph, p) => {
+    const c = CLS.phases[p];
+    if (!c || !c.total) return null;
+    const bad = CLS.status.some((s) => s.state === "failed" && CL.items[s.i].phase === p);
+    const title = phaseShort(ph.title);
+    const st = bad ? ["problem", "Stop: see below"] : c.done === c.total ? ["done", `All ${c.total} done`] : ["", `${c.done} of ${c.total} done`];
+    return { id: "ph-" + p, num: ph.number || String(p), title, st, partly: c.done > 0 && c.done < c.total };
+  }).filter(Boolean);
+}
+function renderRail() {
+  const items = railItems();
+  const first = items.findIndex((it) => it.st[0] !== "done");
+  const title = view === "auto" ? "Automatic recovery, in order" : view === "steps" ? "The program's steps" : "The checklist's phases";
+  let h = `<p class="rail-title">${esc(title)}</p><ol class="rail-list">`;
+  items.forEach((it, i) => {
+    let [cls, text] = it.st;
+    if (!cls && i === first) { cls = "next"; text = text || "Next"; }
+    if (!text) text = view === "steps" ? "Not done yet" : "Not started";
+    h += `<li><a class="rail-item ${cls}" href="#${it.id}" data-target="${it.id}"${inView === it.id ? ' aria-current="true"' : ""}>` +
+      `<span class="rail-num">${esc(it.num)}</span><span><span class="rail-name">${esc(it.title)}</span>` +
+      `<span class="rail-state">${stateHtml(cls, text)}</span></span></a></li>`;
+  });
+  h += "</ol>";
+  const nx = items[first];
+  if (nx) h += `<p class="rail-now">${ic("chevron-right")}<span>${view === "checklist" ? "" : "Next: "}${esc(nx.num)}. ${esc(nx.title)}</span></p>`;
+  put($("rail"), h);
+}
+function renderNow() {
+  if (!S) return;
+  const j = S.job, running = !!(j && j.state === "running");
+  const A = S.auto || { stages: [] };
+  const waiting = autoRunning() && A.waiting;
+  let cls = "", icon = "clock", title = "Nothing is running", sub = "The program is waiting for you to start something.";
+  if (waiting) { cls = "turn"; icon = "hand"; title = "Your turn"; sub = "Start is waiting for you."; }
+  else if (running) { cls = "running"; icon = "activity"; title = "Working"; sub = "You can leave it running, and look round the page."; }
+  if (running && j.kind === "auto") {
+    const k = A.stages.findIndex((s) => s.state === "running" || s.state === "waiting");
+    if (k >= 0) sub = `Stage ${k + 1} of ${A.stages.length}: ${stageTitle(A.stages[k])}`;
+  }
+  put($("now-head"), `<span class="now-icon ${cls}">${ic(icon)}</span><div><h2>${esc(title)}</h2><p class="small soft">${esc(sub)}</p></div>`);
+  let t = "";
+  if (waiting) t += `<div class="yourturn" role="status">${ic("hand")}<b>What to do</b><p>${esc(A.waiting)}</p></div>`;
+  if (A.banner) t += `<div class="yourturn calm">${ic("info")}<b>When you're ready</b><p>${esc(A.banner)}</p></div>`;
+  put($("now-turn"), t);
+  // (While Start waits, its last line says the same as "What to do".)
+  $("job-last").hidden = !!waiting;
+  let nx = "";
+  if (!running && view !== "checklist") {
+    const items = railItems();
+    const it = items.find((x) => x.st[0] !== "done");
+    nx = it ? `<p class="now-label">Next on this page</p><button class="second" data-goto="${it.id}">${ic("chevron-right")}${esc(it.num)}. ${esc(it.title)}</button>`
+      : `<p class="now-label">On this page</p><p class="small soft" style="margin:0">Everything here is done.</p>`;
+  }
+  put($("now-next"), nx);
+  const active = running || !!waiting || !!A.banner;
+  $("now").classList.toggle("active", active);
+  document.body.classList.toggle("now-active", active);
+}
+// Going to a part: from the list on the left, or "Next on this page".
+function goTo(id) {
+  const el = $(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
+  const h = el.querySelector("h2, h1");
+  if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+}
+$("rail").addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-target]");
+  if (!a) return;
+  e.preventDefault();
+  goTo(a.dataset.target);
+});
+$("now").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-goto]");
+  if (b) goTo(b.dataset.goto);
+});
+// Which part is on screen: the one crossing a line a fifth of the way down.
+const seen = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) { inView = e.target.id; renderRail(); }
+}, { rootMargin: "-20% 0px -79% 0px" });
+function watchParts() {
+  seen.disconnect();
+  const sel = view === "auto" ? "#view-auto ol.parts > li" : view === "steps" ? "#view-steps ol.steps > li" : "#cl-body [id^='ph-']";
+  document.querySelectorAll(sel).forEach((el) => seen.observe(el));
+}
 
 // Buttons in the Automatic view (drawn again as things change: one handler each).
 $("b-ready").onclick = async () => { note("ready", "", ""); await loadReady(true); loadDisks(); };
@@ -1541,8 +2277,8 @@ $("ar-ready").addEventListener("click", async (e) => {
   if (!b) return;
   try {
     if (b.dataset.act) { const r = await act({ action: b.dataset.act }); note("ready", "ok", r.message || "Done."); }
-    if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: the bar at the bottom shows how far it is. Click Check this PC when it is done."); }
-    if (b.dataset.aimtest) { await act({ action: "aim-test" }); note("ready", "ok", "Trying AIM Toolkit on a small test image (a few seconds): the bar at the bottom shows how it goes, and this list says how it went."); }
+    if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: “Now” shows how far it is. Click Check this PC when it is done."); }
+    if (b.dataset.aimtest) { await act({ action: "aim-test" }); note("ready", "ok", "Trying AIM Toolkit on a small test image (a few seconds): “Now” shows how it goes, and this list says how it went."); }
     if (b.dataset.defender) {
       const said = [];
       const image = setting("auto_image_dir");
@@ -1647,6 +2383,10 @@ function showView(v, scroll) {
   if (v === "checklist") loadChecklist();
   if (v === "auto") loadReady();
   if (scroll !== false) window.scrollTo(0, 0);
+  inView = "";
+  watchParts();
+  renderRail();
+  renderNow();
 }
 $("tab-auto").onclick = () => showView("auto");
 $("tab-checklist").onclick = () => showView("checklist");
@@ -1655,7 +2395,7 @@ $("tab-steps").onclick = () => showView("steps");
 // "Step 7 →" in the checklist: to that step of the program.
 function goStep(n) {
   showView("steps", false);
-  const li = document.querySelectorAll("ol.steps > li")[n - 1];
+  const li = document.querySelectorAll("#view-steps ol.steps > li")[n - 1];
   if (li) li.scrollIntoView({ block: "start" });
 }
 function showBox(i) {
@@ -1672,6 +2412,7 @@ async function loadChecklist() {
     if (!CL) {
       CL = await get("api/checklist");
       put($("cl-body"), CL.html);
+      if (view === "checklist") watchParts();
     }
     CLS = await get("api/checklist-state");
   } catch { return; }
@@ -1706,7 +2447,14 @@ $("cl-body").addEventListener("click", (e) => {
   goStep(Number(a.dataset.step));
 });
 
-function phaseName(p) { return CL && CL.phases[p] ? CL.phases[p].title : ""; }
+// "PHASE 1 — Get ready 🪟 (10 minutes)" -> "Get ready".
+function phaseShort(title) {
+  return title.replace(/^PHASE\s+\S+\s*[—–-]\s*/i, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu, "").trim();
+}
+function phaseName(p) {
+  const ph = CL && CL.phases[p];
+  return ph ? (ph.number ? `Phase ${ph.number}: ` : "") + phaseShort(ph.title) : "";
+}
 function boxText(i) {
   const el = $("bt-" + i);
   const t = el ? el.textContent.replace(/\s+/g, " ").trim() : "";
@@ -1750,40 +2498,41 @@ function renderChecklist() {
     const c = CLS.phases[p];
     if (!c || !c.total) return "";
     const bad = CLS.status.some((s) => s.state === "failed" && CL.items[s.i].phase === p);
-    const mark = bad ? '<span class="tick warn">✗</span>' : c.done === c.total ? '<span class="tick">✓</span>' : '<span class="tick"></span>';
+    const mark = bad ? `<span class="tick warn">${ic("circle-x")}</span>` : c.done === c.total ? `<span class="tick">${ic("circle-check")}</span>` : '<span class="tick"></span>';
     return `<li>${mark}<a href="#ph-${p}" data-ph="${p}">${esc(ph.title)}</a> <span class="small soft">${c.done} of ${c.total}</span></li>`;
   }).join("");
   put($("cl-top"), `<b>${CLS.done} of ${CLS.total} boxes ticked</b>
     <div class="progress" aria-hidden="true"><div style="width:${pct}%"></div></div>
     <ul class="phases">${phases}</ul>
     <p class="small soft">Tick each box here when it's done. The boxes with ✅ tick themselves when the safety check
-    (step 7 → <i>Check the copies are unchanged</i>) passes after the boxes before them. Your copy of this checklist,
+    (step 7, <i>Check the copies are unchanged</i>) passes after the boxes before them. Your copy of this checklist,
     <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
-    ${CLS.copy_note ? `<div class="msg warn">${esc(CLS.copy_note)}</div>` : ""}`);
+    ${CLS.copy_note ? msg("warn", esc(CLS.copy_note)) : ""}`);
   document.querySelectorAll("#cl-top a[data-ph]").forEach((a) => a.onclick = (e) => {
     e.preventDefault();
     const sec = $("ph-" + a.dataset.ph);
     if (sec) sec.scrollIntoView({ block: "start" });
   });
-  // Where you are: shown above both views.
+  // Where you are: shown above every view.
   let w = "";
   for (const s of failed) {
-    w += `<div class="msg err"><span class="nexttext"><b>Stop.</b> ${esc(phaseName(CL.items[s.i].phase))}: ${esc(s.text)}</span>
-      <button class="second" data-show="${s.i}">Show it</button></div>`;
+    w += msg("err", `<b>Stop.</b> ${esc(phaseName(CL.items[s.i].phase))}: ${esc(s.text)}`,
+      `<button class="second" data-show="${s.i}">${ic("list-checks")}Show it</button>`);
   }
   const due = CLS.status.find((s) => s.state === "due" || s.state === "partly");
   if (!failed.length && due) {
-    w += `<div class="msg warn"><span class="nexttext"><b>Checkpoint due</b> — ${esc(phaseName(CL.items[due.i].phase))}: ${esc(due.text)}</span>
-      <button class="second" data-step="7">Go to step 7</button></div>`;
+    w += msg("warn", `<b>Checkpoint due:</b> ${esc(phaseName(CL.items[due.i].phase))}. ${esc(due.text)}`,
+      `<button class="second" data-step="7">${ic("badge-check")}Go to step 7</button>`);
   }
   if (!failed.length && !due && CLS.next !== null) {
-    w += `<div class="msg"><span class="nexttext"><b>Next on the checklist</b> — ${esc(phaseName(CL.items[CLS.next].phase))}: ${esc(boxText(CLS.next))}</span>
-      <button class="second" data-show="${CLS.next}">Show it</button></div>`;
+    w += msg("", `<b>Next on the checklist:</b> ${esc(phaseName(CL.items[CLS.next].phase))}. ${esc(boxText(CLS.next))}`,
+      `<button class="second" data-show="${CLS.next}">${ic("list-checks")}Show it</button>`);
   }
-  if (!failed.length && CLS.next === null && CLS.total) w += `<div class="msg ok"><b>Every box is ticked.</b> Keep up the checks twice a year (Phase 8).</div>`;
+  if (!failed.length && CLS.next === null && CLS.total) w += msg("ok", "<b>Every box is ticked.</b> Keep up the checks twice a year (Phase 8).");
   put($("where"), w);
   document.querySelectorAll("#where [data-show]").forEach((b) => b.onclick = () => showBox(Number(b.dataset.show)));
   document.querySelectorAll("#where [data-step]").forEach((b) => b.onclick = () => goStep(Number(b.dataset.step)));
+  renderRail();
 }
 
 async function start() {

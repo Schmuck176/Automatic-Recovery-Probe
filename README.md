@@ -11,7 +11,16 @@ button, then repairs what the damage touched with open-source tools.
 
 **Double-click `automatic-recovery-probe.exe`.** It asks Windows for
 administrator rights (to read the recovered SSD directly; it never writes to
-it) and opens a page in the PC's own browser, on the **Automatic** tab:
+it) and opens its page in a window of its own (Microsoft Edge's app window: no
+tabs or address bar; the PC's usual browser if Edge is not there), on the
+**Automatic recovery** tab. The page keeps three things in fixed places: on
+the left, where you are (the parts in order, each with its state); in the
+middle, the guide, read from top to bottom; on the right, what is happening
+now (the job running, with Stop, and what Start is waiting for you to do).
+A narrower window keeps the same order in fewer columns. Every icon has words
+beside it. Ctrl + and Ctrl − make everything bigger or smaller (Edge remembers).
+
+The parts of the Automatic tab:
 
 1. **Get ready** - checks the PC (administrator rights, the mapfile, the
    self-test, a restart Windows is waiting to do, "Automatically restart"
