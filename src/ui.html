@@ -114,6 +114,8 @@ nav.views { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 26px; }
 nav.views button {
   display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 9px 18px; border-radius: 10px;
   background: transparent; color: var(--ink-soft); border: 1px solid transparent; font: 600 1rem var(--body);
+  /* (One line each: on a narrow window the row of tabs scrolls sideways.) */
+  white-space: nowrap; flex: none; max-width: none;
 }
 nav.views button:hover { background: var(--sheet); color: var(--ink); border-color: var(--rule); }
 nav.views button[aria-selected="true"] {
@@ -314,7 +316,10 @@ ol.parts { list-style: none; margin: 0; padding: 0; }
 .inputrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 8px; }
 button {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 16px;
-  font: 600 0.96rem/1.2 var(--body); white-space: nowrap; border-radius: 8px; border: 1px solid var(--act);
+  font: 600 0.96rem/1.2 var(--body); border-radius: 8px; border: 1px solid var(--act);
+  /* A long label wraps between words (never inside one), and a button is
+     never wider than the space it is in. */
+  max-width: 100%; overflow-wrap: normal; word-break: normal;
   background: var(--act); color: var(--act-ink); cursor: pointer;
 }
 button .ic { width: 1.15em; height: 1.15em; }
