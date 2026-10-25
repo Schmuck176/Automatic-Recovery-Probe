@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-10-24 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-10-25 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -52,15 +52,15 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 
 - [ ] **2. The rehearsal → First: make Windows leave new disks switched off.**
 - [ ] Plug `SPARE` in **exactly the way the recovered SSD will be plugged in**: the same USB case or adapter (the very same one, not just the same kind), the same port and cable.
-- [ ] In the list, click **This is SPARE: check it**. You want *"SPARE arrived switched off"*, or *"…Windows shows it by the SSD's own name"*. It says to **stop** (removable media, or the adapter's name)? Then don't plug the recovered SSD in that way: tell Claude.
-- [ ] **3. The folders:** check the three it suggests — the image in `IMAGE` on the PC's second drive (about 1,000 GB free needed), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` on the PC's second drive. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).
+- [ ] In the list, click **This is SPARE: check it**. You want *"SPARE arrived switched off"*. If it says SPARE arrived **switched on**, click **Switch SPARE off**, unplug SPARE, plug it back in exactly the same way, and click **This is SPARE: check it** again: now you want *"SPARE arrived switched off"*. It says to **stop** (removable media, or switched on again)? Then don't plug the recovered SSD in that way: tell Claude. When it has passed, unplug SPARE (it stays switched off until Start needs it).
+- [ ] **3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).
 
 ---
 
 # PHASE 3 — Start 🪟 (a day or so, mostly waiting)
 
 - [ ] **4. Start.** It checks everything is ready, then asks you to plug in the recovered SSD.
-- [ ] When it asks: **plug in the recovered SSD** — the 2 TB one, exactly as rehearsed. The 4 TB SSD stays in its drawer. It arrives switched off and the program marks it read-only by itself; the image takes a few hours (it reads the SSD once, then reads the image back to check it).
+- [ ] When it asks: **plug in the recovered SSD** — the 2 TB one, exactly as rehearsed (in the case `SPARE` was in: take `SPARE` out first). The 4 TB SSD stays in its drawer. It arrives switched off and the program marks it read-only by itself; the image takes a few hours (it reads the SSD once, then reads the image back to check it).
 - [ ] When the page says *"The image is made and checked"*: in the program's steps tab, step 9 → **Switch it off**, then unplug the recovered SSD and put it back in its drawer. It is not needed again.
 - [ ] If it asks for `SPARE` (because `SPARE` was in the case the SSD used): plug `SPARE` in. It goes on by itself.
 - [ ] **✅ Checkpoint** — Start checks every copy against its checksum by itself; this ticks when that check passes.

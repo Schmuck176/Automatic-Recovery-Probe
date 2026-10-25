@@ -156,6 +156,46 @@ hunt and a clean-up of the repository. Found and fixed:
 - [ ] On the PC (the user): open the new version, Check this PC, "Try it"
   for AIM Toolkit, then Phase 2 (the rehearsal with SPARE, the folders).
 
+## 25 Oct 2026: the rehearsal on the PC, and file dates
+
+- The rehearsal on the PC (10:46 BST): SPARE arrived switched on, shown as
+  "Realtek RTL9210 NVME" - the USB case's chip (version 2026-10-24 (1) asked
+  the user whether that was SPARE's own name). Windows often knows a disk in
+  a USB case by the case's identity, so the recovered SSD in it could have
+  arrived switched on. Now: Switch SPARE off (offline and read-only, both
+  remembered: IOCTL_DISK_SET_DISK_ATTRIBUTES with Persist), unplug (watched
+  for every second: the check refuses until SPARE has been seen gone), plug
+  in again, check: switched off = passed (the recovered SSD in that case
+  arrives switched off either as SPARE's remembered identity or as a new
+  disk under Windows' setting); switched on again = stop. SPARE stays
+  switched off after the rehearsal (Start's copy stage switches it on,
+  remembered, once the image is made and Windows' setting put back). Only a
+  disk labelled SPARE, or the switched-off disk the rehearsal saw, can be
+  switched off. The old "ask" verdict asks for the check again.
+- The folders: the image drive suggested must have room (mapfile size + 1
+  GiB): C: on the PC, D: is too small. SPARE's letter is remembered from the
+  rehearsal (SPARE is switched off at the folders step).
+- The user asked whether anything changes files' created or modified dates
+  (to sort the files by date afterwards). The copies get the old drive's
+  (rescue, from the exFAT records); put-back gives a repaired file its
+  original's (as before) and now its folder its own back, however it ends
+  (KeepFolderDates; undo too); a package's files get theirs; what the
+  repairs make and what Bring back takes in get the original's dates in
+  REPAIR; COPY 2 keeps all. Inside files: untrunc copies the pattern's moov
+  (mvhd/tkhd/mdhd dates, udta/meta text dates - seen in untrunc's source),
+  so mp4time.rs moves them to the video's own (its file date, turned into
+  the index's moment the way the pattern turns its own, to the quarter
+  hour); FFmpeg's remux of MP4/MOV keeps every tag (-movflags
+  use_metadata_tags); a PDF given a new trailer points at its /Info; a PNG
+  saved again by FFmpeg gets back its tIME/tEXt/zTXt/iTXt/eXIf (and colour
+  chunks and pHYs if FFmpeg's has none).
+- Found on the way: pdf_with_trailer sliced a lossy-UTF-8 copy of the PDF
+  at byte offsets, which panics when a slice ends inside a multi-byte
+  character (binary streams): it works on bytes now.
+- auto_check.py: the videos' made dates are an hour before their dates on
+  the card; it checks the dates of put-back files, their folders, salvaged
+  files, COPY 2, and the rebuilt video's made date (with untrunc: CI).
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be

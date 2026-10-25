@@ -1422,17 +1422,29 @@ function renderAuto() {
   if (imageMade) {
     h += `<div class="msg ok">The image is made, so the recovered SSD is not needed any more: no rehearsal needed.</div>`;
   } else {
-    if (verdict) h += `<div class="msg ${verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn"}">${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span></div>`;
-    if (verdict === "ask") h += `<div class="row"><button data-rh="passed">It shows SPARE's own name: carry on</button><button class="second" data-rh="stop">It shows the case's or adapter's name</button></div>`;
+    if (verdict === "ask") {
+      // (An answer the version before this one asked for; this one finds it out.)
+      h += `<div class="msg warn">Check SPARE again (This is SPARE: check it, below): the program now finds out by itself whether Windows will keep the recovered SSD switched off in this case.</div>`;
+    } else if (verdict) {
+      h += `<div class="msg ${verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn"}">${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span></div>`;
+    }
     const windows = READY ? READY.windows : S.windows;
     if (windows && !S.policy_to_restore) {
       h += `<div class="row"><button data-prep="1">First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
     } else if (verdict !== "passed") {
+      // SPARE: a drive labelled SPARE, or switched off with no drive letters
+      // (the server checks it is the disk the rehearsal saw before).
+      const isSpare = (d) => (d.drives || []).some((v) => (v.label || "").toUpperCase() === "SPARE") || (!(d.drives || []).length && d.offline === true);
       const cands = disks.filter((d) => !d.system && !isCopy(d) && !d.test);
+      const offNow = verdict === "switch-off" && cands.find((d) => String(d.number) === setting("spare_number") && d.offline === false);
+      if (verdict === "switch-off" && offNow) {
+        h += `<div class="row"><button data-spareoff="${esc(offNow.spec)}">Switch SPARE off</button></div>`;
+      }
       if (cands.length) {
         h += `<h3>Disks this PC can see</h3><div class="choices">` + cands.map((d) => {
           const l = diskLine(d);
-          return `<div class="choice" style="cursor:default"><span></span><span><b>${l.title}</b>${l.tags}</span><span class="small soft">${l.what || "&nbsp;"}</span><span><button class="second" data-spare="${esc(d.spec)}">This is SPARE: check it</button></span></div>`;
+          const btn = isSpare(d) ? `<button class="second" data-spare="${esc(d.spec)}">This is SPARE: check it</button>` : `<span class="small soft">not SPARE</span>`;
+          return `<div class="choice" style="cursor:default"><span></span><span><b>${l.title}</b>${l.tags}</span><span class="small soft">${l.what || "&nbsp;"}</span><span>${btn}</span></div>`;
         }).join("") + `</div>`;
       } else if (windows) {
         h += `<p class="soft">Plug SPARE in now. The list looks for it every couple of seconds.</p>`;
@@ -1551,9 +1563,15 @@ $("ar-rehearse").addEventListener("click", async (e) => {
     }
     if (b.dataset.spare) {
       b.disabled = true;
+      watchDisks(15 * 60);
       await act({ action: "auto-rehearse", disk: b.dataset.spare });
     }
-    if (b.dataset.rh) await save({ rehearsal: b.dataset.rh });
+    if (b.dataset.spareoff) {
+      b.disabled = true;
+      watchDisks(15 * 60);
+      const r = await act({ action: "auto-spare-off", disk: b.dataset.spareoff });
+      note("rehearse", "ok", r.message);
+    }
   } catch (err) { note("rehearse", "err", err.message); }
   await refresh(); loadDisks(); loadReady();
 });

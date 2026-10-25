@@ -470,6 +470,8 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             let _ = if dest.is_dir() { std::fs::remove_dir_all(&dest) } else { std::fs::remove_file(&dest) };
         }
         copy_tree(&p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
+        // The file's own dates, whatever the Mac or the paid tool gave it.
+        repair::give_dates(&under(work, &item.path), &dest);
         say(&format!("{id}  {}  <- {}", if same_kind { "repaired" } else { "salvaged" }, p.display()));
         let row = (id.clone(), p.display().to_string(), dest_rel);
         if same_kind {

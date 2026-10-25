@@ -757,6 +757,7 @@ fn fix_isobmff(env: &Env, item: &Item, src: &Path, tmp: &Path, damage: &str) -> 
         match media_checks_out(env, &named, before.as_ref()) {
             Ok(note) => {
                 let secs = duration_of(env, &named);
+                let note = format!("{note}{}", own_moments(&under(env.work, &item.path), &pattern, &named));
                 return Try::Made {
                     file: named,
                     how: format!(
@@ -787,37 +788,79 @@ fn fix_isobmff(env: &Env, item: &Item, src: &Path, tmp: &Path, damage: &str) -> 
     no(format!("untrunc could not rebuild it with {tried} good videos as patterns"), Next::Paid)
 }
 
+/// A file's own moment, as the copies hold it: created (on Windows, where
+/// the copies keep it - unless it is after the modified one, as for a file
+/// copied since), modified elsewhere.
+fn file_moment(p: &Path) -> Option<i64> {
+    let m = std::fs::metadata(p).ok()?;
+    let modified = m.modified().ok()?;
+    #[cfg(windows)]
+    let t = match m.created() {
+        Ok(c) if c <= modified => c,
+        _ => modified,
+    };
+    #[cfg(not(windows))]
+    let t = modified;
+    Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
+}
+
+/// untrunc builds the repaired video's index from the pattern's, and with
+/// it the moments the pattern was made: moved to this video's own. Its own
+/// is its file's date, turned into the index's moment the way the pattern
+/// turns its file's date into its own (cameras differ: UTC or local time),
+/// to the quarter hour. Says what it did, for the note.
+fn own_moments(original: &Path, pattern: &Path, made: &Path) -> String {
+    let (Some(own), Some(now)) = (file_moment(original), crate::mp4time::made(made)) else {
+        return String::new();
+    };
+    let way = match (crate::mp4time::made(pattern), file_moment(pattern)) {
+        (Some(inside), Some(file)) if (inside - file).abs() <= 14 * 3600 + 60 => (inside - file + 450).div_euclid(900) * 900,
+        _ => 0,
+    };
+    let target = own + way;
+    if (target - now).abs() < 2 {
+        return String::new();
+    }
+    match crate::mp4time::shift(made, target - now) {
+        Ok(n) if n > 0 => format!(
+            "; the date inside it set to its own ({}), not the pattern's ({})",
+            crate::fmt::utc_iso(target).replace('T', " ").replace('Z', ""),
+            crate::fmt::utc_iso(now).replace('T', " ").replace('Z', "")
+        ),
+        _ => String::new(),
+    }
+}
+
 /// FFmpeg copies every stream into a new container of the same kind (the
 /// index made again, broken pieces left out).
 fn remux(env: &Env, src: &Path, tmp: &Path, before: Option<&(bool, Vec<String>)>) -> Option<Try> {
     let ff = env.ffmpeg.as_ref()?;
     let ext = ext_lower(&src.to_string_lossy());
     let out = tmp.join(format!("remuxed.{ext}"));
-    let r = run_tool(
-        ff,
-        vec![
-            "-hide_banner".into(),
-            "-nostdin".into(),
-            "-v".into(),
-            "error".into(),
-            "-err_detect".into(),
-            "ignore_err".into(),
-            "-fflags".into(),
-            "+genpts+discardcorrupt".into(),
-            "-i".into(),
-            src.as_os_str().to_os_string(),
-            "-map".into(),
-            "0".into(),
-            "-c".into(),
-            "copy".into(),
-            "-ignore_unknown".into(),
-            "-y".into(),
-            out.as_os_str().to_os_string(),
-        ],
-        None,
-        1800,
-        env.stop,
-    )?;
+    let mut args: Vec<OsString> = vec![
+        "-hide_banner".into(),
+        "-nostdin".into(),
+        "-v".into(),
+        "error".into(),
+        "-err_detect".into(),
+        "ignore_err".into(),
+        "-fflags".into(),
+        "+genpts+discardcorrupt".into(),
+        "-i".into(),
+        src.as_os_str().to_os_string(),
+        "-map".into(),
+        "0".into(),
+        "-c".into(),
+        "copy".into(),
+        "-ignore_unknown".into(),
+    ];
+    if VIDEO_ISO.contains(&ext.as_str()) {
+        // Every tag kept as it was: the creation date and place an iPhone
+        // writes are left out otherwise.
+        args.extend(["-movflags".into(), "use_metadata_tags".into()]);
+    }
+    args.extend(["-y".into(), out.as_os_str().to_os_string()]);
+    let r = run_tool(ff, args, None, 1800, env.stop)?;
     if r.code != Some(0) || !out.is_file() {
         return None;
     }
@@ -1021,41 +1064,70 @@ fn pdf_trailer_lost(d: &[u8]) -> bool {
     !tail.windows(9).any(|w| w == b"startxref")
 }
 
+/// Where `needle` first is in `hay`.
+fn find_bytes(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    let (&first, rest) = needle.split_first()?;
+    let mut i = 0;
+    while i + needle.len() <= hay.len() {
+        let k = hay[i..hay.len() - rest.len()].iter().position(|&b| b == first)?;
+        if &hay[i + k + 1..i + k + 1 + rest.len()] == rest {
+            return Some(i + k);
+        }
+        i += k + 1;
+    }
+    None
+}
+
+/// Is this object's body the document's information dictionary (its title,
+/// author, and the dates it was made and changed)? A dictionary with those
+/// dates or its maker's name, that is nothing else (no type, no parent).
+fn is_pdf_info(body: &[u8]) -> bool {
+    let start = body.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(body.len());
+    let body = &body[start..];
+    body.starts_with(b"<<")
+        && [&b"stream"[..], b"/Type", b"/Subtype", b"/Parent"].iter().all(|k| find_bytes(body, k).is_none())
+        && [&b"/CreationDate"[..], b"/ModDate", b"/Producer"].iter().any(|k| find_bytes(body, k).is_some())
+}
+
 /// A PDF whose end (its trailer, which says where the document starts) was
 /// lost, with a new trailer pointing at its catalogue, so qpdf can rebuild
-/// the rest from the objects in it. None: no catalogue found.
+/// the rest from the objects in it - and at its information dictionary, so
+/// the dates it was made and changed (and its title and author) stay with
+/// it. None: no catalogue found.
 pub fn pdf_with_trailer(d: &[u8]) -> Option<Vec<u8>> {
-    let text = String::from_utf8_lossy(d);
-    let mut catalog = None;
-    let mut max_obj = 0u64;
-    let b = text.as_bytes();
+    let mut end = d.len();
+    while end > 0 && d[end - 1] == 0 {
+        end -= 1;
+    }
+    let d = &d[..end];
+    let (mut catalog, mut info, mut max_obj) = (None, None, 0u64);
     let mut i = 0;
-    while let Some(k) = text[i..].find(" 0 obj") {
+    while let Some(k) = find_bytes(&d[i..], b" 0 obj") {
         let at = i + k;
         let mut s = at;
-        while s > 0 && b[s - 1].is_ascii_digit() {
+        while s > 0 && d[s - 1].is_ascii_digit() {
             s -= 1;
         }
-        if s < at {
-            if let Ok(n) = text[s..at].parse::<u64>() {
-                max_obj = max_obj.max(n);
-                let body = &text[at..text.len().min(at + 400)];
-                let end = body.find("endobj").unwrap_or(body.len());
-                let body = &body[..end];
-                if body.contains("/Type /Catalog") || body.contains("/Type/Catalog") {
-                    catalog = Some(n);
-                }
+        if let Some(n) = std::str::from_utf8(&d[s..at]).ok().filter(|t| !t.is_empty()).and_then(|t| t.parse::<u64>().ok()) {
+            max_obj = max_obj.max(n);
+            let window = &d[at + 6..d.len().min(at + 6 + 4096)];
+            let body = &window[..find_bytes(window, b"endobj").unwrap_or(window.len())];
+            let head = &body[..body.len().min(400)];
+            if find_bytes(head, b"/Type /Catalog").is_some() || find_bytes(head, b"/Type/Catalog").is_some() {
+                catalog = Some(n);
+            } else if is_pdf_info(body) {
+                // (The last one: a document changed since adds a new one.)
+                info = Some(n);
             }
         }
         i = at + 6;
     }
     let catalog = catalog?;
-    let mut end = d.len();
-    while end > 0 && d[end - 1] == 0 {
-        end -= 1;
-    }
-    let mut out = d[..end].to_vec();
-    out.extend_from_slice(format!("\ntrailer\n<< /Size {} /Root {catalog} 0 R >>\nstartxref\n0\n%%EOF\n", max_obj + 1).as_bytes());
+    let info = info.map(|n| format!(" /Info {n} 0 R")).unwrap_or_default();
+    let mut out = d.to_vec();
+    out.extend_from_slice(
+        format!("\ntrailer\n<< /Size {} /Root {catalog} 0 R{info} >>\nstartxref\n0\n%%EOF\n", max_obj + 1).as_bytes(),
+    );
     Some(out)
 }
 
@@ -1447,6 +1519,67 @@ fn salvage_archive(env: &Env, src: &Path, tmp: &Path) -> Try {
     }
 }
 
+/// A PNG's chunks, as far as they are whole (each checked by its CRC):
+/// (type, the whole chunk).
+fn png_chunks(d: &[u8]) -> Vec<([u8; 4], &[u8])> {
+    let mut out = Vec::new();
+    if !d.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return out;
+    }
+    let mut p = 8;
+    while p + 12 <= d.len() {
+        let len = u32::from_be_bytes(d[p..p + 4].try_into().unwrap()) as usize;
+        if len > d.len() - p - 12 {
+            break;
+        }
+        let kind: [u8; 4] = d[p + 4..p + 8].try_into().unwrap();
+        let crc = u32::from_be_bytes(d[p + 8 + len..p + 12 + len].try_into().unwrap());
+        if crate::gpt::crc32(&d[p + 4..p + 8 + len]) != crc {
+            break;
+        }
+        out.push((kind, &d[p..p + 12 + len]));
+        if &kind == b"IEND" {
+            break;
+        }
+        p += 12 + len;
+    }
+    out
+}
+
+/// What a PNG said about itself - when it was made (tIME, and its text and
+/// EXIF, which can hold the date it was taken), its text, its colour
+/// profile - that FFmpeg's new version of it lacks: the new version with
+/// those chunks put in after its header. None: nothing to add.
+fn png_keep_chunks(original: &[u8], made: &[u8]) -> Option<Vec<u8>> {
+    const TEXT: [&[u8; 4]; 5] = [b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME"];
+    const COLOUR: [&[u8; 4]; 4] = [b"iCCP", b"sRGB", b"gAMA", b"cHRM"];
+    let new = png_chunks(made);
+    if new.first().map(|c| &c.0) != Some(b"IHDR") || new.last().map(|c| &c.0) != Some(b"IEND") {
+        return None;
+    }
+    let has = |k: &[u8; 4]| new.iter().any(|c| &c.0 == k);
+    let colour_there = COLOUR.iter().any(|k| has(k));
+    let add: Vec<&[u8]> = png_chunks(original)
+        .into_iter()
+        .filter(|(k, _)| {
+            (TEXT.contains(&k) && !(k == b"tIME" && has(b"tIME")) && !(k == b"eXIf" && has(b"eXIf")))
+                || (COLOUR.contains(&k) && !colour_there)
+                || (k == b"pHYs" && !has(b"pHYs"))
+        })
+        .map(|(_, c)| c)
+        .collect();
+    if add.is_empty() {
+        return None;
+    }
+    let header_end = 8 + new[0].1.len();
+    let mut out = made[..header_end].to_vec();
+    for c in add {
+        out.extend_from_slice(c);
+    }
+    out.extend_from_slice(&made[header_end..]);
+    Some(out)
+}
+
 fn fix_png(env: &Env, src: &Path, tmp: &Path) -> Try {
     let Some(ff) = env.ffmpeg.as_ref() else { return no("FFmpeg was not found on this PC", Next::Paid) };
     let out = tmp.join("repaired.png");
@@ -1472,6 +1605,16 @@ fn fix_png(env: &Env, src: &Path, tmp: &Path) -> Try {
     );
     if !r.is_some_and(|r| r.code == Some(0)) || !out.is_file() {
         return no("FFmpeg could not decode it at all", Next::Paid);
+    }
+    // What the PNG said about itself (its dates, text, colour profile) goes
+    // into the new one too, if the new one still opens with it.
+    if let (Ok(o), Ok(m)) = (std::fs::read(src), std::fs::read(&out)) {
+        if let Some(with) = png_keep_chunks(&o, &m) {
+            let p = tmp.join("repaired-with-its-details.png");
+            if std::fs::write(&p, with).is_ok() && media_checks_out(env, &p, None).is_ok() {
+                let _ = std::fs::rename(&p, &out);
+            }
+        }
     }
     match media_checks_out(env, &out, None) {
         Ok(note) => Try::Made {
@@ -1897,6 +2040,7 @@ pub fn run(
                     let dest = under(&repair, &rel);
                     let kept = std::fs::symlink_metadata(&dest).is_ok() || move_into(&file, &dest).is_ok();
                     if kept {
+                        repair::give_dates(&under(work, &item.path), &dest);
                         a.fate = Fate::Salvaged;
                         a.how = format!(
                             "{how}. {READ_WHOLE}, so it stays in WORK exactly as it was there, and this version is kept \
@@ -1945,6 +2089,9 @@ pub fn run(
                         } else {
                             match move_into(&file, &dest) {
                                 Ok(()) => {
+                                    // The file's own dates (in REPAIR, and
+                                    // in WORK once it is put back).
+                                    repair::give_dates(&under(work, &item.path), &dest);
                                     a.fate = if salvage { Fate::Salvaged } else { Fate::Repaired };
                                     a.how = how;
                                     a.tool = tool;
@@ -2139,6 +2286,107 @@ mod tests {
         assert!(out.ends_with("trailer\n<< /Size 13 /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"), "{out}");
         assert!(!out.contains('\0'));
         assert!(pdf_with_trailer(b"%PDF-1.4\n3 0 obj\n<< /Type /Page >>\nendobj\n").is_none());
+        // Its information dictionary (when it was made and changed) is
+        // pointed at too; a bookmark or a note with a date is not it.
+        let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+            .to_vec();
+        pdf.extend_from_slice(b"5 0 obj\n<< /Title (Bank) /Parent 4 0 R /Dest [3 0 R /Fit] >>\nendobj\n");
+        pdf.extend_from_slice(b"6 0 obj\n<< /Type /Annot /Subtype /Text /CreationDate (D:20190101) >>\nendobj\n");
+        pdf.extend_from_slice("7 0 obj\n<< /Producer (Scanner \u{e9}) /CreationDate (D:20190714152005+01'00') >>\nendobj\n".as_bytes());
+        pdf.extend_from_slice(b"8 0 obj\n<< /Length 3 >>\nstream\n\xff\xfe\x00\nendstream\nendobj\n");
+        pdf.extend(std::iter::repeat_n(0u8, 300));
+        let out = String::from_utf8_lossy(&pdf_with_trailer(&pdf).unwrap()).into_owned();
+        assert!(out.ends_with("trailer\n<< /Size 9 /Root 1 0 R /Info 7 0 R >>\nstartxref\n0\n%%EOF\n"), "{out}");
+        assert_eq!(find_bytes(b"abcabd", b"abd"), Some(3));
+        assert_eq!(find_bytes(b"ab", b"abc"), None);
+        assert_eq!(find_bytes(b"xx", b""), None);
+    }
+
+    #[test]
+    fn a_rebuilt_png_keeps_what_the_png_said_about_itself() {
+        fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut c = (data.len() as u32).to_be_bytes().to_vec();
+            c.extend_from_slice(kind);
+            c.extend_from_slice(data);
+            let crc = crate::gpt::crc32(&c[4..]);
+            c.extend_from_slice(&crc.to_be_bytes());
+            c
+        }
+        let sig = b"\x89PNG\r\n\x1a\n".to_vec();
+        let ihdr = chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+        let time = chunk(b"tIME", &[0x07, 0xE3, 7, 14, 15, 20, 5]);
+        let text = chunk(b"tEXt", b"Creation Time\x002019:07:14 15:20:05");
+        let icc = chunk(b"iCCP", b"sRGB\x00\x00x");
+        let idat = chunk(b"IDAT", &[1, 2, 3]);
+        let iend = chunk(b"IEND", &[]);
+        // The original: its details, then image data cut short (a CRC that fails).
+        let mut original = [sig.clone(), ihdr.clone(), time.clone(), text.clone(), icc.clone(), idat.clone()].concat();
+        let n = original.len();
+        original[n - 2] ^= 0xFF;
+        original.extend_from_slice(&iend);
+        // FFmpeg's version: header, its own colour chunk, data, end.
+        let srgb = chunk(b"sRGB", &[0]);
+        let made = [sig.clone(), ihdr.clone(), srgb.clone(), idat.clone(), iend.clone()].concat();
+        let out = png_keep_chunks(&original, &made).unwrap();
+        // tIME and the text go in after the header; the colour profile not
+        // (FFmpeg's version has its own).
+        assert_eq!(out, [sig.clone(), ihdr.clone(), time.clone(), text.clone(), srgb, idat.clone(), iend.clone()].concat());
+        let kinds: Vec<[u8; 4]> = png_chunks(&out).into_iter().map(|c| c.0).collect();
+        assert_eq!(kinds, [*b"IHDR", *b"tIME", *b"tEXt", *b"sRGB", *b"IDAT", *b"IEND"]);
+        // Nothing to add: None.
+        assert!(png_keep_chunks(&made, &made).is_none());
+        assert!(png_keep_chunks(&original, b"not a png").is_none());
+        // Without a colour chunk of its own, it gets the original's.
+        let plain = [sig, ihdr, idat, iend].concat();
+        let kinds: Vec<[u8; 4]> = png_chunks(&png_keep_chunks(&original, &plain).unwrap()).into_iter().map(|c| c.0).collect();
+        assert_eq!(kinds, [*b"IHDR", *b"tIME", *b"tEXt", *b"iCCP", *b"IDAT", *b"IEND"]);
+    }
+
+    #[test]
+    fn a_video_rebuilt_from_a_pattern_gets_its_own_date_inside() {
+        let dir = std::env::temp_dir().join(format!("own-moments-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let qt = |unix: i64| ((unix + 2_082_844_800) as u32).to_be_bytes();
+        let video = |p: &Path, made: i64| {
+            let mut mvhd = vec![0u8; 4];
+            mvhd.extend_from_slice(&qt(made));
+            mvhd.extend_from_slice(&qt(made));
+            mvhd.extend(vec![0u8; 88]);
+            let mut moov = ((mvhd.len() + 8) as u32).to_be_bytes().to_vec();
+            moov.extend_from_slice(b"mvhd");
+            moov.extend(mvhd);
+            let mut file = ((moov.len() + 8) as u32).to_be_bytes().to_vec();
+            file.extend_from_slice(b"moov");
+            file.extend(moov);
+            std::fs::write(p, file).unwrap();
+        };
+        let dated = |p: &Path, unix: i64| {
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix as u64);
+            std::fs::OpenOptions::new().write(true).open(p).unwrap().set_times(std::fs::FileTimes::new().set_modified(t)).unwrap();
+        };
+        // The camera writes UTC inside, and its files are dated an hour
+        // later (local summer time).
+        let (made_p, file_p) = (1_689_411_600, 1_689_411_600 + 3600); // 2023-07-15 09:00Z, 10:00
+        let file_d = 1_689_411_600 + 86_400 + 3 * 3600; // 2023-07-16 12:00
+        let (pattern, made, original) = (dir.join("p.mov"), dir.join("made.mov"), dir.join("d.mov"));
+        video(&pattern, made_p);
+        dated(&pattern, file_p);
+        video(&made, made_p); // untrunc's: the pattern's header
+        std::fs::write(&original, b"the damaged video").unwrap();
+        dated(&original, file_d);
+        let note = own_moments(&original, &pattern, &made);
+        assert!(note.contains("2023-07-16 11:00:00") && note.contains("2023-07-15 09:00:00"), "{note}");
+        assert_eq!(crate::mp4time::made(&made), Some(file_d - 3600));
+        // Already right: nothing to do.
+        assert_eq!(own_moments(&original, &pattern, &made), "");
+        // A pattern whose file date says nothing of when it was made (copied
+        // since): the video's own file date, as it is.
+        dated(&pattern, file_p + 40 * 86_400);
+        video(&made, made_p);
+        own_moments(&original, &pattern, &made);
+        assert_eq!(crate::mp4time::made(&made), Some(file_d));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

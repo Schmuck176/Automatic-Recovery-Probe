@@ -213,6 +213,13 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
         // needed once the image is made, or for the page's test disks).
         let a = lock(app);
         let image_made = !a.setting("image").is_empty() && !a.setting("image_sha").is_empty();
+        if cfg!(windows) && a.test_disks.is_empty() && !image_made && a.setting("rehearsal") == "switch-off" {
+            return Err(
+                "Finish the rehearsal first (2. The rehearsal): switch SPARE off, unplug it, plug it back in the same way and \
+                 check it again."
+                    .to_string(),
+            );
+        }
         if cfg!(windows) && a.test_disks.is_empty() && !image_made && a.setting("rehearsal") != "passed" && a.setting("rehearsal") != "stop" {
             return Err(
                 "Do the rehearsal with SPARE first (2. The rehearsal): it shows whether Windows will keep the recovered SSD \
@@ -1265,28 +1272,66 @@ fn aim_test(ctx: &Ctx, exe: &Path, results: &Path) -> Result<Vec<String>, Vec<St
 /// adapter's), from the makers' names.
 pub(super) fn looks_like_drive_name(model: &str) -> bool {
     let m = model.to_lowercase();
-    const BRIDGES: &[&str] = &[
-        "asmedia", "asm1", "asm2", "jmicron", "jms5", "jms58", "realtek", "rtl92", "sata bridge", "usb3.0", "usb 3.0", "usb3.1",
-        "generic", "external", "mass storage", "storage device", "ugreen", "orico", "sabrent ec", "via labs", "vl71", "inateck",
-        "startech",
-    ];
     const DRIVES: &[&str] = &[
         "ssd", "samsung", "crucial", "ct1000", "ct2000", "ct500", "wdc", "wd ", "wd_", "western digital", "sandisk", "kingston",
         "intel", "sk hynix", "hynix", "seagate", "toshiba", "kioxia", "micron", "adata", "pny", "corsair", "transcend", "lexar",
         "teamgroup", "silicon power", "patriot", "gigabyte", "hikvision", "netac", "apacer", "verbatim", "mushkin", "mx500",
         "870 evo", "860 evo", "850 evo", "nvme",
     ];
-    !BRIDGES.iter().any(|b| m.contains(b)) && DRIVES.iter().any(|d| m.contains(d))
+    !BRIDGE_NAMES.iter().any(|b| m.contains(b)) && DRIVES.iter().any(|d| m.contains(d))
+}
+
+/// Is disk `n` SPARE? A drive on it labelled SPARE; or, switched off (no
+/// drive letters to show its label), the disk the rehearsal remembered. Never
+/// another disk with drives of its own: the rehearsal switches SPARE off,
+/// and must never switch off a disk that holds anything else.
+fn is_spare(app: &Arc<Mutex<App>>, d: &crate::win::Disk) -> Result<(), String> {
+    if d.system {
+        return Err(format!("disk {} holds Windows itself: plug in SPARE", d.number));
+    }
+    if !d.drives.is_empty() {
+        if d.drives.iter().any(|v| v.label.eq_ignore_ascii_case("SPARE")) {
+            return Ok(());
+        }
+        let shown: Vec<String> = d.drives.iter().map(|v| format!("{} {}", v.letter, v.label)).collect();
+        return Err(format!(
+            "disk {} holds {}, not SPARE: click the disk whose drive is labelled SPARE",
+            d.number,
+            shown.join(", ")
+        ));
+    }
+    let remembered = lock(app).setting("spare_disk");
+    if remembered == format!("{}|{}", d.model, d.size) || (remembered.is_empty() && d.bus.eq_ignore_ascii_case("USB")) {
+        return Ok(());
+    }
+    Err(format!(
+        "disk {} is switched off, and it is not the disk the rehearsal saw as SPARE before: plug SPARE in and check it",
+        d.number
+    ))
 }
 
 /// The rehearsal: SPARE plugged in the way the recovered SSD will be. What
-/// Windows did with it says whether its setting will keep the SSD switched off.
+/// Windows did with it says whether the recovered SSD will arrive switched
+/// off:
+///
+/// - Switched off: Windows' setting for new disks holds for a disk plugged in
+///   that way (or Windows remembers this disk switched off): so will the
+///   recovered SSD be. SPARE is left switched off (Start switches it on when
+///   the copies need it), so that nothing changes what Windows remembers.
+/// - Switched on: Windows has seen SPARE before and remembers it switched on.
+///   A USB case often gives Windows its own identity for whatever disk is in
+///   it (the case's chip's name, such as "Realtek RTL9210 NVME", is a sign),
+///   so the recovered SSD in it could be taken for SPARE and arrive switched
+///   on too. So SPARE is switched off and read-only, remembered (Switch SPARE
+///   off), unplugged and plugged in again: arriving switched off then proves
+///   Windows keeps that - and the recovered SSD will arrive switched off,
+///   whether Windows takes it for SPARE or as a disk it has never seen.
+/// - Removable media, or still switched on after being switched off:
+///   Windows' setting does not hold for a disk plugged in that way: stop.
 pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> {
     need_admin(app)?;
     let d = crate::win::disks().into_iter().find(|d| d.number == n).ok_or_else(|| format!("disk {n} is not plugged in"))?;
-    if d.system {
-        return Err(format!("disk {n} holds Windows itself: plug in SPARE"));
-    }
+    is_spare(app, &d)?;
     if could_be_recovered(app, n) {
         return Err(format!(
             "disk {n} looks like a copy of the old drive (or holds an exFAT volume), not SPARE: the rehearsal is done with \
@@ -1295,6 +1340,32 @@ pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> 
     }
     let st = crate::guard::state(n)?;
     let id = format!("{}|{}", d.model, d.size);
+    let (switched_off_before, unplugged) = {
+        let a = lock(app);
+        (a.setting("rehearsal") == "switch-off", a.setting("rehearsal_unplugged") == "1")
+    };
+    if switched_off_before && !unplugged && st.offline && !d.removable {
+        // Still switched off from the click: that shows nothing yet. Only
+        // plugged in again does SPARE show what Windows remembers.
+        watch_unplug(app, n, &id);
+        return Err("SPARE has not been unplugged since it was switched off, so this cannot show yet what Windows remembers. \
+                    Unplug SPARE, wait five seconds, plug it back in exactly the same way (the same case, port and cable), \
+                    wait a few seconds, and click This is SPARE: check it again."
+            .to_string());
+    }
+    // (Switched on again by hand, without being unplugged: as a first check.)
+    let switched_off_before = switched_off_before && unplugged;
+    let named = if looks_like_drive_name(&d.model) {
+        format!("Windows shows it by the SSD's own name (\"{}\")", d.model)
+    } else if !d.model.is_empty() && !BRIDGE_NAMES.iter().any(|b| d.model.to_lowercase().contains(b)) {
+        format!("Windows shows it as \"{}\"", d.model)
+    } else {
+        format!(
+            "Windows shows it as \"{}\", which is the name of the chip in the USB case, not of the SSD: Windows may know \
+             whatever disk is in this case by the case",
+            d.model
+        )
+    };
     let (verdict, text) = if d.removable {
         (
             "stop",
@@ -1309,45 +1380,119 @@ pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> 
     } else if st.offline {
         (
             "passed",
-            "SPARE arrived switched off: Windows' setting works for a disk plugged in this way, so the recovered SSD will \
-             arrive switched off too."
-                .to_string(),
+            if switched_off_before {
+                "SPARE arrived switched off: Windows remembers this disk switched off, plugged in this way. The recovered SSD \
+                 will arrive switched off in the same case too - whether Windows takes it for SPARE or as a disk it has never \
+                 seen. SPARE stays switched off until the copies need it: Start switches it on then. Now unplug SPARE."
+                    .to_string()
+            } else {
+                "SPARE arrived switched off: Windows' setting works for a disk plugged in this way, so the recovered SSD will \
+                 arrive switched off too. SPARE stays switched off until the copies need it: Start switches it on then. Now \
+                 unplug SPARE."
+                    .to_string()
+            },
         )
-    } else if looks_like_drive_name(&d.model) {
+    } else if switched_off_before {
         (
-            "passed",
+            "stop",
             format!(
-                "SPARE arrived switched on, but Windows shows it by the SSD's own name (\"{}\"): Windows remembers SPARE \
-                 itself from before. The recovered SSD, which this PC has never seen, will arrive switched off.",
-                d.model
+                "SPARE arrived switched on again, although it was switched off and Windows was asked to remember that: \
+                 Windows does not keep it for a disk plugged in this way, so the recovered SSD could arrive switched on. \
+                 Don't plug the recovered SSD in like this: use another USB case or adapter, and do the rehearsal again \
+                 with it (or ask Claude). ({named}.)"
             ),
         )
     } else {
         (
-            "ask",
+            "switch-off",
             format!(
-                "SPARE arrived switched on, and Windows shows it as \"{}\". If that is SPARE's own name (the SSD's maker and \
-                 model), Windows simply remembers SPARE and the recovered SSD will still arrive switched off. If it is the USB \
-                 case's or adapter's name, Windows may take the recovered SSD for SPARE in the same case: use a case or \
-                 adapter this PC has never seen, and do the rehearsal again.",
-                d.model
+                "SPARE arrived switched on: Windows has seen it before and remembers it switched on. {named}, so the recovered \
+                 SSD in it could arrive switched on too. Click Switch SPARE off: the program switches it off and read-only, \
+                 and asks Windows to remember that. Then unplug SPARE, plug it back in exactly the same way, and check it \
+                 again: arriving switched off then shows Windows keeps it, and the recovered SSD will arrive switched off \
+                 in this case too."
             ),
         )
     };
     {
         let mut a = lock(app);
         a.settings.insert("spare_disk".to_string(), id);
+        a.settings.insert("spare_number".to_string(), n.to_string());
+        if let Some(l) = d.drives.iter().find(|v| v.label.eq_ignore_ascii_case("SPARE")).map(|v| v.letter.clone()) {
+            a.settings.insert("spare_letter".to_string(), l);
+        }
         a.settings.insert("rehearsal".to_string(), verdict.to_string());
         a.settings.insert("rehearsal_text".to_string(), text.clone());
         a.settings.insert("rehearsal_when".to_string(), local_now());
+        a.settings.remove("rehearsal_unplugged");
         a.save();
-    }
-    // SPARE is wanted switched on and writable (it takes the copies).
-    if verdict != "stop" {
-        crate::guard::release(n)?;
     }
     Ok(format!("\"verdict\":{},\"message\":{}", json_str(verdict), json_str(&text)))
 }
+
+/// Is the program watching for SPARE to be unplugged?
+static WATCHING_UNPLUG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Watch, every second for up to three hours, for SPARE (disk `n`, `id`) to
+/// be unplugged after Switch SPARE off: seen gone even once, the check that
+/// follows shows what Windows remembers.
+fn watch_unplug(app: &Arc<Mutex<App>>, n: u32, id: &str) {
+    if !cfg!(windows) || WATCHING_UNPLUG.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    let id = id.to_string();
+    std::thread::spawn(move || {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(3 * 3600);
+        while std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if lock(&app).setting("rehearsal") != "switch-off" {
+                break;
+            }
+            let here = crate::win::disk_identity(n).is_some_and(|(m, s)| format!("{m}|{s}") == id);
+            if !here {
+                let mut a = lock(&app);
+                a.settings.insert("rehearsal_unplugged".to_string(), "1".to_string());
+                a.save();
+                break;
+            }
+        }
+        WATCHING_UNPLUG.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+/// Switch SPARE off, remembered (the rehearsal's middle step).
+pub(super) fn spare_off(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> {
+    need_admin(app)?;
+    let d = crate::win::disks().into_iter().find(|d| d.number == n).ok_or_else(|| format!("disk {n} is not plugged in"))?;
+    is_spare(app, &d)?;
+    if could_be_recovered(app, n) {
+        return Err(format!("disk {n} looks like a copy of the old drive, not SPARE"));
+    }
+    crate::guard::switch_off_remembered(n)?;
+    let text = "SPARE is switched off and read-only now, and Windows was asked to remember that. Unplug SPARE, wait five \
+                seconds, plug it back in exactly the same way (the same case, port and cable), wait a few seconds, and click \
+                This is SPARE: check it."
+        .to_string();
+    {
+        let mut a = lock(app);
+        a.settings.insert("rehearsal".to_string(), "switch-off".to_string());
+        a.settings.insert("rehearsal_text".to_string(), text.clone());
+        a.settings.insert("rehearsal_when".to_string(), local_now());
+        a.settings.remove("rehearsal_unplugged");
+        a.save();
+    }
+    watch_unplug(app, n, &format!("{}|{}", d.model, d.size));
+    Ok(format!("\"message\":{}", json_str(&text)))
+}
+
+/// USB-to-SSD chips: a disk Windows shows by one of these names is shown by
+/// its USB case, not by the SSD in it.
+const BRIDGE_NAMES: &[&str] = &[
+    "asmedia", "asm1", "asm2", "jmicron", "jms5", "jms58", "realtek", "rtl92", "sata bridge", "usb3.0", "usb 3.0", "usb3.1",
+    "generic", "external", "mass storage", "storage device", "ugreen", "orico", "sabrent ec", "via labs", "vl71", "inateck",
+    "startech",
+];
 
 trait SomeOrNotWindows {
     fn is_some_or_not_windows(&self) -> bool;

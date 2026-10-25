@@ -1160,6 +1160,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         "auto-start" => auto::start(app).map(|id| format!("\"job\":{id}")),
         "auto-start-over" => auto::start_over(app).map(|_| String::new()),
         "auto-rehearse" => disk_number("disk").and_then(|n| auto::rehearse(app, n)),
+        "auto-spare-off" => disk_number("disk").and_then(|n| auto::spare_off(app, n)),
         "bring-back" => auto::start_bring_back(app, &g("from")).map(|id| format!("\"job\":{id}")),
         "tool-download" => start_tool_download(app, &g("tool")).map(|id| format!("\"job\":{id}")),
         "finalise" => finalise::start(app).map(|id| format!("\"job\":{id}")),
@@ -1511,19 +1512,32 @@ fn ready_json(app: &Arc<Mutex<App>>) -> String {
     } else {
         Vec::new()
     };
-    // Folders to suggest: the biggest NTFS drive that is not Windows' own
-    // disk's system drive... in practice the PC's second drive, for the image
-    // and the second copy; a drive labelled SPARE for the copies.
+    // Folders to suggest. The image and the second copy: a drive of the PC
+    // (NTFS, not SPARE) with room for the image - another drive than
+    // Windows' own if one has room, Windows' own if only it has (as on a PC
+    // whose second drive is small). The copies: the drive labelled SPARE (or
+    // the letter it had at the rehearsal, if it is switched off now).
     let drives = crate::win::drives();
     let windows_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string()).to_uppercase();
-    let fixed: Vec<&crate::win::Drive> = drives.iter().filter(|d| d.kind == "fixed" && d.fs.eq_ignore_ascii_case("NTFS")).collect();
+    let need = mapfile_domain(&map).map(|(s, e)| e.saturating_sub(s) + (1 << 30)).unwrap_or(0);
+    let fixed: Vec<&crate::win::Drive> = drives
+        .iter()
+        .filter(|d| d.kind == "fixed" && d.fs.eq_ignore_ascii_case("NTFS") && !d.label.eq_ignore_ascii_case("SPARE"))
+        .collect();
+    let is_windows = |d: &&&crate::win::Drive| d.letter.eq_ignore_ascii_case(&windows_drive);
     let image_drive = fixed
         .iter()
-        .filter(|d| !d.letter.eq_ignore_ascii_case(&windows_drive) && !d.label.eq_ignore_ascii_case("SPARE"))
+        .filter(|d| !is_windows(d) && d.free >= need)
         .max_by_key(|d| d.free)
-        .or_else(|| fixed.iter().filter(|d| !d.label.eq_ignore_ascii_case("SPARE")).max_by_key(|d| d.free))
+        .or_else(|| fixed.iter().filter(|d| d.free >= need).max_by_key(|d| d.free))
+        .or_else(|| fixed.iter().filter(|d| !is_windows(d)).max_by_key(|d| d.free))
+        .or_else(|| fixed.iter().max_by_key(|d| d.free))
         .map(|d| d.letter.clone());
-    let spare = drives.iter().find(|d| d.label.eq_ignore_ascii_case("SPARE")).map(|d| d.letter.clone());
+    let spare = drives
+        .iter()
+        .find(|d| d.label.eq_ignore_ascii_case("SPARE"))
+        .map(|d| d.letter.clone())
+        .or_else(|| Some(lock(app).setting("spare_letter")).filter(|l| !l.is_empty()));
     let sug = |l: &Option<String>, f: &str| l.as_ref().map(|l| format!("{l}\\{f}")).unwrap_or_default();
     Obj::new()
         .b("elevated", elevated)

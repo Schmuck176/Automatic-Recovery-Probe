@@ -416,6 +416,17 @@ mod imp {
         (n > 0 && n < buf.len()).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n])))
     }
 
+    /// One disk's maker-and-model name and size, without looking at the
+    /// drive letters (cheap enough to ask every second).
+    pub fn disk_identity(n: u32) -> Option<(String, u64)> {
+        let f = open_query(&format!(r"\\.\PhysicalDrive{n}"))?;
+        let size = ioctl(&f, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, &[], 256)
+            .filter(|b| b.len() >= 32)
+            .map(|b| u64::from_le_bytes(b[24..32].try_into().unwrap()))
+            .unwrap_or(0);
+        Some((identity(&f).0, size))
+    }
+
     pub fn disks() -> Vec<Disk> {
         let drives = drives();
         let sys = system_letter();
@@ -479,6 +490,10 @@ mod imp {
         Vec::new()
     }
 
+    pub fn disk_identity(_n: u32) -> Option<(String, u64)> {
+        None
+    }
+
     pub fn system_dir() -> Option<std::path::PathBuf> {
         None
     }
@@ -529,6 +544,11 @@ pub fn drives() -> Vec<Drive> {
 /// Every physical disk, with the drive letters on it.
 pub fn disks() -> Vec<Disk> {
     imp::disks()
+}
+
+/// Disk `n`'s maker-and-model name and size (None: no disk `n`).
+pub fn disk_identity(n: u32) -> Option<(String, u64)> {
+    imp::disk_identity(n)
 }
 
 /// Open a web address in the PC's usual browser. From a copy running with

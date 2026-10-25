@@ -19,9 +19,14 @@ it) and opens a page in the PC's own browser, on the **Automatic** tab:
    Toolkit and a Download button for qpdf.
 2. **The rehearsal with SPARE** - makes Windows leave new disks switched off,
    then looks at what Windows does with SPARE plugged in exactly the way the
-   recovered SSD will be (the same case or adapter, port and cable): arrived
-   switched off, or remembered by its own name - or removable media, or the
-   adapter's name: stop.
+   recovered SSD will be (the same case or adapter, port and cable). Arrived
+   switched off: passed. Arrived switched on (Windows remembers it - often by
+   the USB case's identity, which the recovered SSD in the same case would
+   share): **Switch SPARE off** switches it off and read-only and asks Windows
+   to remember that; unplugged (the program watches for it) and plugged in
+   again, it must arrive switched off - then so will the recovered SSD, taken
+   for SPARE or as a disk never seen. Removable media, or switched on again:
+   stop.
 3. **The folders** - suggested: the image in `IMAGE` on the PC's second drive,
    the copies in `WORK` on SPARE, the second copy in `COPY 2`; and,
    optionally, folders holding older copies of the files.
@@ -68,6 +73,16 @@ same results folder, so Recovery Probe can carry on from anything this one did.
   exactly the damaged original, keeps the original in `REPAIR\originals`, and
   lists both checksums in `WORK\repair-returns.csv`.
 - Any check that finds something stops Start, and says why.
+- Every file keeps its dates (created and modified), for sorting by date:
+  the copies get the old drive's; a repaired file put back gets its
+  original's, whatever tool made it (here, on the Mac or a paid tool), and
+  its folder keeps its own; what is salvaged gets its original's; the second
+  copy keeps them all. Inside the files: a video rebuilt by untrunc (which
+  takes the index of a good video as its pattern) gets its own made date
+  back, not the pattern's; FFmpeg keeps every tag of an MP4 or MOV it
+  rebuilds (an iPhone's creation date and place too); a PDF given a new
+  trailer keeps its information dictionary (made and changed dates, title);
+  a PNG saved again keeps its tIME, text, EXIF and colour profile.
 
 ## The tools
 

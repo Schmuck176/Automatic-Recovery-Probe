@@ -253,6 +253,13 @@ mod imp {
         set(n, if online { 0 } else { DISK_ATTRIBUTE_OFFLINE }, DISK_ATTRIBUTE_OFFLINE, false)
     }
 
+    /// The same, asked to be remembered: Windows keeps the setting for the
+    /// disk (by the identity it sees - for a USB case, often the case's own)
+    /// and gives it again when the disk is plugged in next time.
+    pub fn set_online_remembered(n: u32, online: bool) -> Result<(), String> {
+        set(n, if online { 0 } else { DISK_ATTRIBUTE_OFFLINE }, DISK_ATTRIBUTE_OFFLINE, true)
+    }
+
     /// Windows' own diskpart (from System32, by its full path), given these
     /// commands.
     fn diskpart(lines: &[&str]) -> Result<String, String> {
@@ -304,6 +311,9 @@ mod imp {
     pub fn set_online(_n: u32, _online: bool) -> Result<(), String> {
         Err(ONLY.to_string())
     }
+    pub fn set_online_remembered(_n: u32, _online: bool) -> Result<(), String> {
+        Err(ONLY.to_string())
+    }
     pub fn clear_read_only(_n: u32) -> Result<(), String> {
         Err(ONLY.to_string())
     }
@@ -318,7 +328,9 @@ mod imp {
     }
 }
 
-pub use imp::{clear_read_only, san_policy, san_policy_registry, set_online, set_read_only, set_san_policy, state};
+pub use imp::{
+    clear_read_only, san_policy, san_policy_registry, set_online, set_online_remembered, set_read_only, set_san_policy, state,
+};
 
 /// For a disk that is not the recovered SSD (the drive the copies go to,
 /// plugged in after "Get Windows ready", or protected by mistake): switch
@@ -330,10 +342,26 @@ pub fn release(n: u32) -> Result<DiskState, String> {
         // Switched off and on again, so Windows mounts it writable.
         set_online(n, false)?;
     }
-    set_online(n, true)?;
+    // Remembered switched on: a disk the rehearsal switched off (remembered
+    // so) comes back normal from now on.
+    set_online_remembered(n, true)?;
     let s = state(n)?;
     if s.read_only || s.offline {
         return Err(format!("disk {n} is still switched off or read-only (Windows says: {s:?})"));
+    }
+    Ok(s)
+}
+
+/// SPARE, switched off and read-only, both remembered by Windows: plugged in
+/// again the same way, it arrives switched off - and so does any disk Windows
+/// takes for it in the same USB case. (A disk new to Windows arrives switched
+/// off anyway, by Windows' setting for new disks.)
+pub fn switch_off_remembered(n: u32) -> Result<DiskState, String> {
+    set_read_only(n)?;
+    set_online_remembered(n, false)?;
+    let s = state(n)?;
+    if !s.offline || !s.read_only {
+        return Err(format!("disk {n} did not stay switched off and read-only (Windows says: {s:?})"));
     }
     Ok(s)
 }

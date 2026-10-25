@@ -34,6 +34,19 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-10-25 (1): the rehearsal switches SPARE off; the image on a drive with room.
+    (
+        "In the list, click **This is SPARE: check it**. You want *\"SPARE arrived switched off\"*, or *\"…Windows shows it by the SSD's own name\"*. It says to **stop** (removable media, or the adapter's name)? Then don't plug the recovered SSD in that way: tell Claude.",
+        "In the list, click **This is SPARE: check it**. You want *\"SPARE arrived switched off\"*. If it says SPARE arrived **switched on**, click **Switch SPARE off**, unplug SPARE, plug it back in exactly the same way, and click **This is SPARE: check it** again: now you want *\"SPARE arrived switched off\"*. It says to **stop** (removable media, or switched on again)? Then don't plug the recovered SSD in that way: tell Claude. When it has passed, unplug SPARE (it stays switched off until Start needs it).",
+    ),
+    (
+        "**3. The folders:** check the three it suggests — the image in `IMAGE` on the PC's second drive (about 1,000 GB free needed), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` on the PC's second drive. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).",
+        "**3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).",
+    ),
+    (
+        "When it asks: **plug in the recovered SSD** — the 2 TB one, exactly as rehearsed. The 4 TB SSD stays in its drawer. It arrives switched off and the program marks it read-only by itself; the image takes a few hours (it reads the SSD once, then reads the image back to check it).",
+        "When it asks: **plug in the recovered SSD** — the 2 TB one, exactly as rehearsed (in the case `SPARE` was in: take `SPARE` out first). The 4 TB SSD stays in its drawer. It arrives switched off and the program marks it read-only by itself; the image takes a few hours (it reads the SSD once, then reads the image back to check it).",
+    ),
     // 2026-10-24 (1): AIM Toolkit's "Try it"; the hand-made Defender exclusion.
     (
         "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
@@ -49,7 +62,8 @@ const RENAMED: &[(&str, &str)] = &[
 /// numbers left out, hashed): a copy that is one of these, or the program's
 /// own, holds nothing the person wrote.
 const KNOWN_CHECKLISTS: &[u64] = &[
-    2884287995947329277, // 2026-10-23 (1)
+    2884287995947329277,  // 2026-10-23 (1)
+    13782956021636484442, // 2026-10-24 (1)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 

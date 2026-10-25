@@ -548,9 +548,73 @@ fn times_of(meta: &std::fs::Metadata) -> std::fs::FileTimes {
 }
 
 fn set_times(p: &Path, t: std::fs::FileTimes) {
-    if let Ok(f) = std::fs::OpenOptions::new().write(true).open(p) {
+    let f = if p.is_dir() {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new().write(true).custom_flags(0x0200_0000).open(p) // FILE_FLAG_BACKUP_SEMANTICS
+        }
+        #[cfg(not(windows))]
+        {
+            std::fs::File::open(p)
+        }
+    } else {
+        std::fs::OpenOptions::new().write(true).open(p)
+    };
+    if let Ok(f) = f {
         let _ = f.set_times(t);
     }
+}
+
+/// A folder's dates, given back to it when this goes (however the work in
+/// it ends): putting a file in a folder, or taking one out, changes the
+/// folder's modified date.
+struct KeepFolderDates {
+    folder: PathBuf,
+    times: Option<std::fs::FileTimes>,
+}
+
+impl KeepFolderDates {
+    fn of(folder: &Path) -> KeepFolderDates {
+        KeepFolderDates { folder: folder.to_path_buf(), times: std::fs::metadata(folder).ok().map(|m| times_of(&m)) }
+    }
+}
+
+impl Drop for KeepFolderDates {
+    fn drop(&mut self) {
+        if let Some(t) = self.times.take() {
+            set_times(&self.folder, t);
+        }
+    }
+}
+
+/// Give `to` the dates `from` has: created (on Windows), modified, last
+/// opened. What the program makes of a file (a repaired version, a salvaged
+/// preview, what could be read out of an archive) keeps the file's own
+/// dates, so it sorts by date with everything else.
+pub fn copy_dates(from: &Path, to: &Path) {
+    if let Ok(m) = std::fs::metadata(from) {
+        set_times(to, times_of(&m));
+    }
+}
+
+/// The same for a document kept as a folder (a package): every file and
+/// folder in `to` that is in `from` too, at the same place inside it, gets
+/// its dates, and `to` itself the dates of `from`. A file `from` does not
+/// have keeps its own. (A file's dates go to a file made of it whatever it
+/// is: `from` may be a folder and `to` a file, or the other way round.)
+pub fn give_dates(from: &Path, to: &Path) {
+    if from.is_dir() && to.is_dir() {
+        if let Ok(rd) = std::fs::read_dir(to) {
+            for e in rd.flatten() {
+                let f = from.join(e.file_name());
+                if std::fs::symlink_metadata(&f).is_ok() {
+                    give_dates(&f, &e.path());
+                }
+            }
+        }
+    }
+    copy_dates(from, to);
 }
 
 // ---------------------------------------------------------------- the lists
@@ -1363,6 +1427,7 @@ fn put_one(
     let Some(parent) = target.parent().map(|p| p.to_path_buf()) else {
         return Err(format!("{} has no folder", item.path));
     };
+    let _folder_dates = KeepFolderDates::of(&parent);
     // The repaired version, next to where it goes, checked.
     let tmp = parent.join(TMP_NAME);
     remove_own_temp(&tmp);
@@ -1436,6 +1501,9 @@ fn put_one(
         if let Some(t) = times {
             set_times(&target, t);
         }
+    } else if std::fs::symlink_metadata(&kept).is_ok() {
+        // A package: everything in it that the original has, its dates.
+        give_dates(&kept, &target);
     }
     append_return(
         work,
@@ -1519,6 +1587,7 @@ pub fn undo(work: &Path, id: &str) -> Result<String, String> {
         crate::fmt::now_stamp(),
         target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
     ));
+    let _folder_dates = target.parent().map(KeepFolderDates::of);
     std::fs::rename(&target, &aside).map_err(|e| format!("could not move the repaired version out of WORK: {e}"))?;
     if let Err(e) = std::fs::rename(&kept, &target) {
         let _ = std::fs::rename(&aside, &target);

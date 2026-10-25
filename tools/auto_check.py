@@ -105,15 +105,23 @@ def fake_raw(preview):
     return head + sensor + preview + rng.randbytes(9_000)
 
 
+# The moment each video's index says it was made; its file on the card is
+# dated an hour later (as a camera writing UTC inside, and local summer time
+# on the card, does).
+VIDEO_MADE = {i: "2023-07-%02dT%02d:00:00Z" % (14 + i, 7 + 2 * i) for i in (1, 2, 3)}
+
+
 def make_media(d):
     os.makedirs(d, exist_ok=True)
     m = {}
-    # Three videos from the same "camera" (moov at the end, as phones write it).
+    # Three videos from the same "camera" (moov at the end, as phones write
+    # it), each made on its own day: the moment inside each is an hour before
+    # its file's date on the card (VIDEO_MADE; build_disk gives the dates).
     for i in (1, 2, 3):
         p = os.path.join(d, "IMG_000%d.MOV" % i)
         ff("-f", "lavfi", "-i", "testsrc=duration=%d:size=320x240:rate=25" % (3 + i), "-f", "lavfi", "-i",
            "sine=f=440:d=%d" % (3 + i), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac",
-           "-shortest", p)
+           "-shortest", "-metadata", "creation_time=" + VIDEO_MADE[i], p)
         m["IMG_000%d.MOV" % i] = open(p, "rb").read()
     for i in (5, 6, 7):
         # (Each a different picture: the test pattern's counter differs.)
@@ -161,7 +169,8 @@ def build_disk(work):
     v.add_file("Music/Café Ünïcödé 日本.mp3", media["song.mp3"])
     v.add_file(deep + "/statement.pdf", media["statement.pdf"])
     for i in (1, 2, 3):
-        v.add_file("DCIM/IMG_000%d.MOV" % i, media["IMG_000%d.MOV" % i])
+        n = v.add_file("DCIM/IMG_000%d.MOV" % i, media["IMG_000%d.MOV" % i])
+        n.mtime = X.exfat_timestamp(2023, 7, 14 + i, 8 + 2 * i, 0, 0)
     for i in (5, 6, 7):
         v.add_file("DCIM/IMG_000%d.JPG" % i, media["IMG_000%d.JPG" % i])
     v.add_file("Backup/Phone/IMG_0006.JPG", media["IMG_0006.JPG"])  # an intact twin of a damaged photo
@@ -376,6 +385,35 @@ def main():
         back = {r["path_in_work"].replace("\\", "/") for r in rets if r["action"] == "RETURNED"}
         repaired = {k for k, r in log.items() if r["result"] == "REPAIRED"}
         check(repaired and repaired <= back, "every repaired file was put back (%d)" % len(repaired))
+        # Dates: every file put back keeps the dates its copy had (the old
+        # drive's), and the folder it went into keeps its own.
+        def dates(path):
+            st = os.stat(path)
+            return (st.st_mtime_ns, getattr(st, "st_birthtime", st.st_ctime) if os.name == "nt" else None)
+
+        for r in rets:
+            if r["action"] != "RETURNED":
+                continue
+            rel = r["path_in_work"].replace("\\", "/")
+            orig = os.path.join(repair, "originals", *rel.split("/"))
+            check(dates(os.path.join(w, *rel.split("/"))) == dates(orig),
+                  "%s put back keeps the dates of the damaged original" % rel)
+        untouched = os.stat(os.path.join(w, "RAW")).st_mtime_ns  # (nothing put back in it)
+        for folder in sorted({r["path_in_work"].replace("\\", "/").rsplit("/", 1)[0] for r in rets if "/" in
+                              r["path_in_work"].replace("\\", "/")}):
+            check(os.stat(os.path.join(w, *folder.split("/"))).st_mtime_ns == untouched,
+                  "the folder %s keeps its date after the put-back" % folder)
+        for k, r in log.items():
+            if r["result"] == "SALVAGED" and r["output"]:
+                out = os.path.join(repair, *r["output"].replace("\\", "/").split("/"))
+                check(os.path.isfile(out) and dates(out) == dates(os.path.join(w, *k.split("/"))),
+                      "what was salvaged of %s has its dates" % k)
+        if tools["untrunc"] and fate("DCIM/IMG_0002.MOV") == "REPAIRED" and shutil.which("ffprobe"):
+            made = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time", "-of",
+                                   "default=nw=1:nk=1", os.path.join(w, "DCIM", "IMG_0002.MOV")],
+                                  capture_output=True, text=True).stdout.strip()
+            check(made.startswith(VIDEO_MADE[2][:19]), "the rebuilt video says it was made when it was (%s), not when "
+                  "its pattern was" % made)
         twin = open(os.path.join(w, "DCIM", "IMG_0006.JPG"), "rb").read()
         check(twin == media["IMG_0006.JPG"], "the restored photo in WORK is exactly the original")
         check(os.path.isfile(os.path.join(repair, "originals", "DCIM", "IMG_0006.JPG")), "its damaged original is kept")
@@ -407,6 +445,11 @@ def main():
         check(s["job"]["state"] == "done", "Finalise finishes (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
         c2 = os.path.join(work, "COPY 2", "WORK", "DCIM", "IMG_0007.JPG")
         check(os.path.isfile(c2) and open(c2, "rb").read() == media["IMG_0007.JPG"], "the second copy holds the files")
+        check(dates(c2) == dates(os.path.join(w, "DCIM", "IMG_0007.JPG")) and dates(os.path.dirname(c2)) ==
+              dates(os.path.join(w, "DCIM")), "with their dates, and their folders'")
+        check(dates(os.path.join(w, "DCIM", "IMG_0007.JPG")) == dates(os.path.join(repair, "originals", "DCIM",
+                                                                                  "IMG_0007.JPG")),
+              "the photo brought back keeps the dates of the damaged original")
         check(os.path.isdir(os.path.join(spare, "RECORDS", "results")), "RECORDS is beside WORK")
         hist = read_csv(os.path.join(home, "results", "safety-checks.csv"))
         check(len(hist) >= 5, "every check is in safety-checks.csv (%d)" % len(hist))

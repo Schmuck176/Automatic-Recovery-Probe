@@ -32,6 +32,7 @@ pub mod image;
 pub mod join;
 pub mod mapcheck;
 pub mod mapfile;
+pub mod mp4time;
 pub mod probe;
 pub mod repair;
 pub mod report;
@@ -49,4 +50,4 @@ pub mod winset;
 
 pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-24 (1)";
+pub const VERSION: &str = "2026-10-25 (1)";
