@@ -336,6 +336,13 @@ def main():
                   "scan2", "evaluate", "handoff"]:
             check(stages[k]["state"] == "done", "stage %s done" % k)
         check(stages["open"]["state"] in ("skipped", "done"), "stage open skipped off Windows")
+        # Defender: Start asks it by itself to leave the image's folder and
+        # WORK (with REPAIR) alone, then reads its list back (Windows only).
+        ready_said = " ".join(stages["ready"]["summary"] or [])
+        defender_added = "Defender now leaves" in ready_said
+        if os.name == "nt":
+            print("  Defender: " + (" ".join(l for l in stages["ready"]["summary"] if "Defender" in l) or "(nothing said)"))
+            check("Defender" in ready_said, "Start says what Defender does with the folders")
         # The steps' own results, as the step buttons would have left them.
         for kind in ["image", "mapcheck", "rescue", "verify", "scan", "isolate", "put-back", "evaluate", "autorepair",
                      "extra", "handoff"]:
@@ -443,6 +450,9 @@ def main():
         s = prog.wait()
         print("\n".join(s["job"].get("summary") or []))
         check(s["job"]["state"] == "done", "Finalise finishes (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
+        if defender_added:
+            check("Defender checks" in " ".join(s["job"].get("summary") or []),
+                  "Finalise takes off the Defender exclusions Start added")
         c2 = os.path.join(work, "COPY 2", "WORK", "DCIM", "IMG_0007.JPG")
         check(os.path.isfile(c2) and open(c2, "rb").read() == media["IMG_0007.JPG"], "the second copy holds the files")
         check(dates(c2) == dates(os.path.join(w, "DCIM", "IMG_0007.JPG")) and dates(os.path.dirname(c2)) ==

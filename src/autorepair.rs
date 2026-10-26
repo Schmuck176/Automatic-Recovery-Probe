@@ -2007,11 +2007,17 @@ pub fn run(
     let temp_root = repair.join(TEMP_DIR);
     let total = todo.len() as u64;
     amount(0, total);
+    // (The page shows damaged files tried of all there are, by kind.)
+    crate::live::begin("tried");
+    for item in &todo {
+        crate::live::to_do(&item.path, item.size);
+    }
     for (n, item) in todo.iter().enumerate() {
         if stop() {
             o.stopped = true;
             break;
         }
+        crate::live::now(&item.path);
         let src = under(&repair, &item.copied_as);
         let copy_name = item.copied_as.rsplit('\\').next().unwrap_or(&item.copied_as).to_string();
         let tmp = temp_root.join(&item.id);
@@ -2119,6 +2125,7 @@ pub fn run(
         // keeps what it did, and carries on after it.
         o.log = Some(append_log(&repair, std::slice::from_ref(&a))?);
         o.attempts.push(a);
+        crate::live::done(&item.path, item.size);
         amount(n as u64 + 1, total);
     }
     let _ = std::fs::remove_dir_all(&temp_root);

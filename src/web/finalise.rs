@@ -62,10 +62,13 @@ pub(super) fn copy_tree(
             continue;
         }
         let m = std::fs::metadata(&s).map_err(|err| format!("could not read {}: {err}", s.display()))?;
+        let shown = s.to_string_lossy().into_owned();
+        crate::live::now(&shown);
         if let Ok(dm) = std::fs::metadata(&d) {
             if dm.len() == m.len() && dm.modified().ok() == m.modified().ok() && (!always(&s) || same_contents(&s, &d)) {
                 *done += m.len();
                 progress(*done, total);
+                crate::live::done(&shown, m.len());
                 continue;
             }
         }
@@ -82,6 +85,7 @@ pub(super) fn copy_tree(
         bytes += m.len();
         *done += m.len();
         progress(*done, total);
+        crate::live::done(&shown, m.len());
     }
     Ok((files, bytes))
 }
@@ -126,10 +130,19 @@ fn set_times(p: &Path, m: &std::fs::Metadata) {
 }
 
 fn tree_bytes(p: &Path) -> u64 {
+    tree_bytes_counted(p, false)
+}
+
+/// The bytes in a folder; with `count`, each file is also counted as one
+/// to do for the page (by kind and size).
+fn tree_bytes_counted(p: &Path, count: bool) -> u64 {
     let mut n = 0u64;
-    crate::walk::walk(&p.display().to_string(), |dir, _, files| {
-        for f in files {
-            n += std::fs::metadata(crate::walk::join(dir, f)).map(|m| m.len()).unwrap_or(0);
+    crate::walk::walk_sized(&p.display().to_string(), |_, _, files| {
+        for (name, size) in files {
+            n += size;
+            if count && name != TEMP_NAME {
+                crate::live::to_do(name, *size);
+            }
         }
         true
     });
@@ -192,7 +205,9 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
             .map(|(p, n)| (p.to_path_buf(), dest.join(n)))
             .collect();
         ctx.line("- Adding up what goes into the second copy...");
-        let total: u64 = parts.iter().map(|(p, _)| tree_bytes(p)).sum();
+        // (The page shows files copied of all there are, kind by kind.)
+        crate::live::begin("in the second copy");
+        let total: u64 = parts.iter().map(|(p, _)| tree_bytes_counted(p, true)).sum();
         let there: u64 = parts.iter().map(|(_, q)| if q.is_dir() { tree_bytes(q) } else { 0 }).sum();
         let _ = std::fs::create_dir_all(&dest);
         if let Some(free) = crate::win::free_space(&dest) {

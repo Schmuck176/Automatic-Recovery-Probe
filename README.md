@@ -20,6 +20,16 @@ now (the job running, with Stop, and what Start is waiting for you to do).
 A narrower window keeps the same order in fewer columns. Every icon has words
 beside it. Ctrl + and Ctrl − make everything bigger or smaller (Edge remembers).
 
+While something runs, it shows how far it has got - a small ring and the
+percentage - and the time left at its speed of the last minute and a half; Start
+shows the GB and files done, kind by kind (photos, videos, music, documents,
+archives), and the file it is on. Beside each folder: the drive it is on and its
+free space, what it needs and what it holds (from the mapfile, then the map
+check, then the copies), whether SPARE is switched off, and whether Defender
+leaves it alone. Start tells Defender itself to leave the image's folder and
+SPARE alone, and confirms it in Defender's own list; Finalise takes that off
+again. Never Windows' own drive or folders, nor a whole drive other than SPARE.
+
 The parts of the Automatic tab:
 
 1. **Get ready** - checks the PC (administrator rights, the mapfile, the

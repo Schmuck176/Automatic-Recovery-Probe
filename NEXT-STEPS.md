@@ -279,6 +279,46 @@ about 1350 CSS pixels in a maximised window).
   plug in the same way, check again, unplug SPARE), 3. The folders (C:\IMAGE,
   SPARE's WORK, C:\COPY 2), then Start.
 
+## 26 Oct 2026: active visual feedback
+
+The user asked (25 Oct, again 26 Oct 06:26 GMT): Defender's exclusions
+automated and confirmed, not an optional to-do; Defender shown as active on
+the folders and drives where their icons are; SPARE shown switched off by the
+icons in 3. The folders; sizes needed, estimated and actual in GB/MB for the
+folders and drives, from the mapfile, the SSD, the copies, the repairs; the
+time left and a small ring (the size of the text) for each running job; live
+GB/MB, files and file kinds in Start; then suggestions of my own. (A first run
+at it on 25 Oct, 15:00-16:00, was cut off by the usage limit before it was
+committed; its work was in the working tree and was reviewed and finished.)
+
+- Defender (web/places.rs): Start's first stage tells Defender to leave the
+  image's folder and SPARE alone (the whole drive when WORK is on SPARE,
+  otherwise WORK and REPAIR), by itself, then reads Get-MpPreference back to
+  confirm ("defender_confirmed"); Get ready says At Start / Confirmed / Not
+  taken, with Do it now. Never Windows' own drive, its system folders or
+  programs, a whole profile, nor a whole drive other than SPARE (unit test).
+  Folders already excluded (the user's own exclusion of SPARE) are not added
+  again, so Finalise, which takes off only "defender_added", leaves them.
+- api/places: the drives (letter, label, free, total), the image (made, or
+  growing: .partial), WORK (from rescue-log.csv, read again only when it
+  changes), REPAIR (walked, at most every 20 s), SPARE on/off/not plugged in
+  (by the rehearsal's remembered identity; not looked at while a job runs),
+  Defender. The page polls it every 5 s while something runs, 20 s otherwise.
+- live.rs: the job running now counts files and bytes to do and done by kind
+  (photos, videos, music and sound, documents, archives, other), and the file
+  it is on: copying, checking the copies, checking every file, the extra
+  checks, the repairs, the second copy. State JSON "live". No-op unless the
+  page's job watches (the command line and unit tests never do).
+- Time left: Job.pace keeps (seconds, done) once a second; "rate" is done per
+  second over the last 90 s once there are 15 s to go on, none while nothing
+  moves (a place the SSD struggles to read). Not from the whole run: a resumed
+  copy rushes through what is already there. The page: (total - done) / rate.
+- The map check's page data has "losing_bytes" (the files that lost data, in
+  all): the repairs say "N damaged files so far" before REPAIR exists.
+- Found on the way: the progress bar kept the last step's width when the next
+  could not tell its progress yet (an inline width over the sliding stripe).
+- Version 2026-10-26 (1).
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be

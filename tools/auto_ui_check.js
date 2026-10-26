@@ -88,9 +88,14 @@ function iconsWithoutWords(page) {
     await page.dispatchEvent("#af-copy2", "change");
     await page.waitForFunction(() => /Chosen/.test(document.getElementById("ast-folders").textContent), null, { timeout: 10000 });
     check(true, "the folders are chosen");
+    // What each folder needs, beside it: worked out from the mapfile.
+    await page.evaluate(() => loadPlaces());
+    const needs = await page.waitForFunction(() => /Needs/.test(document.getElementById("facts-image").textContent) &&
+      /Needs up to/.test(document.getElementById("facts-work").textContent), null, { timeout: 10000 }).then(() => true, () => false);
+    check(needs, "the folders say what they need, from the mapfile (" + (await text("#facts-image")).slice(0, 60) + " | " + (await text("#facts-work")).slice(0, 60) + ")");
     // 4. Start.
     await page.click("#b-auto-start");
-    await page.waitForFunction(() => /Running|Waiting/.test(document.getElementById("ast-start").textContent), null, { timeout: 10000 })
+    await page.waitForFunction(() => /Running|Waiting|Stage \d+ of \d+/.test(document.getElementById("ast-start").textContent), null, { timeout: 10000 })
       .then(() => check(true, "Start runs"), () => check(false, "Start runs"));
     await page.waitForTimeout(1500);
     await shot("auto-2-running");
@@ -101,6 +106,30 @@ function iconsWithoutWords(page) {
     const skipped = await page.locator("#ar-start ul.stages li.skipped").count();
     check(done + skipped === 15, `every stage is done or skipped (${done} done, ${skipped} skipped)`);
     await shot("auto-3-done", true);
+    // Afterwards: what WORK holds, from the list of copies, and the same in
+    // the picture of where the files go.
+    await page.evaluate(() => loadPlaces());
+    const holds = await page.waitForFunction(() => /Holds/.test(document.getElementById("facts-work").textContent) &&
+      document.querySelectorAll("#journey .node-facts .fact").length >= 4, null, { timeout: 10000 }).then(() => true, () => false);
+    check(holds, "WORK says what it holds, and the picture shows the sizes (" + (await text("#facts-work")).slice(0, 70) + ")");
+    // The live numbers, the rings and the time left, as the page shows them
+    // (Start on the small test disk is over too quickly to catch them).
+    const shown = await page.evaluate(() => {
+      const L = { what: "copied", files: [1234, 5000], bytes: [5 * 1024 ** 3, 20 * 1024 ** 3],
+        kinds: [{ name: "Photos", files: [1000, 4000], bytes: [4 * 1024 ** 3, 15 * 1024 ** 3] }, { name: "Videos", files: [234, 1000], bytes: [1024 ** 3, 5 * 1024 ** 3] }],
+        now: "E:\\WORK\\DCIM\\2019\\IMG_0001.JPG" };
+      const box = document.createElement("div");
+      box.innerHTML = liveHtml(L, false);
+      return { text: box.textContent.replace(/\s+/g, " "), rings: box.querySelectorAll("svg.ring").length,
+        gb: [gb(300 * 1024 ** 2), gb(4.25 * 1024 ** 3), gb(931.5 * 1024 ** 3), gb(1863 * 1024 ** 3)],
+        left: [leftText(30), leftText(600), leftText(7800), leftText(3 * 3600 + 58 * 60)], pct: [pct(0.375), pct(0.9999)] };
+    });
+    check(/5\.0 GB of 20 GB copied/.test(shown.text) && /1,234 of 5,000 files/.test(shown.text) && /Photos.*1,000 of 4,000/.test(shown.text) &&
+      /…\\DCIM\\2019\\IMG_0001\.JPG/.test(shown.text) && shown.rings === 2,
+      "the live numbers: GB and files done, by kind, each kind with its ring, and the file being worked on (" + shown.text.slice(0, 120) + ")");
+    check(JSON.stringify(shown.gb) === JSON.stringify(["300 MB", "4.3 GB", "932 GB", "1,863 GB"]), "sizes are rounded to MB or GB (" + shown.gb.join(", ") + ")");
+    check(JSON.stringify(shown.left) === JSON.stringify(["less than a minute left", "about 10 min left", "about 2 h 10 min left", "about 4 h left"]) &&
+      JSON.stringify(shown.pct) === JSON.stringify(["37%", "99%"]), "the time left and the percentage read naturally (" + shown.left.join("; ") + ")");
     // The steps tab shows what Start did.
     await page.click("#tab-steps");
     check(/Done/.test(await text("#st-check")) && /Done/.test(await text("#st-copy")), "the steps tab shows the map check and the copying done");

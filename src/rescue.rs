@@ -719,12 +719,15 @@ pub fn rescue(
     // whether the copies fit. (Copies an earlier run made need no room.)
     let resuming = std::fs::read_dir(&base).map(|mut r| r.next().is_some()).unwrap_or(false);
     let (mut total_files, mut total_bytes, mut need_bytes, mut need_files) = (0u64, 0u64, 0u64, 0u64);
+    // (The page shows files and bytes copied of all there are, kind by kind.)
+    crate::live::begin("copied");
     crate::exfat::walk_until(
         &vol,
         &mut |e: &Entry, _: &ClusterList| {
             if picked(e) && !e.is_dir {
                 total_files += 1;
                 total_bytes += e.valid_data_length.min(e.data_length);
+                crate::live::to_do(&e.path, e.valid_data_length.min(e.data_length));
                 let there = resuming
                     && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == e.data_length);
                 if !there {
@@ -918,6 +921,7 @@ pub fn rescue(
                 Ok(true) if hashes.get(&key).is_some_and(whole) => {
                     o.already_there += 1;
                     done_bytes += e.valid_data_length.min(e.data_length);
+                    crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
                     if let Some(note) = earlier.notes.get(&key) {
                         o.partial.push((e.path.clone(), note.clone()));
                     }
@@ -945,9 +949,11 @@ pub fn rescue(
                 last = std::time::Instant::now();
             }
         };
+        crate::live::now(&e.path);
         match copy_file(&vol, e, list, &dest, &stop, &mut copied) {
             Ok(None) => o.stopped = true,
             Ok(Some((note, sha))) => {
+                crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
                 let sha = crate::sha256::hex(&sha);
                 failures_in_a_row = 0;
                 copied_this_run += 1;
@@ -996,6 +1002,8 @@ pub fn rescue(
                     return;
                 }
                 o.failed.push((e.path.clone(), err.text().to_string()));
+                // (Done with, though not copied: the page counts it through.)
+                crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
                 runlog.add(&[kind, &e.path, &size_text, "failed", &copied_as, err.text()]);
                 failures_in_a_row += 1;
                 if failures_in_a_row >= 25 {

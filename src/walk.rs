@@ -146,6 +146,46 @@ fn list_dir(dir: &str) -> Option<(Vec<String>, Vec<bool>, Vec<String>)> {
     Some((dirs, enter, files))
 }
 
+/// `walk`, with each file's size, from the folder's own listing (on
+/// Windows that costs nothing more: no file is opened).
+pub fn walk_sized(root: &str, mut visit: impl FnMut(&str, &mut Vec<String>, &[(String, u64)]) -> bool) {
+    let mut stack: Vec<String> = vec![root.to_string()];
+    while let Some(top) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&top) else { continue };
+        let mut dirs = Vec::new();
+        let mut enter = Vec::new();
+        let mut files = Vec::new();
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            match entry.file_type() {
+                Ok(ft) if ft.is_symlink() => {
+                    if std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()) {
+                        dirs.push(name);
+                        enter.push(false);
+                    } else {
+                        files.push((name, std::fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0)));
+                    }
+                }
+                Ok(ft) if ft.is_dir() => {
+                    dirs.push(name);
+                    enter.push(true);
+                }
+                _ => files.push((name, entry.metadata().map(|m| m.len()).unwrap_or(0))),
+            }
+        }
+        let before = dirs.clone();
+        if !visit(&top, &mut dirs, &files) {
+            return;
+        }
+        for d in dirs.iter().rev() {
+            let may_enter = before.iter().position(|b| b == d).map(|i| enter[i]).unwrap_or(true);
+            if may_enter {
+                stack.push(join(&top, d));
+            }
+        }
+    }
+}
+
 /// Walk `root` top-down. `visit(dirpath, dirnames, filenames)` may prune
 /// `dirnames`; it returns false to stop the whole walk.
 pub fn walk(root: &str, mut visit: impl FnMut(&str, &mut Vec<String>, &[String]) -> bool) {

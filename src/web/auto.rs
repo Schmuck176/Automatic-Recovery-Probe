@@ -54,6 +54,8 @@ pub(super) struct Stage {
 #[derive(Clone, Debug, Default)]
 pub(super) struct State {
     pub stages: Vec<Stage>,
+    /// When the stage running now began (not kept: for the page's clock).
+    pub stage_began: Option<Instant>,
     /// What the job waits for the person to do, now.
     pub waiting: String,
     /// Something the person may do now (unplug the SSD).
@@ -140,7 +142,13 @@ pub(super) fn state_json(a: &App) -> String {
                 .s("title", title)
                 .s("state", &s.state)
                 .s("started_at", &s.started_at)
-                .n("seconds", s.seconds)
+                .n(
+                    "seconds",
+                    match (s.state.as_str(), a.auto.stage_began) {
+                        ("running" | "waiting", Some(t)) => t.elapsed().as_secs(),
+                        _ => s.seconds,
+                    },
+                )
                 .raw("summary", &strings(s.summary.iter()))
                 .end()
         })
@@ -338,6 +346,9 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
         }
         let started = local_now();
         let t = Instant::now();
+        lock(app).auto.stage_began = Some(t);
+        // (Nothing counted for the page until the stage counts its own.)
+        crate::live::clear();
         set_stage(app, key, |s| {
             s.state = "running".to_string();
             s.started_at = started.clone();
@@ -540,6 +551,13 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
             }
         }
     }
+    // Defender leaves the image's folder and SPARE alone while the program
+    // writes there: asked by Start itself, and confirmed in Defender's list.
+    let defender = super::places::defender_ensure(app, &plan.image_dir, &plan.work);
+    for l in &defender {
+        ctx.line(l);
+    }
+    lines.extend(defender);
     for t in crate::tools::status(&home) {
         lines.push(match &t.path {
             Some(_) => format!("{}: {}", t.tool.name(), t.version),

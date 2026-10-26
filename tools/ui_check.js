@@ -215,6 +215,10 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   check(r4.includes("letter 11.docx") || r4.includes("letter 12.docx"), "step 5: files Windows cannot list are shown");
   check((await page.locator("#map-legend").textContent()).includes("folder records"), "the map now says what each place held");
   check(/files on the SSD, [\d.,]+ (KB|MB|GB) in all/.test(r4), "step 5: how much the files take in all is shown");
+  // The picture of where the files go says what the repairs will need, from the map check.
+  const rep = await page.evaluate(() => { const d = lastOf("mapcheck").data; return [d.files_losing_data, d.losing_bytes, document.getElementById("journey").textContent]; });
+  check(rep[0] > 0 && rep[1] > 0 && new RegExp(rep[0] + " damaged files? so far").test(rep[2].replace(/,/g, "")),
+    "the repairs say how many damaged files there are so far, and their size, from the map check (" + rep[0] + " files, " + rep[1] + " bytes)");
   await page.evaluate(() => loadChecklist());
   const nums = [await page.textContent('#cl-body td[data-num="files"]'), await page.textContent('#cl-body td[data-num="bytes"]')];
   check(nums[0] === "96" && /^[\d.,]+ KB$/.test(nums[1]), "the checklist's Your numbers are filled in from step 5 (" + nums.join(", ") + ")");

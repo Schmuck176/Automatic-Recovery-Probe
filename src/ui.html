@@ -211,6 +211,9 @@ ol.rail-list > li:not(:last-child)::after {
   .now:not(.active) { display: none; }
   .now-card { max-width: 900px; margin: 0 auto; gap: 10px; padding: 12px 16px 14px; }
   .now-next, .job-last { display: none; }
+  /* (Docked along the bottom: only what matters now. The kinds of file and
+     the file being worked on are in Start's own list.) */
+  #now-live ul.kinds, #now-live .live-now, .now-card .yourturn.calm { display: none; }
   body.now-active main { padding-bottom: 260px; }
   /* Where you are: a row of numbered circles, and one line saying what is next. */
   .rail-title { display: none; }
@@ -426,6 +429,7 @@ ul.checks > li:first-child { border-top: 0; }
 .mk.bad { color: var(--unread); }
 .mk.note { color: var(--turn); }
 .mk.todo { color: var(--ink-soft); }
+.mk.auto { color: var(--act); }
 .what { min-width: 0; }
 .what b { display: flex; align-items: center; gap: 8px; line-height: 1.35; }
 .what b .ic { color: var(--ink-soft); }
@@ -556,8 +560,77 @@ dialog .dfoot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 
 .entry .ic { color: var(--act); }
 .entry .soft { white-space: nowrap; }
 
+/* A small ring for how far something has got: the size of the text
+   beside it, which always says the same in words (37%). */
+.ring { width: 1.05em; height: 1.05em; flex: none; vertical-align: -0.17em; overflow: visible; }
+.ring circle { fill: none; stroke-width: 3.2; }
+.ring .ring-bg { stroke: color-mix(in srgb, currentColor 22%, transparent); }
+.ring .ring-fg { stroke: currentColor; stroke-linecap: round; transition: stroke-dasharray 0.6s ease; }
+.ring.spin { animation: spin 1.8s linear infinite; }
+
+/* What a running step is getting through, live. */
+.live { display: grid; gap: 8px; margin: 8px 0 2px; }
+.live-sums { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.live-sums > span { display: inline-flex; align-items: center; gap: 7px; }
+.live-sums .ic { color: var(--act); }
+.live-sums b { font: 600 1.02rem var(--head); }
+ul.kinds { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 4px 22px; }
+ul.kinds > li { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: 0.88rem; overflow-wrap: normal; }
+ul.kinds .k-ring { color: var(--act); }
+ul.kinds .k-ring.full { color: var(--read); }
+ul.kinds .ic { color: var(--ink-soft); }
+ul.kinds .k-name { font-weight: 600; white-space: nowrap; }
+ul.kinds .k-num { text-align: right; color: var(--ink-soft); }
+ul.kinds .k-num > span { white-space: nowrap; }
+ul.stages .st-doing { grid-column: 2 / 4; font-size: 0.88rem; color: var(--act); }
+.live-now { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 0.86rem; color: var(--ink-soft); }
+.live-now .ic { margin-top: 2px; }
+.live-now .path { overflow-wrap: anywhere; }
+ul.stages li.running .live { grid-column: 2 / 4; }
+.now-card .live { margin: 0; }
+.now-card ul.kinds { grid-template-columns: minmax(0, 1fr); }
+.eta { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Facts about a folder or drive, beside its icon: room, size, SPARE, Defender. */
+.facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.field > .facts { grid-column: 2; }
+.facts:empty { display: none; }
+.fact {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 7px; border-radius: 999px; max-width: 100%;
+  font-size: 0.84rem; line-height: 1.45; background: var(--paper); border: 1px solid var(--rule); color: var(--ink-soft);
+}
+.fact .ic { width: 1.1em; height: 1.1em; }
+.fact b { font-weight: 600; color: var(--ink); }
+.fact.good { background: var(--read-bg); color: var(--read); border-color: transparent; }
+.fact.good b { color: inherit; }
+.fact.warn { background: var(--turn-bg); color: var(--turn); border-color: transparent; }
+.fact.warn b { color: inherit; }
+.fact.bad { background: var(--bad-bg); color: var(--unread); border-color: transparent; }
+.fact.bad b { color: inherit; }
+.fact.act { background: var(--act-bg); color: var(--act); border-color: transparent; }
+.fact.act b { color: inherit; }
+.field-icon { position: relative; }
+.field-icon.off { border-style: dashed; color: var(--ink-soft); background: var(--paper); }
+.field-icon .badge {
+  position: absolute; right: -7px; bottom: -7px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--turn-bg); color: var(--turn); border: 2px solid var(--sheet);
+}
+.field-icon .badge.good { background: var(--read-bg); color: var(--read); }
+.field-icon .badge.top { top: -7px; bottom: auto; }
+.node-tile .badge {
+  position: absolute; right: -8px; bottom: -8px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--read-bg); color: var(--read); border: 2px solid var(--sheet);
+}
+.node-tile .badge .ic { width: 14px; height: 14px; }
+.node-tile .badge.top { top: -8px; bottom: auto; background: var(--turn-bg); color: var(--turn); }
+.field-icon .badge .ic { width: 13px; height: 13px; }
+.node-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
+.node-facts .fact { font-size: 0.78rem; padding: 1px 8px 1px 5px; }
+@container (max-width: 760px) { .node-facts { justify-content: flex-start; } }
+
 @media (prefers-reduced-motion: reduce) {
-  .ic.spin { animation: none; }
+  .ic.spin, .ring.spin { animation: none; }
+  .ring .ring-fg { transition: none; }
   .bar > div { transition: none; }
   .bar.unknown > div { animation: none; width: 100%; opacity: 0.4; }
 }
@@ -660,6 +733,10 @@ PERFORMANCE OF THIS SOFTWARE. -->
 <symbol id="i-calendar-clock" viewBox="0 0 24 24"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></symbol>
 <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="i-files" viewBox="0 0 24 24"><path d="M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/><path d="M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z"/><path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1"/></symbol>
+<symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
 </defs></svg>
 <div class="shell">
   <header class="masthead">
@@ -694,6 +771,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <div class="bar" id="job-bar"><div></div></div>
             <div class="small soft" id="job-numbers"></div>
             <div class="job-last" id="job-last"></div>
+            <div id="now-live"></div>
           </div>
           <div id="now-turn"></div>
           <div class="now-next" id="now-next"></div>
@@ -748,22 +826,25 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <p class="lead">Where the program puts what it makes. It suggests these; change them only if you need to.</p>
             <div class="panel">
               <div class="field">
-                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-disc"></use></svg></span>
+                <span class="field-icon" id="fi-image"><svg class="ic" aria-hidden="true"><use href="#i-disc"></use></svg></span>
                 <label class="lab" for="af-image">The image: an exact copy of the whole SSD, in one file</label>
-                <p class="hint">About 1,000 GB, on a drive inside this PC with that much room.</p>
+                <p class="hint">As big as the old drive: on a drive inside this PC with room for it.</p>
                 <div class="inputrow"><input type="text" id="af-image" placeholder="For example D:\IMAGE"><button class="second" id="b-af-image"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+                <div class="facts" id="facts-image" role="status"></div>
               </div>
               <div class="field">
-                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-folder-check"></use></svg></span>
+                <span class="field-icon" id="fi-work"><svg class="ic" aria-hidden="true"><use href="#i-folder-check"></use></svg></span>
                 <label class="lab" for="af-work">Your copied files: WORK, on SPARE</label>
                 <p class="hint">Every file is copied here and checked. REPAIR, where the repairs are made, goes beside it on the same drive.</p>
                 <div class="inputrow"><input type="text" id="af-work" placeholder="For example E:\WORK"><button class="second" id="b-af-work"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+                <div class="facts" id="facts-work" role="status"></div>
               </div>
               <div class="field">
-                <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg></span>
+                <span class="field-icon" id="fi-copy2"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg></span>
                 <label class="lab" for="af-copy2">The second copy, made by Finalise</label>
                 <p class="hint">On this PC, beside the image.</p>
                 <div class="inputrow"><input type="text" id="af-copy2" placeholder="For example D:\COPY 2"><button class="second" id="b-af-copy2"><svg class="ic" aria-hidden="true"><use href="#i-folder-open"></use></svg>Choose…</button></div>
+                <div class="facts" id="facts-copy2" role="status"></div>
               </div>
               <div class="field">
                 <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg></span>
@@ -1020,9 +1101,104 @@ function msg(kind, html, after) {
 // A state: its icon and its word.
 const STATE_ICON = { done: "circle-check", problem: "circle-x", running: "loader-circle", turn: "hand", next: "chevron-right", "": "circle-dashed" };
 function stateHtml(cls, text) {
-  return text ? ic(STATE_ICON[cls] || "info", cls === "running" ? "spin" : "") + `<span>${esc(text)}</span>` : "";
+  if (!text) return "";
+  if (cls === "running") {
+    // Running: a ring that fills as it gets on, when it can tell how far.
+    const p = progressNow();
+    return (p && p.f != null ? ring(p.f) : ic("loader-circle", "spin")) + `<span>${esc(text)}</span>`;
+  }
+  return ic(STATE_ICON[cls] || "info") + `<span>${esc(text)}</span>`;
 }
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Sizes rounded the way people read them: MB below a gigabyte, GB above
+// (whole GB from 10 GB). 1 GB = 1,024 MB, as File Explorer counts.
+function gb(n) {
+  n = Number(n || 0);
+  const MB = 1024 * 1024, GB = MB * 1024;
+  if (n < MB) return n < 1024 ? commas(n) + " bytes" : Math.max(1, Math.round(n / 1024)) + " KB";
+  if (n < GB) return commas(Math.max(1, Math.round(n / MB))) + " MB";
+  if (n < 10 * GB) return (n / GB).toFixed(1) + " GB";
+  return commas(Math.round(n / GB)) + " GB";
+}
+// A small ring for how far something has got (f from 0 to 1; null: it
+// cannot tell yet, so it turns). Always next to words saying the same.
+function ring(f, cls) {
+  const c = 2 * Math.PI * 8;
+  const arc = f == null ? 0.28 : Math.max(0, Math.min(1, f));
+  return `<svg class="ring${f == null ? " spin" : ""}${cls ? " " + cls : ""}" viewBox="0 0 20 20" aria-hidden="true">` +
+    `<circle class="ring-bg" cx="10" cy="10" r="8"></circle>` +
+    `<circle class="ring-fg" cx="10" cy="10" r="8" stroke-dasharray="${(arc * c).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 10 10)"></circle></svg>`;
+}
+// (Never 100% before it is done.)
+const pct = (f) => Math.min(99, Math.floor(f * 100)) + "%";
+// "about 2 h 10 min left", from seconds.
+function leftText(s) {
+  if (s == null) return "";
+  if (s < 60) return "less than a minute left";
+  const m = Math.round(s / 60);
+  if (m < 60) return `about ${m} min left`;
+  const h = Math.floor(m / 60), mm = Math.round((m % 60) / 5) * 5;
+  return mm && mm < 60 ? `about ${h} h ${mm} min left` : `about ${mm >= 60 ? h + 1 : h} h left`;
+}
+// How far the job running now has got: f from 0 to 1 (null: it cannot
+// tell), and the seconds left (null until it can tell): what is left, at
+// the speed of the last minute and a half (the program works that out), or
+// failing that at the speed of this stretch so far.
+function progressNow() {
+  const j = S && S.job;
+  if (!j || j.state !== "running") return null;
+  if (S.auto && S.auto.waiting && j.kind === "auto") return { f: null, left: null };
+  let done = j.done, total = j.total, own = true;
+  const L = S.live;
+  if (!(total > 0) && L && L.files[1] > 0) { done = L.files[0]; total = L.files[1]; own = false; }
+  if (!(total > 0)) return { f: null, left: null };
+  const f = Math.min(1, done / total);
+  const secs = j.phase_seconds || 0;
+  let left = null;
+  if (own && j.rate > 0) left = Math.max(0, total - done) / j.rate;
+  else if (!own && f > 0.005 && secs >= 20) left = (secs * (1 - f)) / f;
+  return { f, left };
+}
+// "37% · about 2 h left" (or "Running…" when it cannot tell yet).
+function runWords(p) {
+  if (!p || p.f == null) return "Running…";
+  return pct(p.f) + (p.left != null ? " · " + leftText(p.left) : "");
+}
+// A path shortened to its last parts (the folder and the file).
+function shortPath(p) {
+  const parts = String(p || "").split(/[\\/]/).filter(Boolean);
+  return parts.length > 3 ? "…\\" + parts.slice(-3).join("\\") : parts.join("\\");
+}
+// What the job running now is doing, in its own words (its latest line),
+// for the steps that count bytes rather than files (the image, say).
+function doingHtml() {
+  const j = S && S.job;
+  const l = j && j.state === "running" ? (j.lines || []).slice(-1)[0] : "";
+  return l ? `<span class="st-doing">${esc(l.replace(/^[-\s]+/, ""))}</span>` : "";
+}
+const KIND_ICON = { "Photos": "image", "Videos": "film", "Music and sound": "audio-lines", "Documents": "file-text", "Archives": "file-archive", "Other files": "file" };
+// What a running step is getting through: GB and files done of all there
+// are, and each kind of file with its own small ring.
+function liveHtml(L, narrow) {
+  if (!L || !(L.files[1] > 0)) return "";
+  const [fd, ft] = L.files, [bd, bt] = L.bytes;
+  const checks = L.what === "checks";
+  const noun = checks ? (ft === 1 ? "check" : "checks") : (ft === 1 ? "file" : "files");
+  let h = `<div class="live" role="status"><div class="live-sums">`;
+  if (bt > 0) h += `<span>${ic("database")}<span><b>${esc(gb(bd))}</b> of ${esc(gb(bt))}${checks ? "" : " " + esc(L.what)}</span></span>`;
+  h += `<span>${ic("files")}<span><b>${commas(fd)}</b> of ${commas(ft)} ${noun}${checks ? " made" : ""}</span></span></div>`;
+  if (L.kinds.length) {
+    h += `<ul class="kinds">` + L.kinds.map((k) => {
+      const f = k.files[1] ? k.files[0] / k.files[1] : 0;
+      const full = k.files[0] >= k.files[1];
+      return `<li><span class="k-ring${full ? " full" : ""}">${ring(f)}</span>${ic(KIND_ICON[k.name] || "file")}<span class="k-name">${esc(k.name)}</span>` +
+        `<span class="k-num"><span>${commas(k.files[0])} of ${commas(k.files[1])}</span>${narrow || !k.bytes[1] ? "" : ` <span>· ${esc(gb(k.bytes[0]))} of ${esc(gb(k.bytes[1]))}</span>`}</span></li>`;
+    }).join("") + `</ul>`;
+  }
+  if (L.now) h += `<p class="live-now">${ic("file")}<span>Now: <span class="path">${esc(shortPath(L.now))}</span></span></p>`;
+  return h + `</div>`;
+}
 
 let S = null;          // the program's state
 let mapInfo = null;    // the chosen mapfile, read
@@ -1051,7 +1227,7 @@ function lastOf(kind) {
 }
 function stateText(j) {
   if (!j) return ["", ""];
-  if (j.state === "running") return ["running", "Running…"];
+  if (j.state === "running") return ["running", runWords(progressNow())];
   if (j.state === "done") return ["done", "Done " + (j.started_at || "")];
   if (j.state === "stopped") return ["problem", "Stopped " + (j.started_at || "")];
   return ["problem", "Needs attention"];
@@ -1634,26 +1810,34 @@ function renderJob() {
   box.hidden = false;
   $("job-title").textContent = j.title;
   const bar = $("job-bar");
-  let nums = "";
-  if (j.total > 0) {
-    const f = Math.min(1, j.done / j.total);
+  const p = progressNow();
+  const L = S.live;
+  if (p && p.f != null) {
     bar.classList.remove("unknown");
-    bar.firstElementChild.style.width = (f * 100).toFixed(1) + "%";
-    const unit = j.kind === "scan" ? `${commas(j.done)} of ${commas(j.total)} files` : `${size(j.done)} of ${size(j.total)}`;
-    nums = `${unit} (${(f * 100).toFixed(1)}%)`;
-    if (f > 0.02 && j.seconds > 5) nums += `, about ${duration(j.seconds / f - j.seconds)} left`;
+    bar.firstElementChild.style.width = (p.f * 100).toFixed(1) + "%";
   } else {
     bar.classList.add("unknown");
-    nums = duration(j.seconds) + " so far";
+    bar.firstElementChild.style.width = ""; // (the sliding stripe, not the last step's fill)
   }
-  $("job-numbers").textContent = nums;
-  $("job-last").textContent = (j.lines || []).slice(-1)[0] || "";
+  // How far, in the step's own unit: bytes for the steps that read or copy
+  // whole drives and folders, a count for the others. (With the live
+  // numbers below, those say it.)
+  const key = j.kind === "auto" ? (((S.auto && S.auto.stages) || []).find((s) => s.state === "running") || {}).key : j.kind;
+  const BYTES = ["image", "imagecheck", "rescue", "copy", "verify", "verify2", "finalise", "download"];
+  const unit = !L && j.total > 0 ? (BYTES.includes(key) ? `${gb(j.done)} of ${gb(j.total)}` : `${commas(j.done)} of ${commas(j.total)}`) : "";
+  const head = p && p.f != null
+    ? `<span class="eta">${ring(p.f)}<b>${pct(p.f)}</b></span>${p.left != null ? ` · <span class="eta">${ic("timer")}${esc(leftText(p.left))}</span>` : ""}`
+    : `<span class="eta">${ic("timer")}${esc(duration(j.seconds))} so far</span>`;
+  put($("job-numbers"), head + (unit ? `<br><span class="soft">${esc(unit)}</span>` : ""));
+  put($("now-live"), liveHtml(L, true));
+  // (The file being worked on is in the live numbers, when there are some.)
+  $("job-last").textContent = L && L.now ? "" : (j.lines || []).slice(-1)[0] || "";
 }
 
 function render() {
   if (!S) return;
   renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
-  renderJourney(); renderNow(); renderRail();
+  renderPlaces(); renderJourney(); renderNow(); renderRail();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -1899,7 +2083,7 @@ function fillFolders() {
 
 // One line of Get ready's list: how it stands (in a word, with its icon),
 // what it is, what that means, and a button when there is something to do.
-const MARK = { good: "circle-check", bad: "circle-x", note: "triangle-alert", todo: "circle-dashed" };
+const MARK = { good: "circle-check", bad: "circle-x", note: "triangle-alert", todo: "circle-dashed", auto: "circle-play" };
 function checkItem([kind, word, icon, title, detail, btn]) {
   const mark = word === "Running" ? ic("loader-circle", "spin") : ic(MARK[kind]);
   return `<li><span class="mk ${kind}">${mark}<span>${esc(word)}</span></span>` +
@@ -1970,13 +2154,7 @@ function renderAuto() {
           READY.restarts_after_crash ? `<button class="second" data-act="crash-restart-off">${ic("power-off")}Turn that off</button>` : ""]);
       pc.push(READY.policy_to_restore ? ["good", "On", "usb", "New disks arrive switched off", "Windows leaves newly plugged-in disks switched off, until the recovered SSD has been unplugged again.", ""]
         : ["todo", "Not yet", "usb", "New disks arrive switched off", "The rehearsal (next) turns this on.", ""]);
-      const added = setting("defender_added");
-      const has = READY.defender_has || [];
-      const wanted = [setting("auto_image_dir"), setting("auto_work")].filter((x) => x).length;
-      const allHas = wanted > 0 && has.length >= wanted;
-      pc.push([added || allHas ? "good" : "todo", added || allHas ? "Done" : "Optional", "shield", "Defender leaves the image folder and SPARE alone",
-        added ? "Excluded: " + added.split("\n").join(", ") + " (Finalise takes it off again)." : allHas ? "Excluded already: " + has.join(", ") + "." : "Otherwise Defender scans every file the program writes (2–3 times slower), and could quarantine a recovered file." + (has.length ? " (Excluded already: " + has.join(", ") + ".)" : ""),
-        !added && !allHas && (setting("auto_image_dir") || setting("auto_work")) ? `<button class="second" data-defender="1">${ic("shield-plus")}Exclude them</button>` : ""]);
+      pc.push(defenderRow());
       const aim = (READY.tools || []).find((x) => x.key === "aim");
       const aimOk = !!(aim && aim.path && READY.aim_driver);
       const tried = setting("aim_test");
@@ -2069,9 +2247,19 @@ function renderAuto() {
     const sum = (s.summary || []);
     const head = sum[0] ? `<span class="st-sum">${esc(sum[0])}</span>` : "";
     const more = sum.length > 1 ? `<details><summary>more</summary><pre class="report">${lines(sum.slice(1))}</pre></details>` : "";
-    const time = s.seconds > 0 && s.state !== "running" ? duration(s.seconds) : "";
+    const time = s.seconds > 0 && s.state !== "running" && s.state !== "waiting" ? duration(s.seconds) : "";
     const [icon, word] = STAGE_STATE[s.state] || STAGE_STATE.pending;
-    return `<li class="${esc(s.state)}"><span class="st-mark">${ic(icon, s.state === "running" ? "spin" : "")}</span>` +
+    if (s.state === "running") {
+      // How far it has got, how long it has run, how long it may take yet.
+      const p = progressNow();
+      const mark = p && p.f != null ? ring(p.f) : ic("loader-circle", "spin");
+      const when = p && p.f != null ? `<span>${pct(p.f)}</span>${p.left != null ? `<span>${esc(leftText(p.left))}</span>` : ""}` : `<span>${esc(word)}</span>`;
+      const ran = s.seconds > 0 ? `<span>${esc(duration(s.seconds))} so far</span>` : "";
+      return `<li class="running"><span class="st-mark">${mark}</span>` +
+        `<span class="st-title"><span class="st-num">${i + 1}</span>${esc(stageTitle(s))}</span>` +
+        `<span class="st-when">${when}${ran}</span>${S.live ? liveHtml(S.live, false) : doingHtml()}</li>`;
+    }
+    return `<li class="${esc(s.state)}"><span class="st-mark">${ic(icon)}</span>` +
       `<span class="st-title"><span class="st-num">${i + 1}</span>${esc(stageTitle(s))}</span>` +
       `<span class="st-when"><span>${esc(word)}</span>${time ? `<span>${esc(time)}</span>` : ""}</span>${head}${more}</li>`;
   };
@@ -2088,8 +2276,11 @@ function renderAuto() {
   put($("ar-start"), h);
   const failedStage = A.stages.find((s) => s.state === "failed");
   const waitingNow = autoRunning() && A.waiting;
+  const atStage = A.stages.findIndex((s) => s.state === "running" || s.state === "waiting");
+  const pNow = progressNow();
+  const runningWords = atStage >= 0 ? `Stage ${atStage + 1} of ${n}` + (pNow && pNow.f != null ? ` · ${pct(pNow.f)}` : "") : "Running…";
   setAuto("start", allDone ? "done" : failedStage ? "problem" : autoRunning() ? (waitingNow ? "turn" : "running") : "",
-    allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (waitingNow ? "Waiting for you" : "Running…") : A.resume_at > 0 ? "Stopped part-way" : "");
+    allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (waitingNow ? "Waiting for you" : runningWords) : A.resume_at > 0 ? "Stopped part-way" : "");
 
   // 5. What is left.
   const ho = lastOf("handoff"), ar = lastOf("autorepair"), bb = lastOf("bringback");
@@ -2149,25 +2340,202 @@ function groupOf(keys) {
 function renderJourney() {
   const imageMade = !!(setting("image") && setting("image_sha"));
   const im = stageOf("image");
-  const work = setting("auto_work");
-  const repair = work ? work.replace(/[\\/]+$/, "").replace(/[^\\/]+$/, "REPAIR") : "";
+  const work = setting("auto_work") || (PLACES && PLACES.work.dir) || "";
+  const repair = (PLACES && PLACES.repair.dir) || (work ? work.replace(/[\\/]+$/, "").replace(/[^\\/]+$/, "REPAIR") : "");
+  const imgDir = setting("auto_image_dir") || (PLACES && PLACES.image.dir) || "";
   const fi = lastOf("finalise");
-  const words = { done: "", running: "Running now", turn: "Waiting for you", problem: "Stopped: needs attention", partly: "Part-way", "": "Not yet" };
-  const node = (cls, icon, name, text, path, word) =>
-    `<li class="node ${cls === "partly" ? "" : cls}"><span class="node-tile">${ic(icon)}</span><span class="node-name">${esc(name)}</span>` +
+  const p = progressNow();
+  const at = (w) => (p && p.f != null ? `${w} · ${pct(p.f)}` : w);
+  const words = { done: "", running: at("Running now"), turn: "Waiting for you", problem: "Stopped: needs attention", partly: "Part-way", "": "Not yet" };
+  // A node: its icon (with a badge when Defender skips it, or SPARE is
+  // switched off), its name, what it is, where, its state, and facts.
+  const node = (cls, icon, name, text, path, word, facts, badges) =>
+    `<li class="node ${cls === "partly" ? "" : cls}"><span class="node-tile">${ic(icon)}${badges || ""}</span><span class="node-name">${esc(name)}</span>` +
     `<span class="node-text">${esc(text)}</span>${path ? `<span class="node-path">${esc(path)}</span>` : ""}` +
-    `<span class="state ${cls === "partly" ? "" : cls}">${stateHtml(cls === "partly" ? "" : cls, word || words[cls])}</span></li>`;
-  const ssd = imageMade ? ["done", "Read into the image"] : im === "waiting" ? ["turn", "Plug it in now"] : im === "running" ? ["running", "Being read"] : ["", "In its drawer"];
-  const img = imageMade ? ["done", "Made and checked"] : im === "running" || stageOf("open") === "running" ? ["running", "Being made"] : im === "failed" ? ["problem", ""] : ["", "Not made yet"];
+    `<span class="state ${cls === "partly" ? "" : cls}">${stateHtml(cls === "partly" ? "" : cls, word || words[cls])}</span>` +
+    `${facts && facts.length ? `<span class="node-facts">${facts.filter(Boolean).join("")}</span>` : ""}</li>`;
+  const shield = (path) => (defenderFact(path).includes("Defender skips") ? badge("", "shield-check", "Defender skips it") : "");
+  const ssd = imageMade ? ["done", "Read into the image"] : im === "waiting" ? ["turn", "Plug it in now"] : im === "running" ? ["running", at("Being read")] : ["", "In its drawer"];
+  const img = imageMade ? ["done", "Made and checked"] : im === "running" || stageOf("open") === "running" ? ["running", at("Being made")] : im === "failed" ? ["problem", ""] : ["", "Not made yet"];
   const wk = groupOf(["copy", "verify", "scan", "extra"]);
   const rp = groupOf(["isolate", "repair", "putback", "verify2", "scan2", "evaluate", "handoff"]);
-  const c2 = fi && fi.state === "done" ? ["done", "Made and checked"] : fi && fi.state === "running" ? ["running", "Being made"] : fi && fi.state === "failed" ? ["problem", ""] : ["", "Made by Finalise"];
+  const c2 = fi && fi.state === "done" ? ["done", "Made and checked"] : fi && fi.state === "running" ? ["running", at("Being made")] : fi && fi.state === "failed" ? ["problem", ""] : ["", "Made by Finalise"];
+  // The facts: sizes as they become known, Defender, SPARE.
+  const md = mapData(), dom = domain(), P = PLACES;
+  const ssdFacts = [dom ? fact("", "hard-drive", `<b>${esc(nominal(dom))}</b> drive`) : "",
+    md && md.bytes_seen != null ? fact("", "files", `<b>${esc(gb(md.bytes_seen))}</b> in ${commas(md.files_seen)} files`) : ""];
+  const imgFacts = [P && P.image.bytes ? fact(imageMade ? "good" : "", "disc", `<b>${esc(gb(P.image.bytes))}</b>${imageMade ? "" : " of " + esc(gb(dom || P.image.bytes))}`) : dom ? fact("", "disc", `Needs <b>${esc(gb(dom))}</b>`) : "", defenderFact(imgDir)];
+  const spare = spareOf(work);
+  const wn = workNeed();
+  const workFacts = [P && P.work.bytes != null ? fact("good", "folder-check", `<b>${esc(gb(P.work.bytes))}</b> · ${commas(P.work.files)} files`)
+    : wn ? fact("", "folder-check", `Needs ${wn.sure ? "about" : "up to"} <b>${esc(gb(wn.bytes))}</b>`) : "", spare ? spareFact(spare, true) : defenderFact(work)];
+  const repFacts = [P && P.repair.bytes != null ? fact("", "wrench", `<b>${esc(gb(P.repair.bytes))}</b> · ${commas(P.repair.files)} files`)
+    : md && md.files_losing_data ? fact("", "wrench", `<b>${commas(md.files_losing_data)}</b> damaged ${md.files_losing_data === 1 ? "file" : "files"} so far · ${esc(gb(md.losing_bytes || 0))}`) : "", defenderFact(repair)];
+  const need2 = P && P.work.bytes != null ? P.work.bytes + (P.repair.bytes || 0) : wn && wn.bytes;
+  const c2Facts = [need2 ? fact(fi && fi.state === "done" ? "good" : "", "copy", `${fi && fi.state === "done" ? "" : "Needs about "}<b>${esc(gb(need2))}</b>`) : ""];
+  const off = spare ? badge("top", spare === "off" ? "power-off" : "usb", spare === "off" ? "SPARE is switched off" : "SPARE is not plugged in") : "";
   put($("journey"),
-    node(ssd[0], "hard-drive", "The recovered SSD", "The only copy of your files. Read once, never written to.", "", ssd[1]) +
-    node(img[0], "disc", "The image", "An exact copy of the whole SSD, in one file.", setting("image") || setting("auto_image_dir"), img[1]) +
-    node(wk, "folder-check", "Your copied files", "Every file copied out of the image, each one checked.", work, wk === "done" ? "Copied and checked" : "") +
-    node(rp, "wrench", "The repairs", "Damaged files repaired as copies, then put back.", repair, rp === "done" ? "Repaired what it could" : "") +
-    node(c2[0], "copy", "The second copy", "Everything again, on another drive, checked.", setting("auto_copy2"), c2[1]));
+    node(ssd[0], "hard-drive", "The recovered SSD", "The only copy of your files. Read once, never written to.", "", ssd[1], ssdFacts) +
+    node(img[0], "disc", "The image", "An exact copy of the whole SSD, in one file.", setting("image") || imgDir, img[1], imgFacts, shield(imgDir)) +
+    node(wk, "folder-check", "Your copied files", "Every file copied out of the image, each one checked.", work, wk === "done" ? "Copied and checked" : "", workFacts, off + shield(work)) +
+    node(rp, "wrench", "The repairs", "Damaged files repaired as copies, then put back.", repair, rp === "done" ? "Repaired what it could" : "", repFacts, shield(repair)) +
+    node(c2[0], "copy", "The second copy", "Everything again, on another drive, checked.", setting("auto_copy2") || (P && P.copy2.dir) || "", c2[1], c2Facts));
+}
+
+
+// ------------------------------------------------------------ the places: folders and drives
+
+let PLACES = null;     // api/places: the drives, and what each folder holds
+let placesBusy = false;
+async function loadPlaces() {
+  if (placesBusy) return;
+  placesBusy = true;
+  try { PLACES = await get("api/places"); } catch { placesBusy = false; return; }
+  placesBusy = false;
+  render();
+}
+const norm = (p) => String(p || "").trim().replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+// Is `path` one of these folders, or inside one?
+function covers(list, path) {
+  const b = norm(path);
+  return !!b && (list || []).some((c) => { const a = norm(c); return b === a || b.startsWith(a + "\\"); });
+}
+// A fact about a folder or drive: its icon and its words.
+const fact = (cls, icon, html) => `<span class="fact${cls ? " " + cls : ""}">${ic(icon)}<span>${html}</span></span>`;
+// A badge on an icon: the same words as the fact beside it say, for a
+// screen reader, and as a tooltip.
+const badge = (cls, icon, words) => `<span class="badge${cls ? " " + cls : ""}" title="${esc(words)}">${ic(icon)}<span class="vh">${esc(words)}</span></span>`;
+function defenderNow() { return (PLACES && PLACES.defender) || (READY && READY.defender) || null; }
+function defenderFact(path) {
+  const D = defenderNow();
+  if (!D || !path || !(READY ? READY.windows : S && S.windows)) return "";
+  if (covers(D.covered, path)) return fact("good", "shield-check", "<b>Defender skips it</b>");
+  if (covers(D.targets, path)) return fact("", "shield", "Defender: Start tells it to skip this");
+  return "";
+}
+function driveOf(path) {
+  const l = String(path || "").trim().slice(0, 2).toUpperCase();
+  if (!PLACES || !/^[A-Z]:$/.test(l)) return null;
+  return PLACES.drives.find((d) => (d.letter || "").toUpperCase() === l) || null;
+}
+// The drive a folder is on: its free space, and whether what is still to
+// go there fits.
+function driveFact(path, need, what) {
+  const d = driveOf(path);
+  if (!d) return "";
+  const name = d.letter + (d.label ? " " + d.label : "");
+  if (need != null && need > 0 && d.free < need) {
+    return fact("bad", "triangle-alert", `<b>${esc(name)}: not enough room</b> · ${esc(gb(d.free))} free, ${esc(what || "this")} needs ${esc(gb(need))}`);
+  }
+  return fact("", "hard-drive", `<b>${esc(name)}</b> · ${esc(gb(d.free))} free of ${esc(gb(d.total))}`);
+}
+// SPARE, for a folder on it: switched off, or not plugged in (both are
+// as they should be between the rehearsal and Start's copying).
+function spareOf(path) {
+  const sp = PLACES && PLACES.spare;
+  if (!sp || !sp.state || sp.state === "on") return null;
+  const l = String(path || "").trim().slice(0, 2).toUpperCase();
+  if (!sp.letter || l !== sp.letter.slice(0, 2).toUpperCase() || driveOf(path)) return null;
+  return sp.state;
+}
+function spareFact(state, short) {
+  if (state === "off") return fact("warn", "power-off", short ? "<b>SPARE: switched off</b>" : "<b>SPARE is switched off</b> · Start switches it on when it needs it");
+  if (state === "gone") return fact("", "usb", short ? "<b>SPARE: not plugged in</b>" : "<b>SPARE is not plugged in</b> · plug it in when Start asks");
+  return "";
+}
+const domain = () => (mapInfo && mapInfo.ok ? mapInfo.domain_end - mapInfo.domain_start : null);
+// The job running now, if it is this kind of step (or Start, at this stage).
+function runningAs(kind, stages) {
+  const j = S && S.job;
+  if (!j || j.state !== "running") return null;
+  if (j.kind === kind) return j;
+  if (j.kind === "auto" && (S.auto.stages || []).some((s) => stages.includes(s.key) && s.state === "running")) return j;
+  return null;
+}
+const mapData = () => { const m = lastOf("mapcheck"); return m && m.state === "done" ? m.data : null; };
+// What goes into WORK: the files on the SSD (from the map check), or at
+// most the old drive's size (from the mapfile).
+function workNeed() {
+  const d = mapData();
+  if (d && d.bytes_seen != null) return { bytes: d.bytes_seen + (d.lost_bytes || 0), sure: true };
+  const n = domain();
+  return n ? { bytes: n, sure: false } : null;
+}
+// The facts for one place: chips of words, and the badges for its icon.
+function placeFacts(key) {
+  if (!PLACES) return { chips: [], off: null, safe: false };
+  const P = PLACES, chips = [];
+  let off = null, safe = false;
+  if (key === "image") {
+    const dir = $("af-image").value.trim() || P.image.dir, need = domain(), im = P.image, j = runningAs("image", ["image"]);
+    if (im.made) chips.push(fact("good", "disc", `<b>${esc(gb(im.bytes || need))}</b> · made and checked`));
+    else if (j && j.total > 0) chips.push(fact("act", "disc", `<b>${esc(gb(j.done))}</b> of ${esc(gb(j.total))} read`));
+    else if (im.bytes) chips.push(fact("", "disc", `<b>${esc(gb(im.bytes))}</b> of ${esc(gb(need || im.bytes))} written so far`));
+    else if (need) chips.push(fact("", "disc", `Needs <b>${esc(gb(need))}</b> · the whole SSD, in one file`));
+    if (!im.made) chips.push(driveFact(dir, need && Math.max(0, need - (im.bytes || 0)) + 2 ** 30, "the image"));
+    else chips.push(driveFact(dir));
+    const df = defenderFact(dir);
+    safe = df.includes("Defender skips");
+    chips.push(df);
+  } else if (key === "work") {
+    const dir = $("af-work").value.trim() || P.work.dir, need = workNeed(), j = runningAs("rescue", ["copy"]), L = S.live;
+    if (j && j.total > 0) chips.push(fact("act", "folder-check", `<b>${esc(gb(j.done))}</b> of ${esc(gb(j.total))} copied` + (L && L.files[1] ? ` · ${commas(L.files[0])} of ${commas(L.files[1])} files` : "")));
+    else if (P.work.bytes != null) chips.push(fact("good", "folder-check", `Holds <b>${esc(gb(P.work.bytes))}</b> · ${commas(P.work.files)} files`));
+    else if (need) chips.push(fact("", "folder-check", `Needs ${need.sure ? "about" : "up to"} <b>${esc(gb(need.bytes))}</b> · ${need.sure ? "the files on the SSD" : "the old drive's size, until the map check says"}`));
+    off = spareOf(dir);
+    if (off) chips.push(spareFact(off));
+    else chips.push(driveFact(dir, need && P.work.bytes == null ? need.bytes + 2 ** 30 : null, "the copies"));
+    const md = mapData();
+    if (P.repair.bytes != null) chips.push(fact("", "wrench", `REPAIR beside it: <b>${esc(gb(P.repair.bytes))}</b> · ${commas(P.repair.files)} files`));
+    else if (md && md.files_losing_data) chips.push(fact("", "wrench", `REPAIR beside it: <b>${commas(md.files_losing_data)}</b> damaged ${md.files_losing_data === 1 ? "file" : "files"} so far, ${esc(gb(md.losing_bytes || 0))} · it keeps two or three copies of each`));
+    const df = defenderFact(dir);
+    safe = df.includes("Defender skips");
+    chips.push(df);
+  } else if (key === "copy2") {
+    const dir = $("af-copy2").value.trim() || P.copy2.dir, fi = lastOf("finalise"), j = runningAs("finalise", []);
+    const wn = workNeed();
+    const need = P.work.bytes != null ? P.work.bytes + (P.repair.bytes || 0) : wn && wn.bytes;
+    if (j && j.total > 0 && S.live && /second copy/.test(S.live.what)) chips.push(fact("act", "copy", `<b>${esc(gb(j.done))}</b> of ${esc(gb(j.total))} copied`));
+    else if (fi && fi.state === "done") chips.push(fact("good", "copy", `Made and checked · ${esc(fi.started_at || "")}`));
+    else if (need) chips.push(fact("", "copy", `Needs about <b>${esc(gb(need))}</b> · WORK and REPAIR again`));
+    // On the same drive as an image still to be made: both must fit.
+    const imgDir = $("af-image").value.trim() || P.image.dir;
+    const same = driveOf(dir) && driveOf(imgDir) && driveOf(dir) === driveOf(imgDir) && !P.image.made;
+    const done = fi && fi.state === "done";
+    const total = done ? null : (need || 0) + (same ? (domain() || 0) - (P.image.bytes || 0) : 0);
+    chips.push(driveFact(dir, total ? total + 2 ** 30 : null, same ? "the image and the second copy together" : "the second copy"));
+  }
+  return { chips: chips.filter(Boolean), off, safe };
+}
+// The folders part: facts under each folder, badges on its icon.
+function renderPlaces() {
+  for (const key of ["image", "work", "copy2"]) {
+    const f = placeFacts(key);
+    put($("facts-" + key), f.chips.join(""));
+    const tile = $("fi-" + key);
+    tile.classList.toggle("off", !!f.off);
+    const base = { image: "disc", work: "folder-check", copy2: "copy" }[key];
+    const badges = (f.off === "off" ? badge("top", "power-off", "SPARE is switched off") : f.off === "gone" ? badge("top", "usb", "SPARE is not plugged in") : "") +
+      (f.safe ? badge("good", "shield-check", "Defender skips it") : "");
+    put(tile, ic(base) + badges);
+  }
+}
+// Get ready's line about Defender.
+function defenderRow() {
+  const title = "Defender leaves the image folder and SPARE alone";
+  const D = defenderNow();
+  if (!READY.elevated) return ["todo", "Needs rights", "shield", title, "Defender says which folders it leaves alone only to a program with administrator rights.", ""];
+  if (!D || !D.answered) return ["note", "No answer", "shield", title, "Defender did not answer (it may be switched off, or another antivirus is in charge): there is nothing to change.", ""];
+  const t = D.targets || [];
+  if (!t.length) return ["todo", "Not yet", "shield", title, "Choose the folders first (3. The folders): Start then tells Defender to leave them alone.", ""];
+  const all = t.every((x) => covers(D.covered, x));
+  const where = t.join(" and ");
+  if (all) return ["good", "Confirmed", "shield-check", title, `Defender's own list shows ${where} left alone${D.confirmed_at ? ` (checked ${D.confirmed_at})` : ""}. Finalise takes this off again.`, ""];
+  const ready = (S.auto && S.auto.stages || []).find((s) => s.key === "ready");
+  const tried = ready && ready.state === "done";
+  const btn = `<button class="second" data-defender="1">${ic("shield-plus")}${tried ? "Try again" : "Do it now"}</button>`;
+  if (tried) return ["bad", "Not taken", "shield-alert", title, `Start asked, but Defender's list does not show ${where} left alone, so it scans the files written there (slower, and it could quarantine a recovered file). Start carries on regardless.`, btn];
+  return ["auto", "At Start", "shield", title, `Start does this by itself for ${where}, then confirms it in Defender's own list. (Without it, Defender scans every file the program writes: 2–3 times slower, and it could quarantine a recovered file.)`, btn];
 }
 
 // ------------------------------------------------------------ where you are, and what is happening now
@@ -2275,7 +2643,7 @@ function watchParts() {
 }
 
 // Buttons in the Automatic view (drawn again as things change: one handler each).
-$("b-ready").onclick = async () => { note("ready", "", ""); await loadReady(true); loadDisks(); };
+$("b-ready").onclick = async () => { note("ready", "", ""); await loadReady(true); loadDisks(); loadPlaces(); };
 $("b-ready-test").onclick = () => startJob("ready", { action: "selftest" });
 $("ar-ready").addEventListener("click", async (e) => {
   const b = e.target.closest("button");
@@ -2285,12 +2653,10 @@ $("ar-ready").addEventListener("click", async (e) => {
     if (b.dataset.dl) { await act({ action: "tool-download", tool: b.dataset.dl }); note("ready", "ok", "Downloading: “Now” shows how far it is. Click Check this PC when it is done."); }
     if (b.dataset.aimtest) { await act({ action: "aim-test" }); note("ready", "ok", "Trying AIM Toolkit on a small test image (a few seconds): “Now” shows how it goes, and this list says how it went."); }
     if (b.dataset.defender) {
-      const said = [];
-      const image = setting("auto_image_dir");
-      const work = setting("auto_work");
-      const spareRoot = work && /^[A-Za-z]:/.test(work) ? work.slice(0, 2) + "\\" : work;
-      for (const f of [image, spareRoot]) if (f) said.push((await act({ action: "defender-exclude", folder: f })).message);
-      note("ready", "ok", said.join(" "));
+      b.disabled = true;
+      const r = await act({ action: "defender-ensure" });
+      note("ready", /does not show|would not|did not answer/.test(r.message) ? "warn" : "ok", r.message || "Done.");
+      await loadPlaces();
     }
   } catch (err) { note("ready", "err", err.message); }
   await refresh(); loadReady();
@@ -2323,11 +2689,11 @@ const FOLDERS = [["af-image", "auto_image_dir", "IMAGE"], ["af-work", "auto_work
 for (const [id, key, sub] of FOLDERS) {
   const el = $(id);
   el.addEventListener("input", () => { el.dataset.touched = "1"; });
-  el.addEventListener("change", () => save({ [key]: el.value.trim() }));
+  el.addEventListener("change", () => save({ [key]: el.value.trim() }).then(loadPlaces));
   $("b-" + id).onclick = () => openPicker("Choose the folder", el.value || "", false, (p) => {
     // A whole drive chosen: the folder goes on it.
     if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\" + sub;
-    el.value = p; el.dataset.touched = "1"; save({ [key]: p });
+    el.value = p; el.dataset.touched = "1"; save({ [key]: p }).then(loadPlaces);
   });
 }
 $("af-search").addEventListener("input", () => { $("af-search").dataset.touched = "1"; });
@@ -2567,6 +2933,7 @@ async function start() {
   }
   if (setting("mapfile")) mapInfo = await get("api/mapinfo?path=" + encodeURIComponent(setting("mapfile")));
   render();
+  loadPlaces();
   loadDisks(); // (reading every disk can take a moment: the page does not wait for it)
   updateSpace();
   updateImageSpace();
@@ -2577,6 +2944,8 @@ async function start() {
     if (running || tick % 3 === 0) await refresh();
     if (tick % 5 === 0 && !running) loadChecklist();
     if (tick % 15 === 0 && !running && view === "auto") loadReady();
+    // The folders and drives: often while something writes, now and then otherwise.
+    if (tick % (running ? 5 : 20) === 0) loadPlaces();
     // Looking for disks plugged in: for a while after Get Windows ready, a
     // disk clicked, Protect or Switch on (not while a step reads the SSD).
     if (Date.now() < watchUntil && tick % 2 === 0 && !running) loadDisks();

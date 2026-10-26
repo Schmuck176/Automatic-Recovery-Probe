@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 
 mod auto;
 mod finalise;
+mod places;
 
 const PAGE: &str = include_str!("ui.html");
 /// The address stays the same from one run to the next where it can.
@@ -73,7 +74,47 @@ struct Job {
     started_at: String,
     seconds: u64,
     started: Option<Instant>,
+    /// When the present stretch of counting (done of total) began.
+    phase: Option<Instant>,
+    /// How fast this stretch is getting on, lately: the time left is worked
+    /// out from it.
+    pace: Pace,
     stop: Arc<AtomicBool>,
+}
+
+/// How fast a job is getting through its work, over the last minute and a
+/// half: the time left is worked out from that, not from the whole run. (A
+/// step that carries on after a stop rushes through what was done before;
+/// copying slows down on big videos and speeds up on small photos; and a
+/// place the SSD struggles to read stalls it for a while.)
+#[derive(Clone, Debug, Default)]
+struct Pace {
+    /// (seconds into the stretch, done then): one a second at most.
+    samples: VecDeque<(f64, u64)>,
+}
+
+impl Pace {
+    /// The speed is taken over this many seconds back,
+    const WINDOW: f64 = 90.0;
+    /// and only once it has this many to go on.
+    const LEAST: f64 = 15.0;
+
+    fn note(&mut self, at: f64, done: u64) {
+        if self.samples.back().is_some_and(|&(t, _)| at - t < 1.0) {
+            return;
+        }
+        self.samples.push_back((at, done));
+        while self.samples.len() > 2 && self.samples.front().is_some_and(|&(t, _)| at - t > Self::WINDOW * 2.0) {
+            self.samples.pop_front();
+        }
+    }
+
+    /// Done per second lately (None: too soon to tell, or nothing moved).
+    fn rate(&self, now: f64, done: u64) -> Option<f64> {
+        let &(t0, d0) = self.samples.iter().find(|&&(t, _)| now - t <= Self::WINDOW)?;
+        let span = now - t0;
+        (span >= Self::LEAST && done > d0).then(|| (done - d0) as f64 / span)
+    }
 }
 
 impl Job {
@@ -93,6 +134,19 @@ impl Job {
             .n("seconds", secs)
             .n("done", self.done)
             .n("total", self.total)
+            .n("phase_seconds", match (self.state.as_str(), self.phase) {
+                ("running", Some(t)) => t.elapsed().as_secs(),
+                _ => 0,
+            })
+            .raw(
+                "rate",
+                &match (self.state.as_str(), self.phase) {
+                    ("running", Some(t)) => self.pace.rate(t.elapsed().as_secs_f64(), self.done),
+                    _ => None,
+                }
+                .map(|r| format!("{r:.3}"))
+                .unwrap_or_else(|| "null".to_string()),
+            )
             .raw("lines", &strings(self.lines.iter().skip(skip)))
             .raw("summary", &strings(self.summary.iter()))
             .raw("outputs", &strings(self.outputs.iter()))
@@ -139,8 +193,16 @@ impl Ctx {
     }
     pub fn amount(&self, done: u64, total: u64) {
         self.with(|j| {
+            // A new stretch of counting: going back, or a new total from naught.
+            if j.phase.is_none() || done < j.done || (done == 0 && total != j.total) {
+                j.phase = Some(Instant::now());
+                j.pace = Pace::default();
+            }
             j.done = done;
             j.total = total;
+            if let Some(t) = j.phase {
+                j.pace.note(t.elapsed().as_secs_f64(), done);
+            }
         });
     }
     pub fn stopping(&self) -> bool {
@@ -317,8 +379,10 @@ fn start_job(
         Ctx { app: app.clone(), id, stop }
     };
     let id = ctx.id;
+    crate::live::watch(true);
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&ctx)));
+        crate::live::watch(false);
         let mut a = lock(&ctx.app);
         let Some(mut j) = a.job.take() else { return };
         if j.id != ctx.id {
@@ -718,12 +782,17 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
         ("GET", "api/find-mapfiles") => (200, "application/json", find_mapfiles_json(app)),
         ("GET", "api/checklist") => (200, "application/json", checklist_page().to_string()),
         ("GET", "api/checklist-state") => (200, "application/json", checklist_sync(app)),
+        ("GET", "api/places") => {
+            let map = lock(app).setting("mapfile");
+            let (image, work, _) = suggested_folders(app, &map);
+            (200, "application/json", places::places_json(app, &image, &work))
+        }
         ("GET", "api/tools") => (200, "application/json", crate::tools::status_json(&lock(app).home.clone())),
         ("GET", "api/ready") => {
             if q("fresh") == "1" {
                 crate::tools::forget();
             }
-            (200, "application/json", ready_json(app))
+            (200, "application/json", ready_json(app, q("fresh") == "1"))
         }
         ("POST", "api/do") => {
             let form = parse_form(&String::from_utf8_lossy(&req.body));
@@ -761,6 +830,7 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .raw("settings", &s.end())
         .raw("policy_to_restore", &restore)
         .raw("job", &a.job.as_ref().map(|j| j.json(60)).unwrap_or_else(|| "null".to_string()))
+        .raw("live", &crate::live::snapshot().map(|b| b.json()).unwrap_or_else(|| "null".to_string()))
         .raw("last", &last.end())
         .raw("auto", &auto::state_json(&a))
         .end()
@@ -1179,20 +1249,19 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 Ok(())
             })
             .map(|_| format!("\"message\":{}", json_str("Windows no longer restarts by itself after a crash: it stops at the blue screen instead (Finalise puts this back)."))),
-        "defender-exclude" => need_admin(app).and_then(|_| {
-            let folder = g("folder");
-            if folder.trim().is_empty() {
-                return Err("which folder?".to_string());
-            }
-            crate::winset::set_defender_exclusion(Path::new(folder.trim()), true)?;
-            let mut a = lock(app);
-            let mut list: Vec<String> = a.setting("defender_added").lines().map(|s| s.to_string()).collect();
-            if !list.iter().any(|l| l.eq_ignore_ascii_case(folder.trim())) {
-                list.push(folder.trim().to_string());
-            }
-            a.settings.insert("defender_added".to_string(), list.join("\n"));
-            a.save();
-            Ok(format!("\"message\":{}", json_str(&format!("Defender now leaves {} alone (Finalise takes this off again).", folder.trim()))))
+        "defender-ensure" => need_admin(app).map(|_| {
+            let map = lock(app).setting("mapfile");
+            let (si, sw, _) = suggested_folders(app, &map);
+            let (i, w) = {
+                let a = lock(app);
+                (a.setting("auto_image_dir"), a.setting("auto_work"))
+            };
+            let lines = places::defender_ensure(
+                app,
+                if i.trim().is_empty() { &si } else { &i },
+                if w.trim().is_empty() { &sw } else { &w },
+            );
+            format!("\"message\":{}", json_str(&lines.join(" ")))
         }),
         "aim-install" => need_admin(app).and_then(|_| aim_install(app)).map(|m| format!("\"message\":{}", json_str(&m))),
         "aim-test" => auto::start_aim_test(app).map(|id| format!("\"job\":{id}")),
@@ -1476,7 +1545,7 @@ fn prepare_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool
 // ---------------------------------------------------------------- getting ready
 
 /// What Get ready shows: the checks of this PC, the tools, the folders it suggests.
-fn ready_json(app: &Arc<Mutex<App>>) -> String {
+fn ready_json(app: &Arc<Mutex<App>>, fresh: bool) -> String {
     {
         // No mapfile chosen yet: the best one in the program's folder.
         let home = lock(app).home.clone();
@@ -1504,18 +1573,37 @@ fn ready_json(app: &Arc<Mutex<App>>) -> String {
     let crash = crate::winset::restarts_after_crash();
     let aim_driver = crate::winset::aim_driver_installed();
     let aim_setup = find_aim_setup(&home);
-    // The folders Defender leaves alone already (it says only to an
-    // administrator): the image folder and SPARE, by hand or by the program.
-    let defender_has: Vec<String> = if elevated && cfg!(windows) {
-        let ex = crate::winset::defender_exclusions().unwrap_or_default();
-        let spare_root = |w: &str| if w.len() >= 2 && w.as_bytes()[1] == b':' { format!("{}\\", &w[..2]) } else { w.to_string() };
-        [image_dir.clone(), spare_root(&work)]
-            .into_iter()
-            .filter(|f| !f.trim().is_empty() && crate::winset::is_excluded(&ex, Path::new(f.trim())))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let (suggest_image, suggest_work, suggest_copy2) = suggested_folders(app, &map);
+    Obj::new()
+        .b("elevated", elevated)
+        .b("windows", cfg!(windows))
+        .s("mapfile", &map)
+        .raw("restart_pending", opt_bool(restart))
+        .raw("restarts_after_crash", opt_bool(crash))
+        .raw("aim_driver", opt_bool(aim_driver))
+        .raw(
+            "defender",
+            &places::defender_json(
+                app,
+                if image_dir.trim().is_empty() { &suggest_image } else { &image_dir },
+                if work.trim().is_empty() { &suggest_work } else { &work },
+                fresh,
+            ),
+        )
+        .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
+        .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
+        .raw("tools", &crate::tools::status_json(&home))
+        .s("image_dir", &image_dir)
+        .s("work", &work)
+        .s("copy2", &copy2)
+        .s("suggest_image_dir", &suggest_image)
+        .s("suggest_work", &suggest_work)
+        .s("suggest_copy2", &suggest_copy2)
+        .end()
+}
+
+/// The folders to suggest, before any is chosen: (image, WORK, second copy).
+fn suggested_folders(app: &Arc<Mutex<App>>, map: &str) -> (String, String, String) {
     // Folders to suggest. The image and the second copy: a drive of the PC
     // (NTFS, not SPARE) with room for the image - another drive than
     // Windows' own if one has room, Windows' own if only it has (as on a PC
@@ -1543,24 +1631,7 @@ fn ready_json(app: &Arc<Mutex<App>>) -> String {
         .map(|d| d.letter.clone())
         .or_else(|| Some(lock(app).setting("spare_letter")).filter(|l| !l.is_empty()));
     let sug = |l: &Option<String>, f: &str| l.as_ref().map(|l| format!("{l}\\{f}")).unwrap_or_default();
-    Obj::new()
-        .b("elevated", elevated)
-        .b("windows", cfg!(windows))
-        .s("mapfile", &map)
-        .raw("restart_pending", opt_bool(restart))
-        .raw("restarts_after_crash", opt_bool(crash))
-        .raw("aim_driver", opt_bool(aim_driver))
-        .raw("defender_has", &strings(defender_has.iter()))
-        .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
-        .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
-        .raw("tools", &crate::tools::status_json(&home))
-        .s("image_dir", &image_dir)
-        .s("work", &work)
-        .s("copy2", &copy2)
-        .s("suggest_image_dir", &sug(&image_drive, "IMAGE"))
-        .s("suggest_work", &sug(&spare, "WORK"))
-        .s("suggest_copy2", &sug(&image_drive, "COPY 2"))
-        .end()
+    (sug(&image_drive, "IMAGE"), sug(&spare, "WORK"), sug(&image_drive, "COPY 2"))
 }
 
 /// AIM Toolkit's installer (install.bat), where the person keeps it.
@@ -2132,11 +2203,16 @@ fn prepare_scan(app: &Arc<Mutex<App>>, folder: &str, holes: bool, hole_kb: u64, 
     }))
 }
 
+/// How many files there are to check (each also counted for the page, by
+/// kind and size).
 fn count_files(root: &str, stop: &AtomicBool) -> u64 {
     let mut n = 0u64;
-    crate::walk::walk(root, |_, dirs, files| {
+    crate::walk::walk_sized(root, |_, dirs, files| {
         dirs.retain(|d| !crate::formats::SYSTEM_DIRS.contains(&d.as_str()));
         n += files.len() as u64;
+        for (name, size) in files {
+            crate::live::to_do(name, *size);
+        }
         !stop.load(Ordering::Relaxed)
     });
     n
@@ -2150,6 +2226,7 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
     };
     use crate::walk::{walk_and_probe, Event, LibInfo, Row};
     ctx.line(&format!("Counting the files in {folder}..."));
+    crate::live::begin("checked");
     let total = count_files(folder, &ctx.stop);
     ctx.line(&format!("{} files to check", commas(total)));
     ctx.amount(0, total);
@@ -2190,6 +2267,8 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
         Event::Row(r) => {
             scanned += 1;
             bytes += r.size;
+            crate::live::done(&r.path, r.size);
+            crate::live::now(&r.path);
             collector.saw(&r);
             *counts.entry(r.verdict).or_insert(0) += 1;
             if r.verdict == "SKIPPED" {
@@ -2426,6 +2505,35 @@ mod tests {
     fn state_lines_round_trip() {
         let s = "tab\there\nnew\\line\r";
         assert_eq!(unescape(&escape(s)), s);
+    }
+
+    #[test]
+    fn the_pace_is_the_recent_one() {
+        let mut p = Pace::default();
+        // Carrying on after a stop: half of it rushed through in 5 s (files
+        // already there), then 2 units a second.
+        for s in 0..=5 {
+            p.note(s as f64, s * 100);
+        }
+        assert_eq!(p.rate(5.0, 500), None, "too soon to tell");
+        let mut done = 500;
+        for s in 6..=200u64 {
+            done += 2;
+            p.note(s as f64, done);
+        }
+        let r = p.rate(200.0, done).unwrap();
+        assert!((r - 2.0).abs() < 0.05, "the rush at the start is forgotten: {r}");
+        // Stalled for a while (a place the SSD struggles to read): no guess.
+        for s in 201..=300u64 {
+            p.note(s as f64, done);
+        }
+        assert_eq!(p.rate(300.0, done), None);
+        // Several reports in one second count once.
+        let mut q = Pace::default();
+        for i in 0..50 {
+            q.note(i as f64 * 0.01, i);
+        }
+        assert_eq!(q.samples.len(), 1);
     }
 
     #[test]

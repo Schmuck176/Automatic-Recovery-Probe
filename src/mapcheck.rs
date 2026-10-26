@@ -2353,8 +2353,10 @@ pub fn page_json(r: &Report) -> String {
         ),
         None => "null".to_string(),
     };
+    // What those files take in all: the room their copies need in REPAIR.
+    let losing_bytes: u64 = losing.iter().map(|i| i.size).sum();
     format!(
-        "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"folders_affected\":{},\
+        "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"losing_bytes\":{},\"folders_affected\":{},\
          \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\
          \"files_seen\":{},\"folders_seen\":{},\"bytes_seen\":{},\"disk_size\":{},\"table_disk_size\":{},\"matches_mapfile\":{},\
          \"volume\":{{\"label\":{},\"offset\":{},\"cluster_size\":{},\"clusters\":{}}},\"drive\":{},\
@@ -2365,6 +2367,7 @@ pub fn page_json(r: &Report) -> String {
         r.areas.len(),
         files.len(),
         losing.len(),
+        losing_bytes,
         r.folders().count(),
         r.hidden_files(),
         r.hidden.len() - r.hidden_files(),

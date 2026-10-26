@@ -584,6 +584,12 @@ pub fn run(
     // Quick checks first, the videos last (the long part, best left running).
     tasks.sort_by_key(|t| (t.0 == Check::Video, t.0));
     let total = tasks.len() as u64;
+    // (The page shows checks made of all there are, by kind of file. An MP3
+    // gets two: MP3val's and FFmpeg's.)
+    crate::live::begin("checks");
+    for (_, path, size) in &tasks {
+        crate::live::to_do(&path.to_string_lossy(), *size);
+    }
     let bytes: u64 = tasks.iter().map(|t| t.2).sum();
     say(&format!("{} checks to make, over {} of files.", commas(total), crate::fmt::size(bytes)));
     if !remembered.is_empty() {
@@ -620,7 +626,12 @@ pub fn run(
                 }
                 let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
                 let Some((c, path, size)) = next else { break };
+                let shown = path.to_string_lossy().into_owned();
+                crate::live::now(&shown);
                 let v = check_one(c, &exes[&c], &path, size, stop);
+                if !matches!(&v, Verdict::NotChecked(why) if why == "stopped") {
+                    crate::live::done(&shown, size);
+                }
                 if let Some(line) = done_line(c, size, mtimes.get(&path).copied().unwrap_or(0), &v, &path.display().to_string()) {
                     use std::io::Write;
                     if let Some(f) = done_file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {

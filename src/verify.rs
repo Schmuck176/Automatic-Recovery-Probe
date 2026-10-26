@@ -257,12 +257,18 @@ pub fn run_checked(
     let mut done = 0u64;
     let mut last = std::time::Instant::now();
     let mut listed: HashSet<String> = HashSet::new();
+    // (The page shows copies checked of all there are, kind by kind.)
+    crate::live::begin("checked");
+    for w in &wants {
+        crate::live::to_do(&w.rel, w.size);
+    }
     for w in &wants {
         if stop() {
             r.stopped = true;
             break;
         }
         listed.insert(w.rel.to_lowercase());
+        crate::live::now(&w.rel);
         let mut p: PathBuf = base.clone();
         for c in components(&w.rel) {
             p.push(c);
@@ -293,6 +299,7 @@ pub fn run_checked(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => r.missing.push(w.rel.clone()),
             Err(_) => r.changed.push(w.rel.clone()),
         }
+        crate::live::done(&w.rel, w.size);
         done += w.size;
         if last.elapsed().as_millis() > 300 {
             amount(done, total);
