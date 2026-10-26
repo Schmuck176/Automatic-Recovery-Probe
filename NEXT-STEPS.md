@@ -402,6 +402,24 @@ just happened" feed; photos before and after their repair.
   feed, and carries on when cool; liveshot.js: screenshots of the strip,
   the speed line, the temperature, the pause, the photos and the dialog at
   2560, 1265, 900 and 390 px.
+- Version 2026-10-26 (2).
+- CI run 40317203888 (d279d72), all green on both systems (Windows: build
+  without warnings, unit tests 131 with notify's windows_takes_it - the
+  script parses as PowerShell - and taskbar's windows_takes_the_bars, page
+  68/68, Automatic tab 32/32, automatic 83/83, resume 17/17, disk protection
+  20/20, unplugged 35/35; Linux: page 67/67, Automatic tab 32/32, automatic
+  81/81, resume 17/17).
+- Delivered 26 Oct 2026, 12:08 GMT: version 2026-10-26 (2),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,773,312 bytes, SHA-256
+  088a3f50914c7aaac6b6035095665f922bd1e0e8815e0f90199f63ae9190a7e3 (staged
+  back and compared). main moved to it; the 2026-10-26 (1) main is kept as
+  branch version-2026-10-26-1.
+- Not seen working here, only on the PC: a notification appearing (and from
+  an elevated program), the taskbar bar and flash on Edge's window, the
+  SSD's temperature through its USB case. If the temperature shows "does not
+  tell Windows its temperature", that is the case or adapter, not a fault.
+- [ ] On the PC (the user): open it; beside Start, Try it should show a
+  notification (from "Windows PowerShell"); then carry on as before.
 
 ## Not done / ideas for later
 
