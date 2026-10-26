@@ -500,6 +500,29 @@ and look for bugs.
     guard.rs, the old program's README); README said the checklist has 30
     boxes (it had 27; now 28).
 - Version 2026-10-26 (3).
+- Tests here: unit tests 133 (with overflow checks too), auto_check 77/77,
+  auto_ui_check 34/34 and ui_check 67/67 with Windows-like and GitHub-like
+  fonts; with overflow checks: auto_check, ui_check, the map-check tests
+  (43/43, 30 random) and resume_check (17/17). backshot.js / pcstate.js:
+  part 7 with drives plugged in and not, Get ready, the rehearsal, at 2560,
+  1265 and 390 px, as the PC stands now.
+- CI run 40399863418 (9b54257) and 40400693281 (856e092), all green on both
+  systems. Windows: unit tests 136 (with PowerShell reading the curly quotes
+  back exactly, the answers window's script parsing, a notification with
+  curly quotes parsing), unplugged 39/39 (Put Windows back refused with the
+  copy plugged in, and with only SPARE plugged in - each named - then done
+  with both unplugged, and the setting back as before), disk protection
+  20/20, page 68/68, Automatic tab 34/34, automatic 86/86, resume 17/17;
+  Linux: unit tests 133 twice (release, and with overflow checks), page
+  67/67, Automatic tab 34/34, automatic 84/84, resume 17/17.
+- Delivered 26 Oct 2026, about 21:45 GMT: version 2026-10-26 (3),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,831,168 bytes, SHA-256
+  24894749a746e90af95d3f55dd3bb331b60eed99762f9a3c06905cc5bdb223a5 (staged
+  back and compared). main moved to it; the 2026-10-26 (2) main is kept as
+  branch version-2026-10-26-2.
+- Left for later: the program's own refusal (seen only if a drive is plugged
+  in between the page's look and the click) says "Switch it off and unplug
+  it" for SPARE too, where the page says Eject.
 
 ## Not done / ideas for later
 

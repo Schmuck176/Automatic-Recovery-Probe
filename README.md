@@ -102,11 +102,13 @@ The parts of the Automatic tab:
    turned that off, Defender's exclusions it added), each with its Show me
    button, and one button that puts them all back. It is greyed out, and the
    program itself refuses, while a job runs or anything is plugged in that
-   holds a copy of the old drive (the recovered SSD, the 4 TB SSD) or is SPARE:
-   with a drive still plugged in, the recovered SSD could otherwise one day
-   arrive switched on. Nothing puts these back by itself - not Start, not
-   Finalise, not closing the window. (Step 9 of the program's steps has the
-   same button, by the same rule.)
+   holds a copy of the old drive (the recovered SSD, the 4 TB SSD), will not
+   let itself be read (it could be the SSD), or is SPARE: with a drive still
+   plugged in, the recovered SSD could otherwise one day arrive switched on.
+   Nothing puts these back by itself - not Start, not Finalise, not closing
+   the window - and it says to do it last, after Finalise (put back earlier,
+   Start sets what it needs again when it carries on). Step 9 of the
+   program's steps has the same button, by the same rule.
 
 The checklist (now 28 boxes, `docs/automatic-checklist.md`) and the program's
 steps one at a time are the other two tabs. The page shows each stage's results
