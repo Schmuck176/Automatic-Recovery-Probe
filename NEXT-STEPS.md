@@ -450,6 +450,15 @@ and look for bugs.
 - In the Automatic tab it says it comes last, after Finalise (the top banner
   and the part's own words); the part's state is "Last, after Finalise"
   until then.
+- The PC as it stands (its results, read 26 Oct 21:10): the rehearsal passed
+  on 25 Oct; Windows' setting for new disks is not changed now (the versions
+  before this one put it back when the program was closed with the SSD
+  unplugged); Defender: C:\IMAGE added by the program (19:58 today), E:\
+  (SPARE) the person's own exclusion. So the page no longer offers the
+  rehearsal's first button again once it has passed (Start sets the setting
+  again by itself, before it asks for the SSD - Get ready says "At Start"),
+  and Get ready's Defender line says which exclusion goes back in 7
+  (C:\IMAGE) and which stays (E:\).
 - If Windows is put back before the end anyway, Start sets what it needs
   again when it carries on: new disks switched off before it waits for the
   recovered SSD (stage_image), Defender's exclusions (carrying on skips the

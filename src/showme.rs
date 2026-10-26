@@ -27,7 +27,7 @@ try {
 
 Say '2. New disks: do they arrive switched off? (diskpart, SAN Policy: Offline All = yes, Online All = no)'
 try {
-    $s = ('san' | diskpart.exe) | Select-String -Pattern 'SAN'
+    $s = ('san' | diskpart.exe) | Select-String -CaseSensitive -Pattern 'SAN'
     if ($s) { $s | ForEach-Object { Line $_.Line.Trim() } } else { Line 'diskpart did not say.' }
 } catch { Line ('diskpart did not answer: ' + $_.Exception.Message) }
 
