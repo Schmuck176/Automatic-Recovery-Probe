@@ -318,6 +318,22 @@ committed; its work was in the working tree and was reviewed and finished.)
 - Found on the way: the progress bar kept the last step's width when the next
   could not tell its progress yet (an inline width over the sliding stripe).
 - Version 2026-10-26 (1).
+- CI run 40282841889 (65a1285), all green on both systems (Windows: page
+  68/68, Automatic tab 24/24, automatic 70/70 - Start read Defender's list
+  and confirmed the folders, which GitHub's machine excludes already, so
+  Add-MpPreference itself was not exercised there - resume 17/17, disk
+  protection 20/20, unplugged 35/35; Linux: page 67/67, Automatic tab 24/24,
+  automatic 68/68). Here: unit tests 116, both page tests with Windows-like
+  and GitHub-like fonts, auto_check 61/61, screenshots of Start part-way on a
+  60,000-file disk (copying; the extra checks with the time left).
+- Delivered 26 Oct 2026, 07:20 GMT: version 2026-10-26 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,568,000 bytes, SHA-256
+  500ff1ae9d0f9d79d768ddcdfcab920c451dd669860c189894af6eb83f3337bb (staged
+  back and compared). main moved to it; the 2026-10-25 (2) main is kept as
+  branch version-2026-10-25-2.
+- [ ] On the PC (the user), as before: open it, Get ready, the rehearsal with
+  SPARE, 3. The folders, Start. Defender: At Start until Start's first
+  stage, then Confirmed (or Not taken, with the reason in Start's lines).
 
 ## Not done / ideas for later
 
