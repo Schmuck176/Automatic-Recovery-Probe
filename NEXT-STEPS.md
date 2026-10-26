@@ -386,9 +386,22 @@ just happened" feed; photos before and after their repair.
   damaged copy in REPAIR\to-repair or what the repair made, found by number
   in repair-list.csv / auto-repair-log.csv, only kinds a browser shows, never
   outside REPAIR (unit test; auto_check checks the bytes and four refusals).
-  The live strip in Start's repair stage (3 newest, kept out of the list that
-  is drawn every second) and a gallery in What is left (12 at a time); click
-  for both big.
+  Only photos a repair made something of (repaired, or a preview saved). The
+  live strip in Start's repair stage (3 newest, kept out of the list that is
+  drawn every second) and a gallery in What is left (12 at a time); click for
+  both big. A damaged copy the browser cannot draw shows words instead.
+- Notifications show "Windows PowerShell" as where they come from (Windows'
+  own name for the sender: nothing to install or register that way).
+- Tests: unit tests 130 here (cooling's pause and carry-on, the strip, the
+  pause not counted as reading time, damaged stretches told now and then,
+  the feed, notify's quoting, taskbar's bars, thumbnails only inside REPAIR);
+  auto_check 74/74 (feed in the page and in the file; api/thumb's bytes and
+  refusals); auto_ui_check 32/32 and ui_check 67/67 with Windows-like and
+  GitHub-like fonts; driveshot.js: Start with test temperatures pauses the
+  image read when "too hot", says so in the stage, Now, the title and the
+  feed, and carries on when cool; liveshot.js: screenshots of the strip,
+  the speed line, the temperature, the pause, the photos and the dialog at
+  2560, 1265, 900 and 390 px.
 
 ## Not done / ideas for later
 
