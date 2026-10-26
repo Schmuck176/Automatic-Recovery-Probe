@@ -52,6 +52,17 @@ pub fn size(n: u64) -> String {
     }
 }
 
+/// How long something took, in a few words: 45 s / 12 min / 2 h 14 min.
+pub fn duration(s: u64) -> String {
+    if s < 60 {
+        format!("{s} s")
+    } else if s < 3600 {
+        format!("{} min", s / 60)
+    } else {
+        format!("{} h {} min", s / 3600, (s % 3600) / 60)
+    }
+}
+
 /// Python's `bytes.decode("ascii", "replace")`: ASCII kept, every other
 /// byte becomes U+FFFD.
 pub fn ascii_replace(b: &[u8]) -> String {

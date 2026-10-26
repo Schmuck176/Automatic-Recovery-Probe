@@ -587,6 +587,7 @@ pub fn run(
     // (The page shows checks made of all there are, by kind of file. An MP3
     // gets two: MP3val's and FFmpeg's.)
     crate::live::begin("checks");
+    crate::live::found_begin();
     for (_, path, size) in &tasks {
         crate::live::to_do(&path.to_string_lossy(), *size);
     }
@@ -640,6 +641,9 @@ pub fn run(
                 }
                 if let Verdict::Damaged(m) = &v {
                     lines.lock().unwrap_or_else(|e| e.into_inner()).push(format!("{}: {}  ({m})", c.tool().name(), path.display()));
+                    // ("What just happened": the path inside WORK.)
+                    let inside = path.strip_prefix(work).map(|p| p.display().to_string()).unwrap_or_else(|_| shown.clone());
+                    crate::live::found(&inside, &format!("{}: {m}", c.tool().name()));
                 }
                 results.lock().unwrap_or_else(|e| e.into_inner()).push((c, path.display().to_string(), v));
                 done.fetch_add(1, Ordering::Relaxed);
@@ -662,6 +666,7 @@ pub fn run(
     for l in lines.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
         say(&l);
     }
+    crate::live::found_end();
     // (The short-named copies' folder, empty again.)
     let _ = std::fs::remove_dir(std::env::temp_dir().join(format!("arp-extra-{}", std::process::id())));
     o.stopped = stop();

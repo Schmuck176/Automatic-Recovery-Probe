@@ -190,6 +190,8 @@ ol.rail-list > li:not(:last-child)::after {
 .now-head h2 { font-size: 1.2rem; }
 .now-head p { margin: 1px 0 0; }
 #job { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+#job-numbers { display: grid; gap: 2px; }
+.etas { display: flex; flex-wrap: wrap; gap: 2px 14px; }
 #job > * { grid-column: 1 / -1; min-width: 0; }
 #job > .job-title { grid-column: 1; font-weight: 600; }
 #job > .row { grid-column: 2; grid-row: 1; margin: 0; }
@@ -214,7 +216,7 @@ ol.rail-list > li:not(:last-child)::after {
   /* (Docked along the bottom: only what matters now. The kinds of file and
      the file being worked on are in Start's own list.) */
   #now-live ul.kinds, #now-live .live-now, .now-card .yourturn.calm { display: none; }
-  body.now-active main { padding-bottom: 260px; }
+  body.now-active main { padding-bottom: 360px; }
   /* Where you are: a row of numbered circles, and one line saying what is next. */
   .rail-title { display: none; }
   ol.rail-list { display: flex; gap: 0; overflow-x: auto; }
@@ -450,8 +452,8 @@ ul.stages .st-mark .ic { width: 22px; height: 22px; }
 ul.stages .st-title { font-weight: 600; }
 ul.stages .st-num { font: 600 0.9rem var(--head); color: var(--ink-soft); margin-right: 6px; }
 ul.stages .st-when { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 10px; font: 600 0.84rem/1.6 var(--head); color: var(--ink-soft); white-space: nowrap; }
-ul.stages .st-sum { grid-column: 2 / 4; font-size: 0.88rem; color: var(--ink-soft); }
-ul.stages details { grid-column: 2 / 4; margin: 2px 0 0; }
+ul.stages .st-sum { grid-column: 2 / -1; font-size: 0.88rem; color: var(--ink-soft); }
+ul.stages details { grid-column: 2 / -1; margin: 2px 0 0; }
 ul.stages details summary { font-size: 0.86rem; font-weight: 400; }
 ul.stages li.pending .st-title { font-weight: 500; color: var(--ink-soft); }
 ul.stages li.done .st-mark, ul.stages li.skipped .st-mark, ul.stages li.done .st-when { color: var(--read); }
@@ -582,11 +584,11 @@ ul.kinds .ic { color: var(--ink-soft); }
 ul.kinds .k-name { font-weight: 600; white-space: nowrap; }
 ul.kinds .k-num { text-align: right; color: var(--ink-soft); }
 ul.kinds .k-num > span { white-space: nowrap; }
-ul.stages .st-doing { grid-column: 2 / 4; font-size: 0.88rem; color: var(--act); }
+ul.stages .st-doing { grid-column: 2 / -1; font-size: 0.88rem; color: var(--act); }
 .live-now { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 0.86rem; color: var(--ink-soft); }
 .live-now .ic { margin-top: 2px; }
 .live-now .path { overflow-wrap: anywhere; }
-ul.stages li.running .live { grid-column: 2 / 4; }
+ul.stages li.running .live { grid-column: 2 / -1; }
 .now-card .live { margin: 0; }
 .now-card ul.kinds { grid-template-columns: minmax(0, 1fr); }
 .eta { display: inline-flex; align-items: center; gap: 6px; }
@@ -627,6 +629,92 @@ ul.stages li.running .live { grid-column: 2 / 4; }
 .node-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
 .node-facts .fact { font-size: 0.78rem; padding: 1px 8px 1px 5px; }
 @container (max-width: 760px) { .node-facts { justify-content: flex-start; } }
+
+/* The SSD as the image reads it: a strip from its start to its end, filling
+   in as it is read (green read, amber read slowly, red could not be read),
+   with the speed it reads at and how warm it is. */
+.drive { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 8px 0 2px; min-width: 0; }
+ul.stages li.running .drive, ul.stages li.running .pairs-live { grid-column: 2 / -1; }
+.drive-frame { border: 1px solid var(--rule-strong); border-radius: 6px; overflow: hidden; background: var(--paper); }
+.drive-strip { display: block; width: 100%; height: 24px; }
+.drive-strip .c1 { fill: var(--read); }
+.drive-strip .c2 { fill: var(--turn-line); }
+.drive-strip .c3 { fill: var(--unread); }
+.drive-strip .at { fill: var(--act); }
+.drive-ends { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 10px; margin-top: -4px; font-size: 0.78rem; color: var(--ink-soft); }
+.drive-legend { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 0.84rem; color: var(--ink-soft); }
+.drive-legend > span { display: inline-flex; align-items: baseline; min-width: 0; }
+.drive-legend .key { flex: none; }
+.key.c0 { background: var(--paper); border: 1px solid var(--rule-strong); }
+.key.c1 { background: var(--read); }
+.key.c2 { background: var(--turn-line); }
+.key.c3 { background: var(--unread); }
+.speed { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.speed-graph { display: block; width: 100%; height: 52px; border-bottom: 1px solid var(--rule); }
+.speed-line { fill: none; stroke: var(--act); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.speed-area { fill: color-mix(in srgb, var(--act) 14%, transparent); stroke: none; }
+.speed-words { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 0.84rem; color: var(--ink-soft); }
+.speed-words > span { display: inline-flex; align-items: center; gap: 6px; }
+.speed-words .ic { color: var(--act); }
+.speed-words b { color: var(--ink); font: 600 0.95rem var(--head); }
+.drive .facts { margin: 0; }
+.drive .msg { margin: 0; }
+.now-card .drive { margin: 0; }
+.now-card .fact { border-radius: 10px; }
+
+/* What just happened: the latest first, each with its time. */
+.now-feed .now-label { display: flex; align-items: center; gap: 6px; }
+.now-feed .now-label .ic { color: var(--act); }
+ol.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+ol.feed > li { display: grid; grid-template-columns: 3.2em auto minmax(0, 1fr); gap: 7px; align-items: start; font-size: 0.86rem; line-height: 1.42; }
+ol.feed > li.day { display: block; margin-top: 4px; font: 600 0.8rem var(--head); color: var(--ink-soft); border-top: 1px solid var(--rule); padding-top: 6px; }
+ol.feed time { font: 600 0.82rem/1.6 var(--head); color: var(--ink-soft); white-space: nowrap; }
+ol.feed .ic { width: 1.05em; height: 1.05em; margin-top: 0.2em; color: var(--act); }
+ol.feed li.good .ic { color: var(--read); }
+ol.feed li.warn .ic { color: var(--turn); }
+ol.feed li.bad .ic { color: var(--unread); }
+ol.feed li.bad > span { color: var(--unread); }
+.now-feed details { margin-top: 8px; }
+.now-feed details > ol.feed { margin-top: 8px; }
+
+/* Photos before and after their repair. */
+.pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 12px; margin-top: 10px; }
+.pairs-live h4 { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font: 600 0.92rem var(--head); color: var(--ink-soft); }
+.pairs-live h4 .ic { color: var(--act); }
+.pair { margin: 0; padding: 8px; border-radius: 10px; background: var(--sheet); border: 1px solid var(--rule); min-width: 0; }
+.pair > button { all: unset; display: block; width: 100%; cursor: zoom-in; border-radius: 6px; }
+.pair > button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.pics { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: center; }
+.pics > .ic { color: var(--ink-soft); width: 1.1em; height: 1.1em; }
+.pic { position: relative; aspect-ratio: 4 / 3; border-radius: 6px; overflow: hidden; background: var(--paper); border: 1px solid var(--rule); display: grid; place-items: center; }
+.pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pic-label { position: absolute; left: 4px; top: 4px; padding: 0 6px; border-radius: 4px; font: 600 0.72rem/1.6 var(--head); background: rgb(10 20 25 / 0.68); color: #fff; }
+.pic.none { padding: 22px 6px 6px; text-align: center; font-size: 0.74rem; line-height: 1.3; color: var(--ink-soft); align-content: center; gap: 4px; }
+.pic.none .ic { width: 1.3em; height: 1.3em; margin: 0 auto; }
+.pair figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: 6px; font-size: 0.84rem; min-width: 0; }
+.pair figcaption b { overflow-wrap: anywhere; }
+.pair figcaption .tag { margin-left: 0; }
+.tag.bad { background: var(--bad-bg); color: var(--unread); border-color: transparent; }
+dialog.photo { width: min(1500px, calc(100vw - 32px)); }
+dialog.photo .dbody { max-height: none; padding: 12px 18px; }
+.bigpics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
+.bigpics figure { margin: 0; }
+.bigpics figcaption { font: 600 0.95rem var(--head); margin-bottom: 6px; }
+.bigpics img { display: block; width: 100%; max-height: 70vh; object-fit: contain; background: var(--paper); border-radius: 8px; border: 1px solid var(--rule); }
+.bigpics .pic.none { aspect-ratio: auto; min-height: 180px; font-size: 0.9rem; }
+
+/* Windows notifications, beside Start. */
+.notify-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 14px; }
+.notify-row label.check { margin: 0; flex: 1 1 320px; }
+.notify-row label.check .ic { color: var(--act); margin-right: 4px; }
+.notify-row button { min-height: 34px; padding: 5px 12px; font-size: 0.9rem; }
+
+@media (max-width: 1099px) {
+  /* (Docked along the bottom: the newest line of what just happened, and
+     the strip of the SSD without its speed graph.) */
+  .now-feed .now-label, .now-feed details, ol.feed > li:nth-child(n+2) { display: none; }
+  .now-card .drive .speed, .now-card .drive .drive-legend, .now-card .drive-frame, .now-card .drive-ends { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ic.spin, .ring.spin { animation: none; }
@@ -737,6 +825,19 @@ PERFORMANCE OF THIS SOFTWARE. -->
 <symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></symbol>
 <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
 <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+<symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/></symbol>
+<symbol id="i-bell-ring" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+<symbol id="i-thermometer" viewBox="0 0 24 24"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></symbol>
+<symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></symbol>
+<symbol id="i-image-off" viewBox="0 0 24 24"><line x1="2" x2="22" y1="2" y2="22"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><line x1="13.5" x2="6" y1="13.5" y2="21"/><line x1="18" x2="21" y1="12" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+<symbol id="i-chart-line" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></symbol>
+<symbol id="i-trending-down" viewBox="0 0 24 24"><path d="M16 17h6v-6"/><path d="m22 17-8.5-8.5-5 5L2 7"/></symbol>
+<symbol id="i-images" viewBox="0 0 24 24"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></symbol>
 </defs></svg>
 <div class="shell">
   <header class="masthead">
@@ -772,9 +873,11 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <div class="small soft" id="job-numbers"></div>
             <div class="job-last" id="job-last"></div>
             <div id="now-live"></div>
+            <div id="now-drive"></div>
           </div>
           <div id="now-turn"></div>
           <div class="now-next" id="now-next"></div>
+          <div class="now-feed" id="now-feed" role="log" aria-label="What just happened"></div>
         </div>
       </aside>
     </div>
@@ -868,6 +971,11 @@ PERFORMANCE OF THIS SOFTWARE. -->
               <button class="big" id="b-auto-start"><svg class="ic" aria-hidden="true"><use href="#i-play"></use></svg>Start</button>
               <button class="second" id="b-auto-over"><svg class="ic" aria-hidden="true"><use href="#i-rotate-ccw"></use></svg>Start over</button>
             </div>
+            <div class="notify-row">
+              <label class="check"><input type="checkbox" id="notify-on" checked> <span><svg class="ic" aria-hidden="true"><use href="#i-bell"></use></svg>Tell me with a Windows notification when Start needs me, stops on a problem, or is done, so I can do something else meanwhile.</span></label>
+              <button class="second" id="b-notify-test"><svg class="ic" aria-hidden="true"><use href="#i-bell-ring"></use></svg>Try it</button>
+            </div>
+            <div id="r-notify"></div>
             <div id="ar-start"></div>
           </li>
 
@@ -1029,6 +1137,12 @@ PERFORMANCE OF THIS SOFTWARE. -->
   </div>
 </div>
 
+<dialog id="photo" class="photo" aria-labelledby="photo-title">
+  <div class="dhead"><h2 id="photo-title">Before and after</h2><p class="small soft" id="photo-how"></p></div>
+  <div class="dbody"><div class="bigpics" id="photo-pics"></div></div>
+  <div class="dfoot"><button class="second" id="photo-close"><svg class="ic" aria-hidden="true"><use href="#i-x"></use></svg>Close</button></div>
+</dialog>
+
 <dialog id="picker" aria-labelledby="picker-title">
   <div class="dhead">
     <h2 id="picker-title">Choose a folder</h2>
@@ -1096,7 +1210,7 @@ const ic = (name, cls) => `<svg class="ic${cls ? " " + cls : ""}" aria-hidden="t
 const MSG_ICON = { ok: "circle-check", err: "circle-x", warn: "triangle-alert" };
 // A message: its icon, its words, and (after) a button to act on it.
 function msg(kind, html, after) {
-  return `<div class="msg ${kind || ""}">${ic(MSG_ICON[kind] || "info")}<div class="msg-text">${html}</div>${after || ""}</div>`;
+  return `<div class="msg ${kind || ""}">${ic(MSG_ICON[(kind || "").split(" ")[0]] || "info")}<div class="msg-text">${html}</div>${after || ""}</div>`;
 }
 // A state: its icon and its word.
 const STATE_ICON = { done: "circle-check", problem: "circle-x", running: "loader-circle", turn: "hand", next: "chevron-right", "": "circle-dashed" };
@@ -1155,6 +1269,8 @@ function progressNow() {
   if (!(total > 0)) return { f: null, left: null };
   const f = Math.min(1, done / total);
   const secs = j.phase_seconds || 0;
+  // (Paused while the SSD cools down: how long is not known.)
+  if (S.drive && S.drive.paused && imageRunning()) return { f, left: null };
   let left = null;
   if (own && j.rate > 0) left = Math.max(0, total - done) / j.rate;
   else if (!own && f > 0.005 && secs >= 20) left = (secs * (1 - f)) / f;
@@ -1199,6 +1315,188 @@ function liveHtml(L, narrow) {
   if (L.now) h += `<p class="live-now">${ic("file")}<span>Now: <span class="path">${esc(shortPath(L.now))}</span></span></p>`;
   return h + `</div>`;
 }
+
+// "done around 14:35": when it will be done, as a time on the clock, from
+// the seconds left (to the nearest 5 minutes; with the day when it is not
+// today). Always beside the time left, which says the same in hours.
+function finishText(s) {
+  if (s == null) return "";
+  const t = new Date(Date.now() + s * 1000);
+  const step = s < 600 ? 1 : 5;
+  t.setSeconds(0, 0);
+  t.setMinutes(Math.round(t.getMinutes() / step) * step);
+  const hm = t.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(t) - day(new Date())) / 864e5);
+  if (days <= 0) return `done around ${hm}`;
+  if (days === 1) return `done around ${hm} tomorrow`;
+  if (days < 7) return `done around ${hm} on ${t.toLocaleDateString("en-GB", { weekday: "long" })}`;
+  return `done around ${hm} on ${t.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
+}
+// The clock time of a line of "what just happened" ("2026-10-26 07:12:03").
+function feedWhen(when) {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(when || ""));
+  if (!m) return { day: "", time: "" };
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - d) / 864e5);
+  const day = days <= 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  return { day, time: `${m[4]}:${m[5]}` };
+}
+const FEED_ICON = { good: "circle-check", warn: "triangle-alert", bad: "circle-x", info: "info" };
+function feedItems(list) {
+  let h = "", day = null;
+  for (const e of list) {
+    const w = feedWhen(e.when);
+    // A heading where the day changes (not for today's, when all are today's).
+    if (day !== null ? w.day !== day : w.day !== "Today") h += `<li class="day">${esc(w.day)}</li>`;
+    day = w.day;
+    h += `<li class="${esc(e.tone)}"><time>${esc(w.time)}</time>${ic(FEED_ICON[e.tone] || "info")}<span>${esc(e.text)}</span></li>`;
+  }
+  return h;
+}
+let feedOpen = false; // "Earlier" opened by the person: stays open
+function feedHtml(F) {
+  if (!F || !F.length) return "";
+  const first = F.slice(0, 6), rest = F.slice(6);
+  return `<p class="now-label">${ic("scroll-text")}What just happened</p><ol class="feed">${feedItems(first)}</ol>` +
+    (rest.length ? `<details id="feed-more"${feedOpen ? " open" : ""}><summary>Earlier (${rest.length})</summary><ol class="feed">${feedItems(rest)}</ol></details>` : "");
+}
+
+// The SSD as the image reads it: the strip (one cell per 1/400 of it), the
+// places it read slowly or could not read, its speed and its temperature.
+function median(v) { const s = [...v].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; }
+function driveHtml(D, compact) {
+  if (!D || !(D.size > 0)) return "";
+  const cells = String(D.cells || "");
+  const n = Math.max(1, cells.length);
+  let rects = "";
+  for (let i = 0; i < cells.length;) {
+    let j = i;
+    while (j < cells.length && cells[j] === cells[i]) j++;
+    if (cells[i] !== "0") rects += `<rect class="c${cells[i]}" x="${i}" y="0" width="${j - i}" height="10"></rect>`;
+    i = j;
+  }
+  const read = Math.min(1, D.pos / D.size);
+  const reading = read < 1 && !D.check;
+  const at = reading ? `<rect class="at" x="${Math.max(0, read * n - 0.6).toFixed(2)}" y="0" width="1.2" height="10"></rect>` : "";
+  const label = `The SSD from its start to its end: ${pct(read)} read` + (D.bad_bytes ? `, ${gb(D.bad_bytes)} could not be read` : "") + (D.slow ? `, ${commas(D.slow)} places read slowly` : "");
+  let h = `<div class="drive"><div class="drive-frame"><svg class="drive-strip" viewBox="0 0 ${n} 10" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">${rects}${at}</svg></div>`;
+  h += `<div class="drive-ends"><span>start</span>${compact ? "" : `<span>${esc(gb(Math.min(D.pos, D.size)))} of ${esc(gb(D.size))} read</span>`}<span>end (${esc(gb(D.size))})</span></div>`;
+  const leg = [`<span><i class="key c1"></i>read</span>`];
+  if (D.slow) leg.push(`<span><i class="key c2"></i>read slowly: ${commas(D.slow)} ${D.slow === 1 ? "place" : "places"}</span>`);
+  if (D.bad_places) leg.push(`<span><i class="key c3"></i>could not be read: ${esc(gb(D.bad_bytes))} in ${commas(D.bad_places)} ${D.bad_places === 1 ? "place" : "places"} (left as zeros, and listed)</span>`);
+  if (reading) leg.push(`<span><i class="key c0"></i>not read yet</span>`);
+  h += `<div class="drive-legend">${leg.join("")}</div>`;
+  // How fast it reads: a sagging speed is an early sign it struggles.
+  const v = (D.speeds || []).map(Number);
+  if (v.length >= 2 && !compact) {
+    const W = 300, H = 52, top = Math.max(1, ...v) * 1.08;
+    const pts = v.map((s, i) => `${((i / (v.length - 1)) * W).toFixed(1)},${(H - (s / top) * (H - 3)).toFixed(1)}`).join(" ");
+    const now = v[v.length - 1], usual = median(v);
+    const lately = v.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, v.length);
+    const span = v.length * (D.every || 2);
+    h += `<div class="speed"><svg class="speed-graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="How fast the SSD has read, over ${esc(duration(span))}: ${Math.round(now)} MB/s now, ${Math.round(usual)} MB/s usually">` +
+      `<polygon class="speed-area" points="0,${H} ${pts} ${W},${H}"></polygon><polyline class="speed-line" points="${pts}"></polyline></svg>` +
+      (reading
+        ? `<div class="speed-words"><span>${ic("gauge")}<span>Reading at <b>${Math.round(now)} MB/s</b></span></span><span>usually ${Math.round(usual)} MB/s</span><span>the line: its speed over the ${esc(duration(span))} so far</span></div>`
+        : `<div class="speed-words"><span>${ic("gauge")}<span>Read at <b>${Math.round(usual)} MB/s</b> usually</span></span><span>fastest ${Math.round(Math.max(...v))} MB/s</span><span>the line: its speed over all ${esc(duration(span))} of reading</span></div>`);
+    if (reading && !D.paused && v.length >= 15 && usual > 0 && lately < usual * 0.5) {
+      h += msg("warn", `The SSD is reading much more slowly than before (${Math.round(lately)} MB/s lately, ${Math.round(usual)} MB/s usually). That can be an early sign it is struggling. Leave it running: it reads around bad places carefully by itself, and nothing needs doing unless it stops.`);
+    }
+    h += `</div>`;
+  }
+  // How warm it is (read from Windows), and the pause when it is too hot.
+  const facts = [];
+  const live = imageRunning();
+  if (D.temp != null && live && reading) {
+    const warm = D.temp_limit != null && D.temp >= D.temp_limit - 5;
+    facts.push(fact(D.paused || warm ? "warn" : "", "thermometer", `SSD at <b>${D.temp} °C</b>` + (D.temp_max != null && D.temp_max > D.temp ? ` · warmest ${D.temp_max} °C` : "") + (D.temp_limit != null ? ` · reading pauses at ${D.temp_limit} °C` : "")));
+  } else if (D.temp_max != null) {
+    facts.push(fact("", "thermometer", `Warmest while it was read: <b>${D.temp_max} °C</b>`));
+  }
+  if (D.pauses) facts.push(fact("warn", "pause", `Paused ${D.pauses === 1 ? "once" : D.pauses === 2 ? "twice" : D.pauses + " times"} to let it cool down`));
+  if (D.check && live) facts.push(fact("act", "badge-check", `All of it read: now reading the image back to check it (<b>${esc(gb(D.check[0]))}</b> of ${esc(gb(D.check[1]))})`));
+  if (facts.length) h += `<div class="facts">${facts.join("")}</div>`;
+  if (D.paused && reading) h += msg("warn pause", `<b>Paused while the SSD cools down.</b> It is at ${D.temp} °C; reading carries on by itself at ${D.temp_limit - 10} °C. Give it air: take it out of a closed space, or point a fan at it.`);
+  else if (D.temp == null && D.temp_note && !compact) h += `<p class="small soft" style="margin:0">${ic("thermometer")} ${esc(D.temp_note)}</p>`;
+  return h + `</div>`;
+}
+// Is the image being made now (by Start, or by step 4)?
+function imageRunning() { return !!runningAs("image", ["image"]); }
+
+// Photos before and after their repair. A browser shows these kinds; for the
+// others (HEIC, a camera's RAW) the page says so in words.
+const SHOWS = /\.(jpe?g|jpe|jfif|png|gif|bmp|webp|avif)$/i;
+const PHOTO = /\.(jpe?g|jpe|jfif|png|gif|bmp|webp|avif|heic|heif|tiff?|dng|nef|nrw|cr2|cr3|crw|arw|srf|sr2|orf|rw2|raf|srw|pef|x3f|3fr|erf|kdc|mrw|rwl|iiq)$/i;
+const RESULT = { "REPAIRED": ["ok", "Repaired"], "SALVAGED": ["warn", "Partly saved"], "NOT REPAIRED": ["bad", "Not repaired"] };
+const fileName = (p) => String(p || "").split(/[\\/]/).pop();
+// The photos a repair made something of (repaired, or a preview saved), with
+// a side the page can show.
+function photoPairs(list) { return (list || []).filter((r) => PHOTO.test(r.path || "") && r.output && (SHOWS.test(r.path || "") || SHOWS.test(r.output))); }
+function thumbUrl(r, which, v) { return `api/thumb?id=${encodeURIComponent(r.id)}&which=${which}&v=${encodeURIComponent(v || "")}`; }
+function picHtml(r, which, v) {
+  const name = which === "before" ? r.path : r.output;
+  const label = which === "before" ? "Before" : "After";
+  if (which === "after" && !r.output) return `<span class="pic none"><span class="pic-label">${label}</span>${ic("image-off")}<span>Nothing could be made from it</span></span>`;
+  if (!SHOWS.test(name || "")) return `<span class="pic none"><span class="pic-label">${label}</span>${ic("image-off")}<span>A ${esc((String(name).split(".").pop() || "").toUpperCase())} file: the page can't show this kind</span></span>`;
+  const alt = which === "before" ? `${fileName(r.path)} as it came off the drive` : `${fileName(r.path)} after the repair`;
+  return `<span class="pic"><img src="${thumbUrl(r, which, v)}" alt="${esc(alt)}" loading="lazy" decoding="async"><span class="pic-label">${label}</span></span>`;
+}
+function pairHtml(r, v) {
+  const [cls, word] = RESULT[r.result] || ["", r.result];
+  photoIndex[r.id] = [r, v];
+  return `<figure class="pair"><button type="button" data-photo="${esc(r.id)}" data-v="${esc(v || "")}" aria-label="${esc(fileName(r.path))}: ${esc(word)}. Show it bigger">` +
+    `<span class="pics">${picHtml(r, "before", v)}${ic("arrow-right")}${picHtml(r, "after", v)}</span></button>` +
+    `<figcaption><b>${esc(fileName(r.path))}</b><span class="tag ${cls}">${esc(word)}</span></figcaption></figure>`;
+}
+// The live strip, kept out of the stage list (which is drawn again every
+// second): pictures already shown are not loaded and drawn again.
+const livePairs = document.createElement("div");
+livePairs.className = "pairs";
+let livePairsKey = "";
+function updateLivePairs() {
+  const list = photoPairs(S && S.repairs).slice(0, 3);
+  const key = list.map((r) => r.n).join(",");
+  if (key !== livePairsKey) {
+    livePairsKey = key;
+    livePairs.innerHTML = list.map((r) => pairHtml(r, "n" + r.n)).join("");
+  }
+  return list.length;
+}
+const photoIndex = {}; // id -> [repair, v]: for "show it bigger"
+function showPhoto(id) {
+  const x = photoIndex[id];
+  if (!x) return;
+  const [r, v] = x;
+  const [, word] = RESULT[r.result] || ["", r.result];
+  $("photo-title").textContent = `${fileName(r.path)}: ${word}`;
+  $("photo-how").textContent = r.how || "";
+  const big = (which) => {
+    const name = which === "before" ? r.path : r.output;
+    const label = which === "before" ? "Before: the damaged copy" : "After: what the repair made";
+    if ((which === "after" && !r.output) || !SHOWS.test(name || "")) return `<figure><figcaption>${label}</figcaption>${picHtml(r, which, v)}</figure>`;
+    return `<figure><figcaption>${label}</figcaption><img src="${thumbUrl(r, which, v)}" alt="${esc(label)}"></figure>`;
+  };
+  $("photo-pics").innerHTML = big("before") + big("after");
+  $("photo").showModal();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("button[data-photo]");
+  if (b) showPhoto(b.dataset.photo);
+});
+$("photo-close").onclick = () => $("photo").close();
+// A damaged copy the browser cannot draw at all: words instead of a broken picture.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG" || !img.closest(".pic, .bigpics")) return;
+  const box = document.createElement("span");
+  box.className = "pic none";
+  box.innerHTML = `${ic("image-off")}<span>The damage stops it showing here</span>`;
+  const label = img.parentNode.querySelector(".pic-label");
+  if (label) box.prepend(label);
+  (img.closest(".pic") || img).replaceWith(box);
+}, true);
 
 let S = null;          // the program's state
 let mapInfo = null;    // the chosen mapfile, read
@@ -1532,6 +1830,10 @@ function renderImage() {
     const ls = j.summary || [];
     if (ls.length) h += `<div class="panel">${ls.map((l) => `<p class="small">${esc(l)}</p>`).join("")}</div>`;
   }
+  // The SSD's strip: as it is read, and afterwards how it read.
+  if (S.drive && S.drive.size) {
+    h += `<div class="panel"><h3 style="margin-top:0">${ic("hard-drive")} ${imageRunning() ? "The SSD, as it is read" : "How the SSD read"}</h3>${driveHtml(S.drive, false)}</div>`;
+  }
   put($("r-image"), h);
   // Checking the image made earlier.
   $("imagecheck").hidden = !setting("image");
@@ -1826,18 +2128,63 @@ function renderJob() {
   const BYTES = ["image", "imagecheck", "rescue", "copy", "verify", "verify2", "finalise", "download"];
   const unit = !L && j.total > 0 ? (BYTES.includes(key) ? `${gb(j.done)} of ${gb(j.total)}` : `${commas(j.done)} of ${commas(j.total)}`) : "";
   const head = p && p.f != null
-    ? `<span class="eta">${ring(p.f)}<b>${pct(p.f)}</b></span>${p.left != null ? ` · <span class="eta">${ic("timer")}${esc(leftText(p.left))}</span>` : ""}`
+    ? `<span class="eta">${ring(p.f)}<b>${pct(p.f)}</b></span>${p.left != null ? `<span class="eta">${ic("timer")}${esc(leftText(p.left))}</span><span class="eta">${ic("clock")}${esc(finishText(p.left))}</span>` : ""}`
     : `<span class="eta">${ic("timer")}${esc(duration(j.seconds))} so far</span>`;
-  put($("job-numbers"), head + (unit ? `<br><span class="soft">${esc(unit)}</span>` : ""));
+  put($("job-numbers"), `<span class="etas">${head}</span>` + (unit ? `<span class="soft">${esc(unit)}</span>` : ""));
   put($("now-live"), liveHtml(L, true));
+  // The SSD's strip and temperature, while the image is made.
+  put($("now-drive"), imageRunning() ? driveHtml(S.drive, true) : "");
   // (The file being worked on is in the live numbers, when there are some.)
   $("job-last").textContent = L && L.now ? "" : (j.lines || []).slice(-1)[0] || "";
+}
+
+// The window's title, which the taskbar shows: how far the job has got,
+// what it is, and how long it may take yet - or that it is your turn.
+const APP_TITLE = "Automatic Recovery Probe";
+const STAGE_SHORT = {
+  ready: "Checking everything is ready", image: "Making the image", open: "Opening the image", mapcheck: "Finding the damage",
+  copy: "Copying into WORK", verify: "Checking the copies", scan: "Checking every file", extra: "Extra checks",
+  isolate: "Setting damaged files aside", repair: "Repairing", putback: "Putting repairs back", verify2: "Checking the copies again",
+  scan2: "Checking every file again", evaluate: "Counting what is left", handoff: "Getting the rest ready",
+};
+function shortLeft(s) { return leftText(s).replace(/^about /, ""); }
+function titleNow() {
+  if (lost) return "Not running · " + APP_TITLE;
+  const j = S && S.job;
+  if (!j) return APP_TITLE;
+  const A = S.auto || {};
+  if (j.state === "running") {
+    if (j.kind === "auto" && A.waiting) return "Your turn · " + APP_TITLE;
+    const stage = j.kind === "auto" ? ((A.stages || []).find((x) => x.state === "running") || {}).key : null;
+    const what = j.kind === "auto" ? STAGE_SHORT[stage] || "Start" : j.title;
+    if (imageRunning() && S.drive && S.drive.paused) return `Paused: the SSD is cooling down · ${APP_TITLE}`;
+    const p = progressNow();
+    const bits = [];
+    if (p && p.f != null) bits.push(pct(p.f));
+    bits.push(what);
+    if (p && p.left != null) bits.push(shortLeft(p.left));
+    return bits.join(" · ") + " · " + APP_TITLE;
+  }
+  if (j.state === "failed") return "Needs attention · " + APP_TITLE;
+  if (j.kind === "auto" && j.state === "done" && A.resume_at >= (A.stages || []).length) return "Start is done · " + APP_TITLE;
+  return APP_TITLE;
+}
+function renderTitle() {
+  const t = titleNow();
+  if (document.title !== t) document.title = t;
+}
+
+// What just happened (newest first), and the setting for notifications.
+function renderFeed() {
+  put($("now-feed"), feedHtml(S.feed));
+  const box = $("notify-on");
+  if (document.activeElement !== box) box.checked = S.notify !== false;
 }
 
 function render() {
   if (!S) return;
   renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
-  renderPlaces(); renderJourney(); renderNow(); renderRail();
+  renderPlaces(); renderJourney(); renderNow(); renderRail(); renderFeed(); renderTitle();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -2035,6 +2382,7 @@ async function refresh() {
     if (!lost) {
       lost = true;
       put($("restore-banner"), `<div class="banner lost">${ic("circle-x")}<div><p><b>The program is not running any more</b>: its window was closed. Double-click Automatic Recovery Probe to start it again; what the steps found is kept.</p></div></div>`);
+      renderTitle();
     }
     return;
   }
@@ -2253,11 +2601,15 @@ function renderAuto() {
       // How far it has got, how long it has run, how long it may take yet.
       const p = progressNow();
       const mark = p && p.f != null ? ring(p.f) : ic("loader-circle", "spin");
-      const when = p && p.f != null ? `<span>${pct(p.f)}</span>${p.left != null ? `<span>${esc(leftText(p.left))}</span>` : ""}` : `<span>${esc(word)}</span>`;
+      const when = p && p.f != null ? `<span>${pct(p.f)}</span>${p.left != null ? `<span>${esc(leftText(p.left))}</span><span>${esc(finishText(p.left))}</span>` : ""}` : `<span>${esc(word)}</span>`;
       const ran = s.seconds > 0 ? `<span>${esc(duration(s.seconds))} so far</span>` : "";
+      // The image: the SSD's strip, speed and temperature. The repairs: the
+      // latest photos before and after (put in after drawing: see below).
+      const extra = s.key === "image" ? driveHtml(S.drive, false)
+        : s.key === "repair" && photoPairs(S.repairs).length ? `<div class="pairs-live"><h4>${ic("images")}The latest photos repaired, before and after</h4><div id="live-pairs"></div></div>` : "";
       return `<li class="running"><span class="st-mark">${mark}</span>` +
         `<span class="st-title"><span class="st-num">${i + 1}</span>${esc(stageTitle(s))}</span>` +
-        `<span class="st-when">${when}${ran}</span>${S.live ? liveHtml(S.live, false) : doingHtml()}</li>`;
+        `<span class="st-when">${when}${ran}</span>${S.live ? liveHtml(S.live, false) : doingHtml()}${extra}</li>`;
     }
     return `<li class="${esc(s.state)}"><span class="st-mark">${ic(icon)}</span>` +
       `<span class="st-title"><span class="st-num">${i + 1}</span>${esc(stageTitle(s))}</span>` +
@@ -2274,6 +2626,12 @@ function renderAuto() {
     h += msg(ok ? "ok" : autoJob.state === "stopped" ? "warn" : "err", lines(autoJob.summary || [autoJob.error]).replace(/\n/g, "<br>"));
   }
   put($("ar-start"), h);
+  // (The photos are kept as they are, and put back into the list.)
+  const slot = $("live-pairs");
+  if (slot) {
+    updateLivePairs();
+    if (livePairs.parentNode !== slot) slot.appendChild(livePairs);
+  }
   const failedStage = A.stages.find((s) => s.state === "failed");
   const waitingNow = autoRunning() && A.waiting;
   const atStage = A.stages.findIndex((s) => s.state === "running" || s.state === "waiting");
@@ -2296,6 +2654,14 @@ function renderAuto() {
       h += `<details><summary>Every damaged file, and what was done</summary><div class="scroll"><table><tr><th>No.</th><th>File</th><th>Result</th><th>How</th></tr>` +
         d.attempts.map((a) => `<tr><td>${esc(a.id)}</td><td class="path">${esc(a.path)}</td><td class="verdict">${esc(a.result)}</td><td class="small">${esc(a.how)}${a.note ? ` <span class="soft">(${esc(a.note)})</span>` : ""}</td></tr>`).join("") +
         `</table></div></details>`;
+    }
+    // The photos, before and after: the damaged copy, and what the repair made.
+    const photos = photoPairs(d.attempts);
+    if (photos.length) {
+      h += `<h3>${ic("images")} Photos before and after their repair (${commas(photos.length)})</h3>` +
+        `<p class="small soft">Each photo the repairs made something of: as it came off the drive, and what the repair made (or the preview saved from it). Click one to see it bigger. A grey or smeared part is where the old drive never gave up its bytes: no tool can bring those back.</p>` +
+        `<div class="pairs">${photos.slice(0, galleryN).map((r) => pairHtml(r, ar.started_at || "")).join("")}</div>`;
+      if (photos.length > galleryN) h += `<div class="row"><button class="second" id="b-more-photos">${ic("images")}Show ${Math.min(12, photos.length - galleryN)} more</button></div>`;
     }
     h += `</div>`;
   }
@@ -2364,6 +2730,9 @@ function renderJourney() {
   const md = mapData(), dom = domain(), P = PLACES;
   const ssdFacts = [dom ? fact("", "hard-drive", `<b>${esc(nominal(dom))}</b> drive`) : "",
     md && md.bytes_seen != null ? fact("", "files", `<b>${esc(gb(md.bytes_seen))}</b> in ${commas(md.files_seen)} files`) : ""];
+  // While it is read: how warm it is.
+  const Dv = S.drive;
+  if (imageRunning() && Dv && Dv.temp != null) ssdFacts.push(fact(Dv.paused ? "warn" : "", "thermometer", Dv.paused ? `<b>${Dv.temp} °C</b> · cooling down` : `<b>${Dv.temp} °C</b>`));
   const imgFacts = [P && P.image.bytes ? fact(imageMade ? "good" : "", "disc", `<b>${esc(gb(P.image.bytes))}</b>${imageMade ? "" : " of " + esc(gb(dom || P.image.bytes))}`) : dom ? fact("", "disc", `Needs <b>${esc(gb(dom))}</b>`) : "", defenderFact(imgDir)];
   const spare = spareOf(work);
   const wn = workNeed();
@@ -2719,10 +3088,14 @@ $("b-auto-over").onclick = async () => {
   try { await act({ action: "auto-start-over" }); note("start", "ok", "Start begins from the first stage next time."); } catch (err) { note("start", "err", err.message); }
   await refresh();
 };
+let galleryN = 12; // photos before and after shown in What is left
 $("ar-left").addEventListener("click", async (e) => {
   const b = e.target.closest("button");
   if (!b) return;
-  if (b.id === "b-ab-from") {
+  if (b.id === "b-more-photos") {
+    galleryN += 12;
+    render();
+  } else if (b.id === "b-ab-from") {
     openPicker("Bring back from this folder", $("ab-from").value || "", false, (p) => { $("ab-from").value = p; $("ab-from").dataset.touched = "1"; });
   } else if (b.id === "b-bring") {
     note("left", "", "");
@@ -2736,6 +3109,17 @@ $("b-finalise").onclick = async () => {
   try { await act({ action: "finalise" }); } catch (err) { note("final", "err", err.message); }
   await refresh();
 };
+// Windows notifications: on or off, and a try.
+$("notify-on").addEventListener("change", () => save({ notify: $("notify-on").checked ? "on" : "off" }));
+$("b-notify-test").onclick = async () => {
+  const b = $("b-notify-test");
+  b.disabled = true;
+  put($("r-notify"), msg("", "Sending one…"));
+  try { const r = await act({ action: "notify-test" }); put($("r-notify"), msg("ok", esc(r.message))); }
+  catch (err) { put($("r-notify"), msg("err", esc(err.message))); }
+  b.disabled = false;
+};
+$("now-feed").addEventListener("toggle", (e) => { if (e.target.id === "feed-more") feedOpen = e.target.open; }, true);
 
 // ------------------------------------------------------------ the checklist
 

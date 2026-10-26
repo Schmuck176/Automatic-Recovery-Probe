@@ -286,11 +286,36 @@ fn waiting(app: &Arc<Mutex<App>>, ctx: &Ctx, key: &str, what: &str) {
     };
     if changed && !what.is_empty() {
         ctx.line(&format!("Waiting for you: {what}"));
+        crate::live::event("warn", &format!("Waiting for you: {what}"));
+        crate::notify::toast("Start needs you", what, false);
     }
 }
 
 fn banner(app: &Arc<Mutex<App>>, text: &str) {
-    lock(app).auto.banner = text.to_string();
+    let changed = {
+        let mut a = lock(app);
+        let changed = a.auto.banner != text;
+        a.auto.banner = text.to_string();
+        changed
+    };
+    if changed && !text.is_empty() {
+        crate::live::event("good", text);
+        crate::notify::toast("When you're ready", text, false);
+    }
+}
+
+/// The first line of what a stage said, short enough for one line of "what
+/// just happened".
+fn first_words(lines: &[String]) -> String {
+    let l = telling_line(lines);
+    let l = l.as_str();
+    if l.chars().count() > 170 {
+        format!(": {}…", l.chars().take(169).collect::<String>().trim_end())
+    } else if l.is_empty() {
+        String::new()
+    } else {
+        format!(": {l}")
+    }
 }
 
 /// Put a step's result where its own button would have.
@@ -340,6 +365,14 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
         });
     }
     let mut summary = Vec::new();
+    crate::live::event(
+        "info",
+        &if from == 0 {
+            format!("Start began: {} stages", STAGES.len())
+        } else {
+            format!("Start carried on from stage {} of {}: {}", from + 1, STAGES.len(), STAGES[from].1)
+        },
+    );
     for (i, (key, title)) in STAGES.iter().enumerate().skip(from) {
         if ctx.stopping() {
             return Ok(stopped_outcome(app, key));
@@ -355,6 +388,7 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
             s.summary.clear();
         });
         ctx.line(&format!("Stage {} of {}: {title}", i + 1, STAGES.len()));
+        crate::live::event("info", &format!("Stage {} of {} began: {title}", i + 1, STAGES.len()));
         let end = match *key {
             "ready" => stage_ready(app, ctx, plan),
             "image" => stage_image(app, ctx, plan),
@@ -379,6 +413,9 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
         let end = end.unwrap_or_else(|e| End::Stop(e, Vec::new()));
         match end {
             End::Done(lines) => {
+                // (What the map check found has a line of its own.)
+                let said = if *key == "mapcheck" { String::new() } else { first_words(&lines) };
+                crate::live::event("good", &format!("Stage {} done: {title} ({}){said}", i + 1, crate::fmt::duration(secs)));
                 set_stage(app, key, |s| {
                     s.state = "done".to_string();
                     s.seconds = secs;
@@ -386,6 +423,7 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
                 });
             }
             End::Skipped(lines) => {
+                crate::live::event("info", &format!("Stage {} not needed: {title}{}", i + 1, first_words(&lines)));
                 set_stage(app, key, |s| {
                     s.state = "skipped".to_string();
                     s.seconds = secs;
@@ -394,6 +432,8 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
             }
             End::Stopped => return Ok(stopped_outcome(app, key)),
             End::Stop(why, lines) => {
+                crate::live::event("bad", &format!("Start stopped at stage {} ({title}): {why}", i + 1));
+                crate::notify::toast(&format!("Start stopped at stage {}: it needs you", i + 1), &why, true);
                 set_stage(app, key, |s| {
                     s.state = "failed".to_string();
                     s.seconds = secs;
@@ -415,6 +455,8 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
         }
     }
     banner(app, "");
+    crate::live::event("good", "Start is done: every stage ran");
+    crate::notify::toast("Start is done", "Every stage ran. The page says what is left to do (5. What is left).", false);
     let mut sm = vec!["Start is done: every stage ran.".to_string()];
     sm.extend(final_lines(app, plan));
     sm.extend(summary);
@@ -422,6 +464,9 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
 }
 
 fn stopped_outcome(app: &Arc<Mutex<App>>, key: &str) -> Outcome {
+    if let Some(i) = STAGES.iter().position(|(k, _)| *k == key) {
+        crate::live::event("info", &format!("Start was stopped at stage {} ({}): Carry on picks up from there", i + 1, STAGES[i].1));
+    }
     set_stage(app, key, |s| s.state = "stopped".to_string());
     Outcome {
         summary: vec!["Stopped. Click Start again to carry on from here: nothing done so far is lost.".to_string()],
@@ -825,6 +870,7 @@ fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> 
         ..Default::default()
     };
     record(app, "mapcheck", "Finding what the damage touched", &started, t.elapsed().as_secs(), &o);
+    crate::live::event(if problem.is_some() { "warn" } else { "info" }, &format!("Found what the damage touched: {}", crate::mapcheck::found_words(&report)));
     let mut lines: Vec<String> = summary.iter().take(8).cloned().collect();
     lines.extend(crate::mapcheck::windows_lines(&report).into_iter().take(3));
     match problem {

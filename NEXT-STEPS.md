@@ -335,6 +335,61 @@ committed; its work was in the working tree and was reviewed and finished.)
   SPARE, 3. The folders, Start. Defender: At Start until Start's first
   stage, then Confirmed (or Not taken, with the reason in Start's lines).
 
+## 26 Oct 2026 (later): more live feedback, all six suggestions
+
+The user (26 Oct 08:59 GMT) asked for all six suggestions made after the last
+version: the finish time as a clock time; progress where it can be seen from
+other apps (the window's title on the taskbar, Windows notifications when
+Start needs you or stops); a live strip of the SSD while the image is made,
+with a speed graph; the SSD's temperature, with a pause when too hot; a "what
+just happened" feed; photos before and after their repair.
+
+- The clock time: "done around 14:35" (to 5 minutes; "tomorrow" / a weekday
+  further off) beside every time left (Now, Start's running stage). Not
+  while reading is paused for the heat (the time left is not known then).
+- The title: "37% · Making the image · 2 h 10 min left · Automatic Recovery
+  Probe", "Your turn · ...", "Paused: the SSD is cooling down · ...", "Start
+  is done · ...", "Needs attention · ...". Windows 11 hides taskbar labels by
+  default, so taskbar.rs also paints a progress bar on the page's window's
+  taskbar button (ITaskbarList3 on the Chromium window whose title ends with
+  the program's name) and on the console window (and OSC 9;4 for Windows
+  Terminal): green, yellow while Start waits for you or the SSD cools down,
+  red after a stop on a problem; and FlashWindowEx when it starts needing you.
+- notify.rs: Windows notifications through a hidden Windows PowerShell -
+  first as PowerShell's own toast (stays in the notification centre), else a
+  notification-area balloon. Sent when Start waits for you, stops on a
+  problem, is done, says the SSD can be unplugged; when the SSD gets too hot
+  (the first pause); when a step run from its own button for 2 min or more is
+  done or fails. Setting "notify" (on/off) by a box beside Start; Try it.
+- live.rs "what just happened": one line per event, newest first in Now (6,
+  with Earlier), kept in results\what-happened.txt (read back at start).
+  Stage began / done (with its first summary line) / not needed / stopped;
+  the map check's findings in a line; copying folder by folder (at most every
+  10 s: "Copied DCIM\2019 (412 photos, 2.1 GB)"); damage found (10 named,
+  then counted every minute); every repair; the image's every 10%, slow and
+  unreadable places (10 told, then every 100th); the temperature.
+- The SSD's strip (live.rs Drive, State JSON "drive"): 400 cells, read / read
+  slowly (a piece of at least 0.5 s at under 1/8 of the median of the last
+  64) / could not be read; speed samples every 2 s (halved at 300, so the
+  whole run); in Start's image stage, Now (compact) and step 4 (also after:
+  "How the SSD read"). A sag (the last 5 samples under half the median) is
+  warned of. The time paused is not counted as reading time.
+- cooling.rs: the temperature from IOCTL_STORAGE_QUERY_PROPERTY
+  (StorageDeviceTemperatureProperty, win.rs), else Get-StorageReliability-
+  Counter (winset.rs), every 30 s while the SSD is read; pauses at 70 °C or
+  the SSD's warning level - 2 / critical - 10 if lower (never below 50),
+  carries on at 10 °C cooler (5 °C after 15 min); never left paused (three
+  missed readings carry on). image.rs waits between pieces while paused.
+  Many USB cases pass no temperature: the page then says it is not watched.
+  Debug builds take test readings from ARP_TEST_TEMPS (driveshot.js).
+- Photos before and after: api/thumb?id=R0012&which=before|after serves the
+  damaged copy in REPAIR\to-repair or what the repair made, found by number
+  in repair-list.csv / auto-repair-log.csv, only kinds a browser shows, never
+  outside REPAIR (unit test; auto_check checks the bytes and four refusals).
+  The live strip in Start's repair stage (3 newest, kept out of the list that
+  is drawn every second) and a gallery in What is left (12 at a time); click
+  for both big.
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be

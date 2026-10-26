@@ -380,6 +380,11 @@ fn start_job(
     };
     let id = ctx.id;
     crate::live::watch(true);
+    // (Start tells "what just happened" stage by stage itself: auto.rs.)
+    let own_words = kind != "auto";
+    if own_words {
+        crate::live::event("info", &format!("Began: {title}"));
+    }
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&ctx)));
         crate::live::watch(false);
@@ -419,11 +424,62 @@ fn start_job(
                 j.error = format!("the program hit an internal error ({why}) - please report it");
             }
         }
+        let ended = (j.title.clone(), j.state.clone(), j.seconds, telling_line(&j.summary), j.error.clone());
         a.last.insert(j.kind.clone(), j.clone());
         a.job = Some(j);
         a.save();
+        drop(a);
+        if own_words {
+            job_ended(&ended.0, &ended.1, ended.2, &ended.3, &ended.4);
+        }
     });
     Ok(id)
+}
+
+/// The first line of a step's summary worth telling (not a report's
+/// heading, such as "MAP CHECK - Automatic Recovery Probe version ...").
+fn telling_line(lines: &[String]) -> String {
+    let l = lines
+        .iter()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.contains(crate::APP) && l.chars().any(|c| c.is_lowercase()))
+        .unwrap_or("");
+    // "(Only on Windows.)" -> "Only on Windows"; "ready for whoever can do better:" -> "... better".
+    let l = l.strip_prefix('(').and_then(|x| x.strip_suffix(')').or_else(|| x.strip_suffix(".)"))).unwrap_or(l);
+    l.trim_end_matches([':', '.', ' ']).to_string()
+}
+
+/// A step that ran this long tells you, with a notification, when it is
+/// done or stops on a problem (you may have gone to do something else).
+const LONG_STEP: u64 = 120;
+
+/// "What just happened" when a step ends.
+fn job_ended(title: &str, state: &str, secs: u64, first: &str, error: &str) {
+    let took = crate::fmt::duration(secs);
+    let short = |s: &str| {
+        let s = s.trim();
+        if s.chars().count() > 170 {
+            format!("{}…", s.chars().take(169).collect::<String>().trim_end())
+        } else {
+            s.to_string()
+        }
+    };
+    match state {
+        "done" => {
+            let said = if first.trim().is_empty() { String::new() } else { format!(": {}", short(first)) };
+            crate::live::event("good", &format!("Done: {title} ({took}){said}"));
+            if secs >= LONG_STEP {
+                crate::notify::toast(&format!("Done: {title}"), if first.trim().is_empty() { "It is done." } else { first }, false);
+            }
+        }
+        "stopped" => crate::live::event("info", &format!("Stopped: {title} ({took})")),
+        _ => {
+            crate::live::event("bad", &format!("Stopped on a problem: {title}: {}", short(error)));
+            if secs >= LONG_STEP {
+                crate::notify::toast(&format!("{title}: stopped on a problem"), error, true);
+            }
+        }
+    }
 }
 
 fn local_now() -> String {
@@ -603,6 +659,64 @@ fn respond(stream: &mut TcpStream, status: u16, ctype: &str, body: &[u8]) {
     let _ = stream.flush();
 }
 
+/// A picture (a photo before or after its repair): kept by the browser, as
+/// its address names one attempt's picture.
+fn respond_picture(stream: &mut TcpStream, ctype: &str, body: &[u8]) {
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: private, max-age=86400\r\n\
+         X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(body);
+    let _ = stream.flush();
+}
+
+/// A path the repair lists name (inside REPAIR, folders separated by '\'),
+/// if it stays inside REPAIR.
+fn inside_repair(repair: &Path, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.split(['\\', '/']).filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() || parts.iter().any(|p| *p == ".." || *p == "." || p.contains(':')) {
+        return None;
+    }
+    let mut p = repair.to_path_buf();
+    for part in parts {
+        p.push(part);
+    }
+    Some(p)
+}
+
+/// A photo before its repair (the damaged copy in REPAIR\to-repair) or after
+/// it (what the repair made): found by the file's number in the repair
+/// lists, only a kind of picture a browser shows, and nothing outside REPAIR.
+fn photo(app: &Arc<Mutex<App>>, id: &str, which: &str) -> Option<(&'static str, Vec<u8>)> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let works: Vec<String> = {
+        let a = lock(app);
+        ["auto_work", "copy_to", "last_scan_folder"].iter().map(|k| a.setting(k)).filter(|w| !w.trim().is_empty()).collect()
+    };
+    for work in works {
+        let Ok(repair) = crate::repair::repair_dir(Path::new(work.trim())) else { continue };
+        let Ok(items) = crate::repair::read_list(&repair) else { continue };
+        let Some(item) = items.iter().find(|i| i.id == id) else { continue };
+        let rel = match which {
+            "before" => item.copied_as.clone(),
+            "after" => crate::autorepair::read_log(&repair).into_iter().find(|a| a.id == id).map(|a| a.output).unwrap_or_default(),
+            _ => return None,
+        };
+        let ctype = crate::live::page_shows(&rel)?;
+        let p = inside_repair(&repair, &rel)?;
+        let m = std::fs::metadata(&p).ok()?;
+        if !m.is_file() || m.len() > 80 << 20 {
+            return None;
+        }
+        return std::fs::read(&p).ok().map(|b| (ctype, b));
+    }
+    None
+}
+
 fn json_ok(extra: &str) -> String {
     if extra.is_empty() {
         "{\"ok\":true}".to_string()
@@ -708,6 +822,11 @@ pub fn serve(cfg: Config) -> i32 {
     };
     app.load();
     auto::load(&mut app);
+    // "What just happened" is kept in the results folder too, so the page
+    // still has it after the program is closed and opened again.
+    let _ = std::fs::create_dir_all(&results);
+    crate::live::feed_file(&results.join("what-happened.txt"));
+    crate::notify::set_on(app.setting("notify") != "off");
     MAP_SIZE.store(mapfile_domain(&app.setting("mapfile")).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
     // A job that was running when the program was closed did not finish.
     for j in app.last.values_mut() {
@@ -717,6 +836,11 @@ pub fn serve(cfg: Config) -> i32 {
     }
     let elevated = app.elevated;
     let app = Arc::new(Mutex::new(app));
+    // The taskbar shows how far the job running has got (taskbar.rs).
+    {
+        let app = app.clone();
+        crate::taskbar::watch(move || taskbar_now(&lock(&app)));
+    }
     let url = format!("http://127.0.0.1:{port}/{}/", cfg.token);
     println!("{} {} is running in your web browser.", crate::APP, crate::VERSION);
     println!();
@@ -746,6 +870,36 @@ pub fn serve(cfg: Config) -> i32 {
     0
 }
 
+/// What the taskbar shows now: how far the job running has got (in its own
+/// numbers, or the files counted for the page), yellow while Start waits for
+/// you or the SSD cools down, red after a stop on a problem.
+fn taskbar_now(a: &App) -> crate::taskbar::Bar {
+    use crate::taskbar::Bar;
+    let Some(j) = &a.job else { return Bar::Off };
+    match j.state.as_str() {
+        "running" => {
+            if j.kind == "auto" && !a.auto.waiting.is_empty() {
+                return Bar::Held(1, 1);
+            }
+            let (mut d, mut t) = (j.done, j.total);
+            if t == 0 {
+                if let Some(b) = crate::live::snapshot() {
+                    (d, t) = (crate::live::Board::sum(&b.done).files, crate::live::Board::sum(&b.total).files);
+                }
+            }
+            if crate::live::drive_is_paused() {
+                Bar::Held(d, t)
+            } else if t > 0 {
+                Bar::Part(d, t)
+            } else {
+                Bar::Busy
+            }
+        }
+        "failed" => Bar::Problem,
+        _ => Bar::Off,
+    }
+}
+
 fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &mut TcpStream) {
     // Only pages from this program, on this PC, may talk to it.
     let host = req.headers.get("host").map(|h| h.to_lowercase()).unwrap_or_default();
@@ -772,6 +926,12 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
         }
     }
     let q = |k: &str| req.query.get(k).cloned().unwrap_or_default();
+    if req.method == "GET" && rest == "api/thumb" {
+        return match photo(app, &q("id"), &q("which")) {
+            Some((ctype, bytes)) => respond_picture(stream, ctype, &bytes),
+            None => respond(stream, 404, "text/plain", b"no picture"),
+        };
+    }
     let (status, ctype, body): (u16, &str, String) = match (req.method.as_str(), rest.as_str()) {
         ("GET", "") => (200, "text/html; charset=utf-8", PAGE.replace("__KEY__", token)),
         ("GET", "api/state") => (200, "application/json", state_json(app)),
@@ -831,6 +991,10 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .raw("policy_to_restore", &restore)
         .raw("job", &a.job.as_ref().map(|j| j.json(60)).unwrap_or_else(|| "null".to_string()))
         .raw("live", &crate::live::snapshot().map(|b| b.json()).unwrap_or_else(|| "null".to_string()))
+        .raw("feed", &crate::live::feed_json(40))
+        .raw("drive", &crate::live::drive_json().unwrap_or_else(|| "null".to_string()))
+        .raw("repairs", &crate::live::repairs_json())
+        .b("notify", crate::notify::is_on())
         .raw("last", &last.end())
         .raw("auto", &auto::state_json(&a))
         .end()
@@ -1157,8 +1321,25 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             if let Some(m) = f.get("mapfile") {
                 MAP_SIZE.store(mapfile_domain(m).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
             }
+            if let Some(v) = f.get("notify") {
+                crate::notify::set_on(v != "off");
+            }
             Ok(String::new())
         }
+        "notify-test" => crate::notify::try_now(
+            "Automatic Recovery Probe",
+            "This is how Start tells you it needs you, has stopped on a problem, or is done.",
+        )
+        .map(|way| {
+            format!(
+                "\"message\":{}",
+                json_str(if way == "toast" {
+                    "Sent: a notification should be in the corner of the screen now, and in the notification centre (the date and time on the taskbar). If none appeared, Windows has notifications from Windows PowerShell turned off: Settings, System, Notifications."
+                } else {
+                    "Sent: a notification should be in the corner of the screen now, for a few seconds. If none appeared, Windows has notifications turned off: Settings, System, Notifications."
+                })
+            )
+        }),
         "stop" => {
             let a = lock(app);
             if let Some(j) = &a.job {
@@ -1400,6 +1581,7 @@ fn prepare_map_check(app: &Arc<Mutex<App>>, map: &str, earlier: &str, disk: &str
         }
         let mut outputs = vec![opts.out_dir.clone()];
         outputs.extend(report.written.iter().cloned());
+        crate::live::event("info", &format!("Found what the damage touched: {}", crate::mapcheck::found_words(&report)));
         Ok(Outcome {
             summary: crate::mapcheck::summary(&report),
             outputs,
@@ -1921,8 +2103,17 @@ fn prepare_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<Prepare
             ctx.line(REMOVABLE_NOTE);
         }
         let src = crate::disk::open_source(&disk).map_err(|e| format!("could not open {disk}: {e}"))?;
-        let opts = crate::image::Options { disk: disk.clone(), out_dir: out.clone(), size, stop: Some(ctx.stop.clone()) };
-        let o = crate::image::make(&*src, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t))?;
+        // The page's strip of the SSD, afresh; its temperature watched while
+        // it is read, and reading paused if it gets too hot (cooling.rs).
+        crate::live::drive_clear();
+        let pause = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let _watcher = crate::cooling::watch(physical_number(&disk), pause.clone(), finished.clone());
+        let opts =
+            crate::image::Options { disk: disk.clone(), out_dir: out.clone(), size, stop: Some(ctx.stop.clone()), pause: Some(pause) };
+        let made = crate::image::make(&*src, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t));
+        finished.store(true, Ordering::Relaxed);
+        let o = made?;
         if o.verified {
             let mut a = lock(&app2);
             a.settings.insert("image".to_string(), o.path.clone());
@@ -2218,6 +2409,27 @@ fn count_files(root: &str, stop: &AtomicBool) -> u64 {
     n
 }
 
+/// A path inside the folder `root` (as the walk names it), from the folder.
+fn inside_of<'a>(root: &str, p: &'a str) -> &'a str {
+    let r = root.trim_end_matches(['\\', '/']);
+    match p.get(..r.len()) {
+        Some(head) if head.eq_ignore_ascii_case(r) && p[r.len()..].starts_with(['\\', '/']) => &p[r.len() + 1..],
+        _ => p,
+    }
+}
+
+/// A damage verdict, in a few plain words (for "what just happened").
+fn damage_words(verdict: &str) -> &'static str {
+    match verdict {
+        "TRUNCATED" => "it ends too soon",
+        "HOLE" => "a block of zeros where the drive gave nothing",
+        "MISMATCH" => "its contents do not match its name",
+        "DB_DAMAGED" => "a Photos Library database that fails its own check",
+        "UNREADABLE" => "it could not be read at all",
+        _ => "",
+    }
+}
+
 fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &str, out: &str) -> Result<Outcome, String> {
     use crate::formats::VERDICTS;
     use crate::report::{
@@ -2227,6 +2439,8 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
     use crate::walk::{walk_and_probe, Event, LibInfo, Row};
     ctx.line(&format!("Counting the files in {folder}..."));
     crate::live::begin("checked");
+    crate::live::found_begin();
+    let root = crate::walk::abspath(folder);
     let total = count_files(folder, &ctx.stop);
     ctx.line(&format!("{} files to check", commas(total)));
     ctx.amount(0, total);
@@ -2275,6 +2489,9 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
                 untestable.add(&untestable_key(&r.path));
                 skipped.push(r.clone());
             }
+            if crate::formats::is_damage(r.verdict) {
+                crate::live::found(inside_of(&root, &r.path), damage_words(r.verdict));
+            }
             if r.verdict != "OK" && r.verdict != "SKIPPED" {
                 ctx.line(&format!("{}  {}", r.verdict, r.path));
                 rows.push(r);
@@ -2286,6 +2503,7 @@ fn scan_job(ctx: &Ctx, folder: &str, holes: bool, hole_bytes: u64, join_dir: &st
         }
     });
     ctx.amount(scanned, total.max(scanned));
+    crate::live::found_end();
     if !still_there {
         return Err(crate::walk::GONE.to_string());
     }
@@ -2542,5 +2760,35 @@ mod tests {
         let b = new_token();
         assert_eq!(a.len(), 32);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn photos_come_only_from_inside_repair() {
+        let r = Path::new("E:\\REPAIR");
+        assert_eq!(
+            inside_repair(r, "to-repair\\1 Photos\\DCIM\\IMG_0003 [R0012].JPG"),
+            Some(r.join("to-repair").join("1 Photos").join("DCIM").join("IMG_0003 [R0012].JPG"))
+        );
+        assert_eq!(inside_repair(r, "repaired/auto/x.jpg"), Some(r.join("repaired").join("auto").join("x.jpg")));
+        for bad in ["", "\\", "..\\WORK\\a.jpg", "to-repair\\..\\..\\a.jpg", "C:\\Users\\a.jpg", ".\\a.jpg"] {
+            assert_eq!(inside_repair(r, bad), None, "{bad}");
+        }
+        // (Leading separators are dropped: still inside REPAIR.)
+        assert_eq!(inside_repair(r, "\\\\server\\a.jpg"), Some(r.join("server").join("a.jpg")));
+        assert_eq!(crate::live::page_shows("IMG [R0001].JPG"), Some("image/jpeg"));
+        assert_eq!(crate::live::page_shows("a.webp"), Some("image/webp"));
+        assert_eq!(crate::live::page_shows("IMG_0004.HEIC"), None);
+        assert_eq!(crate::live::page_shows("DSC_0001.NEF"), None);
+        assert_eq!(crate::live::page_shows("noext"), None);
+    }
+
+    #[test]
+    fn damage_is_named_from_the_folder() {
+        assert_eq!(inside_of(r"E:\WORK", r"E:\WORK\DCIM\2019\IMG_0001.JPG"), r"DCIM\2019\IMG_0001.JPG");
+        assert_eq!(inside_of(r"E:\WORK\", r"e:\work\a.jpg"), "a.jpg");
+        assert_eq!(inside_of(r"E:\WORK", r"E:\WORK2\a.jpg"), r"E:\WORK2\a.jpg");
+        assert_eq!(inside_of("/tmp/w", "/tmp/w/x/y.mp4"), "x/y.mp4");
+        assert_eq!(damage_words("TRUNCATED"), "it ends too soon");
+        assert_eq!(damage_words("OK"), "");
     }
 }

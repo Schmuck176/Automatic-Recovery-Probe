@@ -2124,6 +2124,8 @@ pub fn run(
         // Logged at once: a run cut off (the window closed, a power cut)
         // keeps what it did, and carries on after it.
         o.log = Some(append_log(&repair, std::slice::from_ref(&a))?);
+        // ("What just happened", and the page's photos before and after.)
+        crate::live::repaired(&a.id, &a.path, a.fate.word(), &a.how, &a.output);
         o.attempts.push(a);
         crate::live::done(&item.path, item.size);
         amount(n as u64 + 1, total);

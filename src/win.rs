@@ -416,6 +416,17 @@ mod imp {
         (n > 0 && n < buf.len()).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n])))
     }
 
+    /// What disk `n` says of its temperature (STORAGE_TEMPERATURE_DATA_DESCRIPTOR),
+    /// asked without opening it to read: a question its driver answers, or
+    /// not (many USB cases do not pass it on). Nothing is written to it.
+    pub fn disk_temperature_raw(n: u32) -> Option<Vec<u8>> {
+        let f = open_query(&format!(r"\\.\PhysicalDrive{n}"))?;
+        // STORAGE_PROPERTY_QUERY: StorageDeviceTemperatureProperty (52), a standard query.
+        let mut q = [0u8; 12];
+        q[0..4].copy_from_slice(&52u32.to_le_bytes());
+        ioctl(&f, IOCTL_STORAGE_QUERY_PROPERTY, &q, 512)
+    }
+
     /// One disk's maker-and-model name and size, without looking at the
     /// drive letters (cheap enough to ask every second).
     pub fn disk_identity(n: u32) -> Option<(String, u64)> {
@@ -494,6 +505,10 @@ mod imp {
         None
     }
 
+    pub fn disk_temperature_raw(_n: u32) -> Option<Vec<u8>> {
+        None
+    }
+
     pub fn system_dir() -> Option<std::path::PathBuf> {
         None
     }
@@ -549,6 +564,43 @@ pub fn disks() -> Vec<Disk> {
 /// Disk `n`'s maker-and-model name and size (None: no disk `n`).
 pub fn disk_identity(n: u32) -> Option<(String, u64)> {
     imp::disk_identity(n)
+}
+
+/// A disk's temperature (°C), with the limits it reports for itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Temperature {
+    pub now: i16,
+    /// It warns from here (None: it does not say).
+    pub warning: Option<i16>,
+    /// It is in danger from here.
+    pub critical: Option<i16>,
+}
+
+/// Read a STORAGE_TEMPERATURE_DATA_DESCRIPTOR: Version, Size (u32), then
+/// CriticalTemperature and WarningTemperature (i16), InfoCount (u16), and
+/// from byte 24 the readings (16 bytes each; the temperature at 2), °C.
+/// None when it holds no believable reading (0 means "not reported").
+pub fn parse_temperature(b: &[u8]) -> Option<Temperature> {
+    if b.len() < 24 + 16 {
+        return None;
+    }
+    let i16_at = |o: usize| i16::from_le_bytes([b[o], b[o + 1]]);
+    let count = u16::from_le_bytes([b[12], b[13]]);
+    let now = i16_at(24 + 2);
+    let sane = |t: i16| (1..=150).contains(&t);
+    if count == 0 || !sane(now) {
+        return None;
+    }
+    Some(Temperature {
+        now,
+        warning: Some(i16_at(10)).filter(|&t| sane(t)),
+        critical: Some(i16_at(8)).filter(|&t| sane(t)),
+    })
+}
+
+/// Disk `n`'s temperature, if its driver tells it.
+pub fn disk_temperature(n: u32) -> Option<Temperature> {
+    parse_temperature(&imp::disk_temperature_raw(n)?)
 }
 
 /// Open a web address in the PC's usual browser. From a copy running with
@@ -662,6 +714,30 @@ mod tests {
     fn edge_is_found() {
         let e = super::edge().expect("Microsoft Edge is installed on every Windows 10 and 11");
         assert!(e.to_string_lossy().to_lowercase().ends_with(r"\microsoft\edge\application\msedge.exe"), "{}", e.display());
+    }
+
+    #[test]
+    fn temperatures_are_read() {
+        // As an NVMe SSD answers: critical 84, warning 75, one reading of 41.
+        let mut b = vec![0u8; 40];
+        b[0..4].copy_from_slice(&1u32.to_le_bytes());
+        b[4..8].copy_from_slice(&40u32.to_le_bytes());
+        b[8..10].copy_from_slice(&84i16.to_le_bytes());
+        b[10..12].copy_from_slice(&75i16.to_le_bytes());
+        b[12..14].copy_from_slice(&1u16.to_le_bytes());
+        b[26..28].copy_from_slice(&41i16.to_le_bytes());
+        assert_eq!(super::parse_temperature(&b), Some(super::Temperature { now: 41, warning: Some(75), critical: Some(84) }));
+        // No limits given.
+        b[8..12].fill(0);
+        assert_eq!(super::parse_temperature(&b).map(|t| (t.now, t.warning, t.critical)), Some((41, None, None)));
+        // No reading, a reading of 0 ("not reported"), or too short: nothing.
+        let mut none = b.clone();
+        none[12..14].fill(0);
+        assert_eq!(super::parse_temperature(&none), None);
+        let mut zero = b.clone();
+        zero[26..28].fill(0);
+        assert_eq!(super::parse_temperature(&zero), None);
+        assert_eq!(super::parse_temperature(&b[..30]), None);
     }
 
     #[test]

@@ -954,6 +954,8 @@ pub fn rescue(
             Ok(None) => o.stopped = true,
             Ok(Some((note, sha))) => {
                 crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
+                // ("What just happened": folder by folder.)
+                crate::live::copied(&e.path, e.data_length);
                 let sha = crate::sha256::hex(&sha);
                 failures_in_a_row = 0;
                 copied_this_run += 1;
@@ -1004,6 +1006,9 @@ pub fn rescue(
                 o.failed.push((e.path.clone(), err.text().to_string()));
                 // (Done with, though not copied: the page counts it through.)
                 crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
+                if o.failed.len() <= 10 {
+                    crate::live::event("bad", &format!("Could not copy {}: {}", e.path, err.text()));
+                }
                 runlog.add(&[kind, &e.path, &size_text, "failed", &copied_as, err.text()]);
                 failures_in_a_row += 1;
                 if failures_in_a_row >= 25 {
@@ -1032,6 +1037,13 @@ pub fn rescue(
     drop(visit);
     drop(say);
     amount(done_bytes, total_bytes);
+    crate::live::copied_end();
+    if o.failed.len() > 10 {
+        crate::live::event(
+            "bad",
+            &format!("…and {} more files could not be copied (the list of every file names them)", commas(o.failed.len() as u64 - 10)),
+        );
+    }
     if o.disk_lost.is_none() && gone() {
         o.disk_lost = Some(watched.last_error());
         o.stopped = true;

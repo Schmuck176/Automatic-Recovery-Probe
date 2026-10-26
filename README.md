@@ -21,9 +21,25 @@ A narrower window keeps the same order in fewer columns. Every icon has words
 beside it. Ctrl + and Ctrl − make everything bigger or smaller (Edge remembers).
 
 While something runs, it shows how far it has got - a small ring and the
-percentage - and the time left at its speed of the last minute and a half; Start
-shows the GB and files done, kind by kind (photos, videos, music, documents,
-archives), and the file it is on. Beside each folder: the drive it is on and its
+percentage - the time left at its speed of the last minute and a half, and when
+it will be done by the clock ("done around 14:35"); Start shows the GB and files
+done, kind by kind (photos, videos, music, documents, archives), and the file it
+is on. The same is seen from other apps: the window's title says the percentage
+and what is running (or "Your turn"), and its button on the taskbar fills with
+green as it gets on - yellow while Start waits for you or the SSD cools down,
+red when it stops on a problem - and flashes when it needs you. Windows
+notifications (on by default: a box beside Start turns them off, and Try it
+sends one) say when Start needs you, stops on a problem or is done.
+**What just happened**, under "Now", tells each event in one line with its time
+("07:12 Copied DCIM\2019 (412 photos, 2.1 GB)", "07:15 Found damage: ...",
+"07:40 Repaired IMG_0005.JPG: ..."); `results\what-happened.txt` keeps them all.
+While the image is made, a strip of the whole SSD fills in as it is read (green
+read, amber read slowly, red could not be read), with how fast it reads over
+time (a sagging speed is said to be an early sign it struggles) and how warm
+it is, read from Windows every half minute: at 70 °C (lower if the SSD's own
+warning level is lower) reading pauses until it has cooled by 10 °C. While the
+repairs run, and afterwards in What is left, the photos are shown before and
+after their repair (click one to see it bigger). Beside each folder: the drive it is on and its
 free space, what it needs and what it holds (from the mapfile, then the map
 check, then the copies), whether SPARE is switched off, and whether Defender
 leaves it alone. Start tells Defender itself to leave the image's folder and

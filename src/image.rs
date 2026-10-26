@@ -45,7 +45,7 @@
 //! recovered-ssd.img is there, so are they.
 
 use crate::disk::Source;
-use crate::fmt::{commas, size};
+use crate::fmt::{commas, duration, size};
 use crate::sha256::Sha256;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -89,6 +89,9 @@ pub struct Options {
     /// How many bytes to copy: the size of the disk the mapfile describes.
     pub size: u64,
     pub stop: Option<Arc<AtomicBool>>,
+    /// While set, the SSD is not read (it is cooling down): reading carries
+    /// on when it is cleared.
+    pub pause: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Default, Debug)]
@@ -210,7 +213,7 @@ fn hash_file_part(f: &mut std::fs::File, len: u64, sha: &mut Sha256, stop: &dyn 
 enum Piece {
     /// A piece read, with zeros where it would not read, and those places:
     /// (start, length, UNREADABLE or STEPPED_OVER).
-    Data { data: Vec<u8>, bad: Vec<(u64, u64, char)> },
+    Data { data: Vec<u8>, bad: Vec<(u64, u64, char)>, secs: f64 },
     /// The SSD stopped answering while reading at `at` (`careful`: while the
     /// piece was being read 4 KB at a time).
     Lost { err: String, at: u64, careful: bool },
@@ -552,6 +555,9 @@ pub fn make(
         ));
     }
     amount(start, opts.size);
+    // The page's strip of the SSD (live.rs): what is read, and how.
+    let earlier_bad: Vec<(u64, u64)> = o.unreadable.iter().chain(o.stepped_over.iter()).copied().collect();
+    crate::live::drive_begin(opts.size, start, &earlier_bad);
 
     // Reading and writing overlap: one thread reads the SSD, this one hashes
     // and writes.
@@ -575,6 +581,7 @@ pub fn make(
         let quit = &quit;
         let (careful_on, careful_at, careful_done, careful_failed) = (&careful_on, &careful_at, &careful_done, &careful_failed);
         let size_all = opts.size;
+        let pause = opts.pause.clone();
         scope.spawn(move || {
             // A piece read again 4 KB at a time (see the top). `step_over_from`:
             // where to stop trying and step over the rest of the piece.
@@ -620,18 +627,26 @@ pub fn make(
                     careful_done.store(k as u64, Ordering::Relaxed);
                 }
                 careful_on.store(false, Ordering::Relaxed);
-                lost.unwrap_or(Piece::Data { data, bad })
+                lost.unwrap_or(Piece::Data { data, bad, secs: began.elapsed().as_secs_f64() })
             };
             let mut at = start;
             while at < size_all && !quit.load(Ordering::Relaxed) {
+                // Cooling down: nothing is read until it may go on.
+                while pause.as_ref().is_some_and(|p| p.load(Ordering::Relaxed)) && !quit.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                if quit.load(Ordering::Relaxed) {
+                    break;
+                }
                 let n = (size_all - at).min(CHUNK as u64) as usize;
+                let began = Instant::now();
                 let piece = match lost_before {
                     // The SSD stopped answering in this piece last time: read
                     // it 4 KB at a time - and if that is how it was being read
                     // when it stopped answering, only up to that place.
                     Some((p, careful)) if p >= at && p < at + n as u64 => careful_read(at, n, careful.then_some(p)),
                     _ => match watched.read_at(at, n) {
-                        Ok(d) if d.len() == n => Piece::Data { data: d, bad: Vec::new() },
+                        Ok(d) if d.len() == n => Piece::Data { data: d, bad: Vec::new(), secs: began.elapsed().as_secs_f64() },
                         _ if !watched.answers(0) => Piece::Lost { err: watched.last_error(), at, careful: false },
                         // A bad spot: read it again in small pieces, and leave
                         // what will not read as zeros.
@@ -647,6 +662,7 @@ pub fn make(
         });
         let mut last = Instant::now();
         let mut last_told = Instant::now();
+        let mut was_paused = false;
         loop {
             let piece = match rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(p) => p,
@@ -658,6 +674,16 @@ pub fn make(
                     if stop() {
                         o.stopped = true;
                         quit.store(true, Ordering::Relaxed);
+                    }
+                    let paused = opts.pause.as_ref().is_some_and(|p| p.load(Ordering::Relaxed));
+                    if paused != was_paused {
+                        was_paused = paused;
+                        crate::live::drive_paused(paused);
+                        progress(if paused {
+                            "Paused while the SSD cools down: reading carries on by itself when it has."
+                        } else {
+                            "The SSD has cooled down: reading carries on."
+                        });
                     }
                     if careful_on.load(Ordering::Relaxed) && last_told.elapsed() >= TELL_EVERY {
                         let done = careful_done.load(Ordering::Relaxed);
@@ -685,7 +711,16 @@ pub fn make(
                     o.stopped = true;
                     break;
                 }
-                Piece::Data { data, bad } => {
+                Piece::Data { data, bad, secs } => {
+                    // (A piece read with the pause lifted: it is over. A piece
+                    // the SSD was reading as the pause began still arrives.)
+                    if was_paused && !opts.pause.as_ref().is_some_and(|p| p.load(Ordering::Relaxed)) {
+                        was_paused = false;
+                        crate::live::drive_paused(false);
+                        progress("The SSD has cooled down: reading carries on.");
+                    }
+                    let bad_ranges: Vec<(u64, u64)> = bad.iter().map(|b| (b.0, b.1)).collect();
+                    crate::live::drive_piece(pos, data.len() as u64, secs, &bad_ranges);
                     if let Err(e) = f.write_all(&data) {
                         write_error = Some(e.to_string());
                         break;
@@ -820,8 +855,15 @@ pub fn make(
         "All of the SSD is read. Now the image is read back from the drive and checked, which takes about as long: \
          keep the SSD plugged in until this step says Done.",
     );
-    let back = crate::sha256::file_hex_from_drive(&final_path, amount, &stop)
-        .map_err(|e| format!("could not read the image back: {e}"))?;
+    let back = crate::sha256::file_hex_from_drive(
+        &final_path,
+        &mut |d, t| {
+            crate::live::drive_check(d, t);
+            amount(d, t)
+        },
+        &stop,
+    )
+    .map_err(|e| format!("could not read the image back: {e}"))?;
     match back {
         Some((_, b)) => o.verified = b == o.sha256,
         None => o.stopped = true,
@@ -901,16 +943,6 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     t
 }
 
-fn duration(s: u64) -> String {
-    if s < 60 {
-        format!("{s} s")
-    } else if s < 3600 {
-        format!("{} min", s / 60)
-    } else {
-        format!("{} h {} min", s / 3600, (s % 3600) / 60)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -978,6 +1010,31 @@ mod tests {
     }
 
     #[test]
+    fn a_hot_ssd_is_left_to_cool() {
+        // Paused from the start (the SSD too warm): nothing is read until the
+        // pause is lifted, then the image is made as usual.
+        let dir = std::env::temp_dir().join(format!("rp-image-cool-{}", std::process::id()));
+        clear(&dir);
+        let d = copy_disk(13 << 20, 12 << 20);
+        let pause = Arc::new(AtomicBool::new(true));
+        let lift = pause.clone();
+        let t = Instant::now();
+        let lifter = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(800));
+            lift.store(false, Ordering::Relaxed);
+        });
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None, pause: Some(pause) };
+        let mut said = Vec::new();
+        let o = make(&Memory::new(d.clone()), &opts, &mut |s| said.push(s.to_string()), &mut |_, _| {}).unwrap();
+        lifter.join().unwrap();
+        assert!(t.elapsed() >= Duration::from_millis(700), "it waited");
+        assert!(o.verified && std::fs::read(dir.join(IMAGE_NAME)).unwrap() == d[..12 << 20], "{o:?}");
+        assert!(said.iter().any(|s| s.starts_with("Paused while the SSD cools down")), "{said:?}");
+        assert!(said.iter().any(|s| s.starts_with("The SSD has cooled down")), "{said:?}");
+        clear(&dir);
+    }
+
+    #[test]
     fn only_the_copy_is_imaged() {
         let dir = std::env::temp_dir().join(format!("rp-image-other-{}", std::process::id()));
         clear(&dir);
@@ -985,7 +1042,7 @@ mod tests {
         // its partition table is made for that size too, but it is no bigger
         // and holds no exFAT volume.
         let spare = Memory::new(copy_disk(12 << 20, 12 << 20));
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None, pause: None };
         let e = make(&spare, &opts, &mut |_| {}, &mut |_, _| {}).unwrap_err();
         assert!(e.contains("not the copy ddrescue made") && e.contains("another drive of the same size"), "{e}");
         assert!(!dir.exists(), "nothing was written");
@@ -1019,7 +1076,7 @@ mod tests {
         clear(&dir);
         let d = copy_disk(13 << 20, 12 << 20);
         let mem = Memory::new(d.clone());
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None, pause: None };
         // An earlier run's list of unreadable places, left by a run that
         // stopped just before naming its image: this run reads every byte.
         std::fs::create_dir_all(&dir).unwrap();
@@ -1076,7 +1133,7 @@ mod tests {
                 "a test disk".to_string()
             }
         }
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()) };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()), pause: None };
         let o = make(&StopWhenRead { inner: &mem, stop: stop.clone() }, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
         assert!(o.stopped, "{o:?}");
         let part = std::fs::metadata(dir.join(format!("{IMAGE_NAME}.partial"))).unwrap().len();
@@ -1117,7 +1174,7 @@ mod tests {
         let want = 18u64 << 20;
         let d = copy_disk(20 << 20, want);
         let mem = Memory::new(d.clone());
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None, pause: None };
         let partial = dir.join(format!("{IMAGE_NAME}.partial"));
         let safe = dir.join(format!("{IMAGE_NAME}{SAFE_SUFFIX}"));
         // What a power cut can leave: the right data up to some point, then
@@ -1155,7 +1212,7 @@ mod tests {
         let d = copy_disk(13 << 20, 12 << 20);
         let mem = Memory::new(d.clone());
         let bad = BadSpot { inner: &mem, bad: (9 << 20, (9 << 20) + 5000) };
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: 12 << 20, stop: None, pause: None };
         let o = make(&bad, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
         assert!(o.verified, "{o:?}");
         // Whole 4 KB units around the bad spot: 9 MiB .. 9 MiB + 8 KiB.
@@ -1223,7 +1280,7 @@ mod tests {
             failed: AtomicU64::new(0),
             reads: AtomicU64::new(0),
         };
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None, pause: None };
         let mut lines = Vec::new();
         let o = make(&weak, &opts, &mut |l| lines.push(l.to_string()), &mut |_, _| {}).unwrap();
         assert!(o.verified && !o.stopped, "{o:?}");
@@ -1273,7 +1330,7 @@ mod tests {
             reads: AtomicU64::new(0),
         };
         let stop = Arc::new(AtomicBool::new(false));
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()) };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()), pause: None };
         let t = Instant::now();
         let mut lines: Vec<String> = Vec::new();
         let o = std::thread::scope(|s| {
@@ -1329,7 +1386,7 @@ mod tests {
         let want = 48u64 << 20;
         let d = copy_disk(64 << 20, want);
         let mem = Memory::new(d.clone());
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: None, pause: None };
         let bad_at = (20u64 << 20) + 3 * 4096;
         let mut runs = Vec::new();
         let mut done = None;
@@ -1389,7 +1446,7 @@ mod tests {
                 "a test disk".to_string()
             }
         }
-        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()) };
+        let opts = Options { disk: "test".into(), out_dir: dir.display().to_string(), size: want, stop: Some(stop.clone()), pause: None };
         let o = make(&StopAfter { inner: &mem, stop: stop.clone(), reads: AtomicU64::new(0) }, &opts, &mut |_| {}, &mut |_, _| {}).unwrap();
         assert!(o.stopped);
         let partial = dir.join(format!("{IMAGE_NAME}.partial"));

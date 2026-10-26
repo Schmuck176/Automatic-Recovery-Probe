@@ -160,6 +160,26 @@ pub fn defender_exclusions() -> Option<Vec<String>> {
     Some(r.out.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty() && !l.starts_with("N/A")).collect())
 }
 
+/// Disk `n`'s temperature (°C) from Windows' storage reliability counter:
+/// for a disk whose driver does not answer the direct question (win.rs).
+/// Asks for nothing to be written; None when Windows does not know it.
+pub fn reliability_temperature(n: u32) -> Option<i16> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let ps = crate::win::system_program(r"WindowsPowerShell\v1.0\powershell.exe");
+    let cmd = format!(
+        "$d = Get-PhysicalDisk | Where-Object {{ $_.DeviceId -eq '{n}' }} | Select-Object -First 1; \
+         if ($d) {{ ($d | Get-StorageReliabilityCounter).Temperature }}"
+    );
+    let r = crate::tools::run(&ps, &crate::tools::os(&["-NoProfile", "-NonInteractive", "-Command", &cmd]), None, std::time::Duration::from_secs(60), &|| false)
+        .ok()?;
+    if r.code != Some(0) {
+        return None;
+    }
+    r.out.lines().filter_map(|l| l.trim().parse::<i16>().ok()).find(|t| (1..=150).contains(t))
+}
+
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }

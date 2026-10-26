@@ -2240,6 +2240,24 @@ fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
 /// What the front end shows of a map check (JSON): the totals, the files
 /// that lost data (most damage first), what Windows cannot list, and each
 /// unread place with what it hits.
+/// What the map check found, in one line (for "what just happened").
+pub fn found_words(r: &Report) -> String {
+    let losing: Vec<&Item> =
+        r.files().filter(|i| !i.only_past_valid_data() && i.damaged_bytes() > 0).chain(r.lost_items.iter()).collect();
+    let bytes: u64 = losing.iter().map(|i| i.size).sum();
+    let hidden = r.hidden.iter().filter(|(e, _)| !e.is_dir && !r.leftover(e)).count() as u64;
+    let n = losing.len() as u64;
+    let mut t = if n == 0 {
+        "No file lost data".to_string()
+    } else {
+        format!("{} {} lost data ({} in all)", commas(n), if n == 1 { "file" } else { "files" }, size(bytes))
+    };
+    if hidden > 0 {
+        t.push_str(&format!(", and Windows cannot list {} more (they are copied too)", commas(hidden)));
+    }
+    format!("{t}, of the {} files on the SSD ({})", commas(r.files_seen), size(r.bytes_seen))
+}
+
 pub fn page_json(r: &Report) -> String {
     use crate::fmt::json_str;
     use std::collections::BTreeMap;

@@ -99,9 +99,19 @@ function iconsWithoutWords(page) {
       .then(() => check(true, "Start runs"), () => check(false, "Start runs"));
     await page.waitForTimeout(1500);
     await shot("auto-2-running");
+    // The window's title (which the taskbar shows) says how it is getting on.
+    const running = await page.evaluate(() => [S.job && S.job.state, document.title]);
+    if (running[0] === "running") check(running[1] !== "Automatic Recovery Probe" && running[1].endsWith(" · Automatic Recovery Probe"),
+      "while Start runs, the window's title says how it gets on (" + running[1] + ")");
     await page.waitForFunction(() => /Done|Needs attention/.test(document.getElementById("ast-start").textContent), null, { timeout: 600000 });
     const st = await text("#ar-start");
     check(/Start is done/.test(st), "Start finishes: " + (st.match(/Start (is done|stopped)[^\n]*/) || [""])[0]);
+    // What just happened, newest first, in "Now"; and the title says it is done.
+    await page.waitForFunction(() => /Start is done/.test(document.getElementById("now-feed").innerText), null, { timeout: 10000 }).catch(() => {});
+    const feed = await page.evaluate(() => [...document.querySelectorAll("#now-feed > ol.feed > li:not(.day)")].map((li) => li.innerText.replace(/\s+/g, " ")));
+    check(feed.length >= 3 && /^\d\d:\d\d Start is done/.test(feed[0]) && feed.some((l) => /Stage 15 done/.test(l)),
+      "Now says what just happened, newest first, each with its time (" + feed.slice(0, 2).join(" | ") + ")");
+    check(await page.title() === "Start is done · Automatic Recovery Probe", "the window's title says Start is done (" + await page.title() + ")");
     const done = await page.locator("#ar-start ul.stages li.done").count();
     const skipped = await page.locator("#ar-start ul.stages li.skipped").count();
     check(done + skipped === 15, `every stage is done or skipped (${done} done, ${skipped} skipped)`);
@@ -130,6 +140,49 @@ function iconsWithoutWords(page) {
     check(JSON.stringify(shown.gb) === JSON.stringify(["300 MB", "4.3 GB", "932 GB", "1,863 GB"]), "sizes are rounded to MB or GB (" + shown.gb.join(", ") + ")");
     check(JSON.stringify(shown.left) === JSON.stringify(["less than a minute left", "about 10 min left", "about 2 h 10 min left", "about 4 h left"]) &&
       JSON.stringify(shown.pct) === JSON.stringify(["37%", "99%"]), "the time left and the percentage read naturally (" + shown.left.join("; ") + ")");
+    // When it will be done, as a time on the clock; what just happened, by day.
+    const clock = await page.evaluate(() => {
+      const yesterday = new Date(Date.now() - 864e5), two = (n) => String(n).padStart(2, "0");
+      const day = `${yesterday.getFullYear()}-${two(yesterday.getMonth() + 1)}-${two(yesterday.getDate())} 21:40:00`;
+      const box = document.createElement("div");
+      box.innerHTML = feedHtml([{ when: day, tone: "good", text: "Done: the self-test" }]);
+      return { soon: finishText(600), later: finishText(26 * 3600), feed: box.textContent.replace(/\s+/g, " ") };
+    });
+    check(/^done around \d\d:\d\d$/.test(clock.soon) && /^done around \d\d:\d\d (tomorrow|on \w+day)$/.test(clock.later) &&
+      /Yesterday\s*21:40\s*Done: the self-test/.test(clock.feed), "when it will be done reads as a time on the clock, and what happened by day (" + clock.soon + "; " + clock.later + ")");
+    // The SSD's strip while the image is made: what is read, slowly, not at
+    // all; the speed sagging; the temperature; and it fits a narrow window.
+    const drive = await page.evaluate(() => {
+      const size = 1000204886016;
+      let cells = "";
+      for (let i = 0; i < 400; i++) cells += i < 160 ? (i === 50 ? "2" : i === 90 ? "3" : "1") : "0";
+      const speeds = [];
+      for (let i = 0; i < 60; i++) speeds.push(i < 50 ? 400 : 120);
+      const D = { size, pos: size * 0.4, cells, speeds, every: 2, slow: 1, bad_places: 1, bad_bytes: 4096, temp: 47, temp_max: 49, temp_limit: 70, temp_note: "", paused: false, pauses: 0, check: null };
+      const realRunning = window.imageRunning;
+      window.imageRunning = () => true;
+      const box = document.createElement("div");
+      box.style.width = "330px";
+      document.body.appendChild(box);
+      box.innerHTML = driveHtml(D, false);
+      const r = { text: box.textContent.replace(/\s+/g, " "), fits: box.scrollWidth <= box.clientWidth + 1, strips: box.querySelectorAll("svg.drive-strip rect").length };
+      box.innerHTML = driveHtml(Object.assign({}, D, { paused: true, temp: 71 }), false);
+      r.paused = box.textContent.replace(/\s+/g, " ");
+      box.remove();
+      window.imageRunning = realRunning;
+      return r;
+    });
+    check(/read slowly: 1 place/.test(drive.text) && /could not be read: 4 KB in 1 place/.test(drive.text) && /SSD at 47 °C/.test(drive.text) &&
+      /much more slowly than before/.test(drive.text) && drive.strips >= 5 && drive.fits,
+      "the SSD's strip says what was read, slowly or not at all, its speed sagging and its temperature, and fits a narrow window (" + drive.text.slice(0, 90) + ")");
+    check(/Paused while the SSD cools down/.test(drive.paused) && !/much more slowly/.test(drive.paused), "and says when reading is paused while it cools down");
+    // Windows notifications: on by default, and turned off and on again.
+    check(await page.isChecked("#notify-on"), "Windows notifications are on to begin with");
+    await page.uncheck("#notify-on");
+    const off = await page.waitForFunction(() => S.notify === false && S.settings.notify === "off", null, { timeout: 10000 }).then(() => true, () => false);
+    await page.check("#notify-on");
+    const on = await page.waitForFunction(() => S.notify === true && S.settings.notify === "on", null, { timeout: 10000 }).then(() => true, () => false);
+    check(off && on, "Windows notifications are turned off and on by their box");
     // The steps tab shows what Start did.
     await page.click("#tab-steps");
     check(/Done/.test(await text("#st-check")) && /Done/.test(await text("#st-copy")), "the steps tab shows the map check and the copying done");
@@ -137,6 +190,18 @@ function iconsWithoutWords(page) {
     // 5. What is left.
     const left = await text("#ar-left");
     check(/repaired and put back|Nothing is left|hand-off/i.test(left), "What is left shows the repairs");
+    // Photos before and after, if any photo was repaired: every picture shows.
+    const pics = await page.evaluate(async () => {
+      // (Shown lazily, as they come into view: here all at once.)
+      const imgs = [...document.querySelectorAll("#ar-left .pair img")];
+      imgs.forEach((i) => { i.loading = "eager"; });
+      const loaded = Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.addEventListener("load", r); i.addEventListener("error", r); }))));
+      await Promise.race([loaded, new Promise((r) => setTimeout(r, 15000))]);
+      await new Promise((r) => setTimeout(r, 200));
+      // (One the browser cannot draw is replaced by words saying so.)
+      return [...document.querySelectorAll("#ar-left .pair img")].map((i) => i.naturalWidth);
+    });
+    if (pics.length) check(pics.every((w) => w > 0), "the photos before and after their repair show, or say why not (" + pics.length + ")");
     // 6. Finalise.
     await page.click("#b-finalise");
     await page.waitForFunction(() => /Done|Needs attention/.test(document.getElementById("ast-final").textContent), null, { timeout: 300000 });

@@ -25,6 +25,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -428,6 +429,42 @@ def main():
         check(os.path.isdir(hand), "the hand-off folder is there")
         if os.path.isdir(os.path.join(hand, "1 For the Mac")):
             check(os.path.isfile(os.path.join(hand, "1 For the Mac", "Repair on the Mac.command")), "with the Mac script")
+        # What just happened: the page's lines, kept in the results folder too.
+        feed = [e["text"] for e in s.get("feed") or []]
+        check(feed and feed[0].startswith("Start is done"), "what just happened ends with Start done (%s)" % feed[:1])
+        said = open(os.path.join(home, "results", "what-happened.txt"), encoding="utf-8").read()
+        told = [line.split("\t", 2)[-1] for line in said.splitlines()]
+        check("Stage 2 done: Making the image" in said and "\tgood\tStart is done" in said,
+              "what just happened is kept in the results folder")
+        check(any(t.startswith("Copied DCIM (") for t in told), "what just happened says what was copied, folder by folder")
+        check(any(t.startswith("Found damage: DCIM") for t in told), "what just happened names the damaged files found")
+        check(any(t.startswith("Repaired IMG_0005.JPG") for t in told), "what just happened says what was repaired")
+        check(any(t.startswith("Found what the damage touched: ") and " files lost data (" in t for t in told),
+              "what just happened says what the map check found")
+        check(any(r["path"].replace("\\", "/") == "DCIM/IMG_0005.JPG" and r["output"] for r in s.get("repairs") or []),
+              "the page has the latest repairs, with what each made")
+        # Photos before and after: the damaged copy, and what the repair made;
+        # nothing else, ever.
+        listed = {r["path_in_work"].replace("\\", "/"): r for r in read_csv(os.path.join(repair, "repair-list.csv"))}
+
+        def picture(query):
+            try:
+                with urllib.request.urlopen(prog.base + "api/thumb?" + query, timeout=30) as r:
+                    return r.status, r.headers.get("Content-Type"), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, None, b""
+
+        cut = listed["DCIM/IMG_0005.JPG"]
+        before = open(os.path.join(repair, *cut["copied_out_as"].split("\\")), "rb").read()
+        after = open(os.path.join(repair, *log["DCIM/IMG_0005.JPG"]["output"].split("\\")), "rb").read()
+        check(picture("id=%s&which=before&v=1" % cut["id"]) == (200, "image/jpeg", before), "the photo cut short, before its repair")
+        check(picture("id=%s&which=after&v=1" % cut["id"]) == (200, "image/jpeg", after) and after != before,
+              "the photo cut short, after its repair")
+        raw = listed["RAW/IMG_0100.CR2"]
+        for q, what in [("id=R9999&which=before", "a number not in the list"), ("id=..%5C..&which=before", "a path"),
+                        ("id=%s&which=other" % cut["id"], "neither before nor after"),
+                        ("id=%s&which=before" % raw["id"], "a RAW, which a browser can't show")]:
+            check(picture(q)[0] == 404, "no picture for %s" % what)
         # Bring back: the Mac (say) repaired the photo with a hole.
         hole = [r for r in read_csv(os.path.join(repair, "repair-list.csv")) if r["path_in_work"].endswith("IMG_0007.JPG")][0]
         name = hole["copied_out_as"].split("\\")[-1]

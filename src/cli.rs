@@ -484,7 +484,7 @@ pub fn run_image(disk: &str, map_path: &str, out: &str) -> i32 {
     };
     install_ctrl_c();
     let stop = std::sync::Arc::new(AtomicBool::new(false));
-    let opts = crate::image::Options { disk: disk.to_string(), out_dir: out.to_string(), size, stop: Some(stop.clone()) };
+    let opts = crate::image::Options { disk: disk.to_string(), out_dir: out.to_string(), size, stop: Some(stop.clone()), pause: None };
     let mut last = std::time::Instant::now();
     let r = crate::image::make(&*src, &opts, &mut |s| println!("  {s}"), &mut |d, t| {
         if INTERRUPTED.load(Ordering::Relaxed) {
