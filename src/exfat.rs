@@ -34,7 +34,8 @@ pub fn entry_set_checksum(set: &[u8]) -> u16 {
         if i == 2 || i == 3 {
             continue;
         }
-        c = (if c & 1 != 0 { 0x8000 } else { 0 }) + (c >> 1) + b as u16;
+        // (16-bit, wrapping, as the specification's UInt16 arithmetic.)
+        c = (if c & 1 != 0 { 0x8000u16 } else { 0 }).wrapping_add(c >> 1).wrapping_add(b as u16);
     }
     c
 }

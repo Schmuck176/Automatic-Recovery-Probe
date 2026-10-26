@@ -208,7 +208,13 @@ function iconsWithoutWords(page) {
     check(/Finalised/.test(await text("#ar-final")), "Finalise finishes");
     await shot("auto-4-finalised", true);
     // Every icon on the page comes with words saying what it is for.
-    check((await page.locator("#rail .rail-item").count()) === 6, "the list on the left names the six parts");
+    check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
+    // 7. Put Windows back: its own part, after Finalise (here nothing was changed).
+    await page.evaluate(() => loadBack());
+    const back = await page.waitForFunction(() => /Nothing to put back|Done/.test(document.getElementById("ast-back").textContent) &&
+      /Windows is as it was/.test(document.getElementById("ar-back").textContent), null, { timeout: 10000 }).then(() => true, () => false);
+    check(back, "7. Put Windows back as it was says Windows is as it was (" + (await text("#ar-back")).slice(0, 80) + ")");
+    check(!/puts back the Windows settings/.test(await text("#a-final")), "Finalise no longer says it puts Windows' settings back");
     const mute = await iconsWithoutWords(page);
     check(mute.length === 0, "every icon has words beside it" + (mute.length ? ": " + mute.slice(0, 5).join(" | ") : ""));
     // The parts stay where they belong as the window changes size. At the

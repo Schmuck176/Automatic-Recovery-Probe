@@ -24,9 +24,9 @@ pub fn is_on() -> bool {
 }
 
 fn ps_quote(s: &str) -> String {
-    // One line, no control characters, PowerShell's single quotes doubled.
+    // One line, no control characters, in PowerShell's single quotes.
     let one: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    format!("'{}'", one.split_whitespace().collect::<Vec<_>>().join(" ").replace('\'', "''"))
+    crate::winset::ps_quote(&one.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
 /// Windows shows at most this much of a notification's text.
@@ -152,6 +152,9 @@ mod tests {
         // Nothing can end the quoted words early.
         let evil = script("a'; Remove-Item C:\\ -Recurse; '", "b", false, 1);
         assert!(evil.contains("$t = 'a''; Remove-Item C:\\ -Recurse; ''';"), "{evil}");
+        // Nor a curly quote, which PowerShell takes for a quote too.
+        let curly = script("Done: Copy", "E:\\WORK\\Mum\u{2019}s iPhone\u{2019}; Remove-Item C:\\", false, 1);
+        assert!(curly.contains("$b = 'E:\\WORK\\Mum\u{2019}\u{2019}s iPhone\u{2019}\u{2019}; Remove-Item C:\\';"), "{curly}");
         assert_eq!(cut(&"x".repeat(300), 240).chars().count(), 240);
     }
 
@@ -160,7 +163,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_takes_it() {
-        let s = script("Automatic Recovery Probe", "A test of its notifications (from its own tests).", false, 1);
+        let s = script("Automatic Recovery Probe", "A test of its notifications (from its own tests): Mum\u{2019}s \u{2018}photos\u{2019}.", false, 1);
         let check = format!(
             "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput({}, [ref]$null, [ref]$e); $e.Count",
             ps_quote(&s)

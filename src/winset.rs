@@ -180,8 +180,21 @@ pub fn reliability_temperature(n: u32) -> Option<i16> {
     r.out.lines().filter_map(|l| l.trim().parse::<i16>().ok()).find(|t| (1..=150).contains(t))
 }
 
-fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
+/// Words in PowerShell's single quotes. PowerShell takes the curly single
+/// quotes (‘ ’ ‚ ‛) for quotes too - "Mum’s photos", as a Mac or an iPhone
+/// writes it, would otherwise end the quoted words early - so every one of
+/// them is doubled, as PowerShell's own escaping does.
+pub fn ps_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
 }
 
 /// Add (or remove) a Defender exclusion for a folder.
@@ -226,5 +239,20 @@ mod tests {
         assert!(!is_excluded(&ex, Path::new(r"D:\IMAGES")));
         assert!(!is_excluded(&ex, Path::new(r"D:\COPY 2")));
         assert_eq!(ps_quote("D:\\it's"), "'D:\\it''s'");
+        assert_eq!(ps_quote("Mum\u{2019}s \u{2018}best\u{201B}\u{201A}"), "'Mum\u{2019}\u{2019}s \u{2018}\u{2018}best\u{201B}\u{201B}\u{201A}\u{201A}'");
+        assert_eq!(ps_quote("a \"b\" $c `d"), "'a \"b\" $c `d'", "nothing else is special in single quotes");
+    }
+
+    /// On Windows: PowerShell reads every kind of quote back as it was.
+    #[cfg(windows)]
+    #[test]
+    fn powershell_reads_the_quoted_words_back() {
+        let s = "D:\\Mum\u{2019}s \u{2018}photos\u{201A}\u{201B} it's \"x\" $y `z";
+        let codes: Vec<String> = s.chars().map(|c| format!("0x{:X}", c as u32)).collect();
+        let check = format!("$v = {}; $w = -join ([char[]]({})); [Console]::Out.Write($v -ceq $w)", ps_quote(s), codes.join(","));
+        let ps = crate::win::system_program(r"WindowsPowerShell\v1.0\powershell.exe");
+        let r = crate::tools::run(&ps, &crate::tools::os(&["-NoProfile", "-NonInteractive", "-Command", &check]), None, std::time::Duration::from_secs(60), &|| false)
+            .unwrap();
+        assert_eq!(r.out.trim(), "True", "{}", r.text());
     }
 }

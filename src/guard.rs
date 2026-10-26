@@ -12,10 +12,11 @@
 //!  3. the program marks that disk read-only (Windows forgets the read-only
 //!     mark of a virtual disk when it is unplugged - a real disk's it may
 //!     remember - so this is done every time it is plugged in);
-//!  3a. the policy stays "leave new disks switched off" until the SSD has
-//!     been unplugged (web.rs: hold_new_disks_off, and "Put Windows'
-//!     setting back" is refused while the SSD is attached), so a SSD that
-//!     comes unplugged and is plugged in again arrives switched off;
+//!  3a. the policy stays "leave new disks switched off" until the person
+//!     puts Windows back (7. Put Windows back as it was, web/back.rs), which
+//!     is refused while any copy of the old drive or SPARE is plugged in -
+//!     nothing puts it back by itself (web.rs: hold_new_disks_off) - so a
+//!     SSD that comes unplugged and is plugged in again arrives switched off;
 //!  4. if the person wants to browse it, the disk is switched on: Windows
 //!     mounts it read-only.
 //!

@@ -213,6 +213,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/report"
           set -o pipefail
           { cargo build --release --locked && cargo test --release --locked; } 2>&1 | tee "$RUNNER_TEMP/report/20-build-and-unit-tests.txt"
+      - name: Unit tests with overflow checks
+        if: ${{ !cancelled() }}
+        run: |
+          # (A debug build stops on any sum that runs past its type's range:
+          # the release build would wrap round silently.)
+          set -o pipefail
+          cargo test --locked 2>&1 | tee "$RUNNER_TEMP/report/21-unit-tests-overflow-checked.txt"
       - name: Built-in self-test
         if: ${{ !cancelled() }}
         run: |

@@ -58,7 +58,8 @@ Double-click the program to use it step by step in your web browser. Or:
   automatic-recovery-probe disk-guard status | prepare | protect <disk> [--online] | restore
         Keep Windows from writing to the recovered disk: prepare (before plugging
         it in) makes Windows leave new disks switched off; protect marks the disk
-        read-only (and --online switches it on); restore puts the setting back.
+        read-only (and --online switches it on); restore puts the setting back
+        (unplug the disk first: the page refuses while it is plugged in).
   automatic-recovery-probe ui [--port N] [--token KEY] [--no-browser] [--test-disk IMAGE]...
         The step-by-step page (what double-clicking starts).
   automatic-recovery-probe --version

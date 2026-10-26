@@ -487,9 +487,24 @@ def main():
         s = prog.wait()
         print("\n".join(s["job"].get("summary") or []))
         check(s["job"]["state"] == "done", "Finalise finishes (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
+        said = " ".join(s["job"].get("summary") or [])
+        check("Defender checks" not in said and "Put back:" not in said,
+              "Finalise leaves Windows' settings as they are (they go back separately)")
+        # Put Windows back as it was (7): what goes back, then put back -
+        # nothing is plugged in here (the test disk is a file).
+        b = prog.get("api/windows-back")
         if defender_added:
-            check("Defender checks" in " ".join(s["job"].get("summary") or []),
-                  "Finalise takes off the Defender exclusions Start added")
+            check(any(c["key"] == "defender" for c in b["changes"]) and "7. Put Windows back" in said,
+                  "Defender's exclusions Start added wait to be put back, and Finalise says where")
+        check(b["plugged"] == [] and b["running"] == "", "nothing is plugged in that must be unplugged first (%s)" % b["plugged"])
+        r = prog.do(action="windows-back")
+        if b["changes"]:
+            check(r.get("ok") and ("Defender: checks" in r.get("message", "") or not defender_added),
+                  "Put Windows back takes off what the program changed: %s" % (r.get("message") or r.get("error")))
+            check(prog.get("api/windows-back")["changes"] == [], "and then there is nothing left to put back")
+        else:
+            check(r.get("ok") and "Nothing to put back" in r.get("message", ""),
+                  "with nothing changed, Put Windows back says so: %s" % (r.get("message") or r.get("error")))
         c2 = os.path.join(work, "COPY 2", "WORK", "DCIM", "IMG_0007.JPG")
         check(os.path.isfile(c2) and open(c2, "rb").read() == media["IMG_0007.JPG"], "the second copy holds the files")
         check(dates(c2) == dates(os.path.join(w, "DCIM", "IMG_0007.JPG")) and dates(os.path.dirname(c2)) ==

@@ -1,12 +1,12 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-10-25 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-10-26 (3) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
 **What you have:** the recovered SSD (2 TB, the ddrescue copy of your dead 1 TB drive), the 4 TB SSD (a copy of the
-recovered SSD), `SPARE` (1 TB, empty, NTFS), 2 TB free on the PC's second drive, and a Mac. The recovered SSD and the
-4 TB SSD are the only copies of your files until the image is made and checked.
+recovered SSD), `SPARE` (1 TB, empty, NTFS), room on the PC for the image and the second copy (on your PC, `C:`), and
+a Mac. The recovered SSD and the 4 TB SSD are the only copies of your files until the image is made and checked.
 
 **What the program does by itself, after you press Start:** makes the image of the recovered SSD and reads it back
 to check it; works out from the mapfile exactly which files the damage touched (checking its own reading against
@@ -17,7 +17,8 @@ open-source tools — an intact copy found elsewhere first, then the format's ow
 back exactly where it belongs (the damaged original kept, every repair logged and undoable), and checks everything
 again. Then it makes the rest ready for the Mac or a paid repair tool.
 
-**What you do:** plug drives in and out when it asks, and decide about the files no free tool could repair.
+**What you do:** plug drives in and out when it asks, and decide about the files no free tool could repair. At the
+very end, with every drive unplugged, you put back the Windows settings it changed (7. Put Windows back as it was).
 
 ## The rules
 
@@ -32,7 +33,7 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 
 > **How the program works:** double-click `automatic-recovery-probe.exe` in `C:\RECOVERY-TOOLS` and click **Yes**
 > when Windows asks (it needs that to read the recovered SSD; it never writes to it). A black window opens — leave
-> it open, it *is* the program — and your browser shows its page, on the **Automatic** tab. What every step found is
+> it open, it *is* the program — and your browser shows its page, on the **Automatic recovery** tab. What every step found is
 > kept in `C:\RECOVERY-TOOLS\results\`, so closing and reopening loses nothing, and **Start carries on where it
 > stopped**. *(The old Recovery Probe still works too, from the same folder: both read the same results.)*
 
@@ -40,7 +41,7 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 
 # PHASE 1 — Get ready 🪟 (10 minutes)
 
-- [ ] Unplug every USB drive. Double-click `automatic-recovery-probe.exe` → **Yes**. The page opens on **Automatic**.
+- [ ] Unplug every USB drive. Double-click `automatic-recovery-probe.exe` → **Yes**. The page opens on **Automatic recovery**.
 - [ ] **1. Get ready → Check this PC.** You want a ✓ for administrator rights, the mapfile (`1TB hard drive DDRescue-GUI second attempt.log`) and *Windows is not waiting to restart*. If it says Windows is waiting to restart: restart the PC now (no SSD plugged in), and start again.
 - [ ] **Run the self-test.** A few seconds: it must say *"Every check passed: the program works on this PC."*
 - [ ] **AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *"AIM Toolkit works"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)
@@ -93,11 +94,12 @@ are, with a glitch where data was lost, are not handed off: nothing can bring th
 
 # PHASE 5 — Keep it safe 🪟 (an hour, plus copying time)
 
-- [ ] **6. Finalise.** It makes `RECORDS` beside `WORK` (the results, the mapfile, the checklists), copies `WORK`, `REPAIR` and `RECORDS` into `COPY 2`, checks both copies and the image, and puts Windows' settings it changed back as they were.
+- [ ] **6. Finalise.** It makes `RECORDS` beside `WORK` (the results, the mapfile, the checklists), copies `WORK`, `REPAIR` and `RECORDS` into `COPY 2`, and checks both copies and the image. It leaves Windows' settings as they are: they go back in 7, below, once every drive is unplugged.
 - [ ] **✅ The final check — both copies** — this ticks when Finalise's checks of both copies pass.
+- [ ] **7. Put Windows back as it was.** In File Explorer, right-click `SPARE` → **Eject**, then unplug it (the recovered SSD and the 4 TB SSD are in their drawers already). The button stays greyed out until the page sees none of them plugged in. Click it: new disks arrive switched on again, and the other settings the program changed go back. Beside each one, a **Show me** button opens Windows' own page for it, to see for yourself.
 - [ ] Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.
 - [ ] The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.
-- [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, Finalise took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
+- [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
 
 ---
 

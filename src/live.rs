@@ -632,8 +632,10 @@ impl Drive {
     pub fn set_paused(&mut self, on: bool) {
         if on && !self.paused {
             self.pauses += 1;
-            // (The time paused is not reading time: the speed is measured
-            // afresh from when it carries on.)
+        }
+        // (The time paused is not reading time: the speed is measured afresh
+        // from when it carries on.)
+        if on != self.paused {
             self.mark = None;
         }
         self.paused = on;
@@ -641,6 +643,12 @@ impl Drive {
 
     /// A speed sample, about every `every` seconds.
     pub fn sample(&mut self, now: Instant) {
+        // (Not while paused: a piece the SSD was reading as the pause began
+        // still arrives, and the long wait after it is not reading time.)
+        if self.paused {
+            self.mark = None;
+            return;
+        }
         let Some((t, p)) = self.mark else {
             self.mark = Some((now, self.pos));
             return;
@@ -876,10 +884,16 @@ mod tests {
         e.set_paused(true);
         assert_eq!((e.pauses, e.mark), (1, None));
         let n = e.speeds.len();
+        // The piece the SSD was reading as the pause began arrives: nothing
+        // is measured while paused.
+        e.pos += 8 * mb;
+        e.sample(t0 + Duration::from_secs(4000));
+        assert_eq!((e.speeds.len(), e.mark), (n, None));
+        // Carrying on, long after: measured from then.
+        e.set_paused(false);
         e.sample(t0 + Duration::from_secs(5000));
         e.pos += 100 * mb;
         e.sample(t0 + Duration::from_secs(5000 + e.every as u64));
-        e.set_paused(false);
         assert_eq!(e.speeds.len(), n + 1);
         assert!(e.speeds.last().is_some_and(|s| *s > 10.0), "not the pause's long wait: {:?}", e.speeds.last());
         assert!(e.json().contains("\"pauses\":1"));

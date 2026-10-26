@@ -373,6 +373,15 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
             format!("Start carried on from stage {} of {}: {}", from + 1, STAGES.len(), STAGES[from].1)
         },
     );
+    if from > 0 {
+        // Carrying on, the ready stage is not run again - and what it set may
+        // have been put back since (7. Put Windows back as it was, which only
+        // needs every drive unplugged): Defender is asked again to leave the
+        // image's folder and SPARE alone. (New disks: stage_image.)
+        for l in super::places::defender_ensure(app, &plan.image_dir, &plan.work) {
+            ctx.line(&l);
+        }
+    }
     for (i, (key, title)) in STAGES.iter().enumerate().skip(from) {
         if ctx.stopping() {
             return Ok(stopped_outcome(app, key));
@@ -448,11 +457,14 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
             }
         }
     }
-    // Everything done: Windows' disk setting back, if the SSD is not plugged in.
-    if crate::cli::policy_to_restore().is_some() && recovered_disk_attached(map_size_now()).is_none() {
-        if let Ok(m) = crate::cli::guard_restore() {
-            summary.push(m);
-        }
+    // (Windows' settings stay as they are: they go back only when the person
+    // clicks for it, with every drive unplugged - back.rs.)
+    if !super::back::changes(app).is_empty() {
+        summary.push(
+            "Windows' settings the program changed stay as they are until you put them back (7. Put Windows back as it \
+             was), once every drive is unplugged."
+                .to_string(),
+        );
     }
     banner(app, "");
     crate::live::event("good", "Start is done: every stage ran");
@@ -616,6 +628,18 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
 fn stage_image(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     if let Some(img) = image_done(app) {
         return Ok(End::Skipped(vec![format!("The image was made and checked before: {img}")]));
+    }
+    // New disks arrive switched off - set again if Windows was put back since
+    // the ready stage (7. Put Windows back as it was works whenever every
+    // drive is unplugged, as they are while Start waits here for the SSD).
+    let testing = !lock(app).test_disks.is_empty();
+    if cfg!(windows) && !testing && crate::cli::policy_to_restore().is_none() {
+        match crate::cli::guard_prepare() {
+            Ok(m) => ctx.line(&format!("Windows is set again to leave new disks switched off: {m}")),
+            Err(e) => {
+                return Ok(End::Stop(format!("Windows could not be set to leave new disks switched off: {e}"), Vec::new()))
+            }
+        }
     }
     // The recovered SSD: plugged in, the one copy, read-only.
     let disk = loop {
@@ -914,12 +938,11 @@ fn switch_spare_on(app: &Arc<Mutex<App>>, ctx: &Ctx) {
 fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     let image = image_done(app).ok_or("there is no checked image to copy from")?;
     let work = PathBuf::from(&plan.work);
-    // Windows' disk setting goes back once the recovered SSD is unplugged.
-    if crate::cli::policy_to_restore().is_some() && recovered_disk_attached(map_size_now()).is_none() {
-        if let Ok(m) = crate::cli::guard_restore() {
-            ctx.line(&m);
-            banner(app, "");
-        }
+    // The recovered SSD unplugged: nothing more to say about it. (Windows'
+    // setting for new disks stays: SPARE, if it arrives switched off, is
+    // switched on below.)
+    if recovered_disk_attached(map_size_now()).is_none() {
+        banner(app, "");
     }
     // WORK's drive must be there.
     loop {

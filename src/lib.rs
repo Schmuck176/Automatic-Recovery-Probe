@@ -41,6 +41,7 @@ pub mod repair;
 pub mod report;
 pub mod rescue;
 pub mod selftest;
+pub mod showme;
 pub mod sha256;
 pub mod sqlite;
 pub mod sys;
@@ -54,4 +55,4 @@ pub mod winset;
 
 pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-26 (2)";
+pub const VERSION: &str = "2026-10-26 (3)";

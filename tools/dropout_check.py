@@ -319,13 +319,25 @@ def main():
         check(info.get("read_only") is True, "the recovered SSD is still read-only (%s)" % info)
         j = page.act(action="guard-restore")
         check(not j.get("ok"), "with the SSD still plugged in, the setting is not put back: %s" % j.get("error"))
+        # Put Windows back (7): it names what is still plugged in, and works
+        # only once every drive is unplugged - SPARE too.
+        b = page.get("api/windows-back")
+        plugged = b.get("plugged") or []
+        check(any(c.get("key") == "newdisks" for c in b.get("changes") or []), "Put Windows back lists the setting for new disks")
+        check(any(p.startswith("A copy of the old drive") for p in plugged) and any(p.startswith("SPARE") for p in plugged),
+              "Put Windows back names what is still plugged in: %s" % plugged)
         detach(vhd)
         vhd_in = False
         time.sleep(2)
-        j = page.act(action="guard-restore")
-        check(j.get("ok"), "once the SSD is unplugged, the setting is put back - with SPARE still plugged in: %s" % j)
-        check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
+        j = page.act(action="windows-back")
+        check(not j.get("ok") and "SPARE" in (j.get("error") or ""),
+              "with the SSD unplugged but SPARE still plugged in, it is not put back either: %s" % j.get("error"))
+        check(policy(exe) == "OfflineAll", "Windows still leaves new disks switched off")
         W.ps("Dismount-DiskImage -ImagePath '%s' | Out-Null" % spare, check=False)
+        time.sleep(2)
+        j = page.act(action="windows-back")
+        check(j.get("ok"), "with every drive unplugged, Windows is put back as it was: %s" % j)
+        check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
     finally:
         if vhd_in:
             detach(vhd)

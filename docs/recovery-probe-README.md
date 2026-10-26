@@ -28,7 +28,7 @@ opens a page in the PC's own web browser with two tabs:
 2. **The ddrescue mapfile** — found in the program's folder, and drawn as a
    map of the old drive with every place that was never read.
 3. **Connect the recovered SSD, protected** — Windows is told to leave new
-   disks switched off (until the SSD is unplugged again), and the SSD is
+   disks switched off (until you put it back, in step 9), and the SSD is
    marked read-only. Nothing, not even Windows itself, can write to it.
    Disks Windows calls "removable media" are shown as such: Windows' setting
    does not cover them.
@@ -84,8 +84,10 @@ opens a page in the PC's own web browser with two tabs:
    database or an app is left to its own app (evaluated, not copied out).
    Put back, the one step that changes the copies, waits while the last
    safety check of them found something.
-9. **Finish** — take the SSD out, and put Windows' setting back once it is
-   unplugged.
+9. **Finish** — take the SSD out; then put Windows back as it was (new
+   disks switched on again, and whatever else the program changed), with a
+   button that works only once every drive is unplugged: the recovered SSD,
+   the 4 TB SSD and SPARE.
 
 Results are kept in a `results` folder next to the program. `docs/` has the
 checklist the whole recovery follows, and the tools it uses.

@@ -11,8 +11,9 @@
 //!    WORK read back and compared with its checksum, and the safety check
 //!    against Your numbers.
 //! 4. The image read back against its checksum.
-//! 5. Windows put back as it was: its setting for new disks, "Automatically
-//!    restart" and the Defender exclusions, if the program changed them.
+//!
+//! Windows' settings are not touched here: they go back separately, when the
+//! person clicks for it with every drive unplugged (back.rs).
 
 use super::*;
 
@@ -280,47 +281,14 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
             Err(e) => summary.push(format!("The image was not checked: {e}")),
         }
     }
-    // 5. Windows as it was.
-    if crate::cli::policy_to_restore().is_some() {
-        if recovered_disk_attached(map_size_now()).is_none() {
-            if let Ok(m) = crate::cli::guard_restore() {
-                summary.push(m);
-            }
-        } else {
-            summary.push(
-                "Windows' setting for new disks stays as the program set it while the recovered SSD is plugged in: unplug it, \
-                 then click Finalise again (or step 9's Put Windows' setting back)."
-                    .to_string(),
-            );
-        }
-    }
-    let crash_changed = lock(app).setting("crash_restart_changed") == "1";
-    if crash_changed {
-        match crate::winset::set_restarts_after_crash(true) {
-            Ok(()) => {
-                summary.push("Windows restarts by itself after a crash again, as it did before.".to_string());
-                let mut a = lock(app);
-                a.settings.remove("crash_restart_changed");
-                a.save();
-            }
-            Err(e) => summary.push(format!("(\"Automatically restart\" could not be put back: {e})")),
-        }
-    }
-    let added: Vec<String> = lock(app).setting("defender_added").lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect();
-    let mut left = Vec::new();
-    for f in &added {
-        match crate::winset::set_defender_exclusion(Path::new(f), false) {
-            Ok(()) => summary.push(format!("Defender checks {f} again, as before.")),
-            Err(e) => {
-                summary.push(format!("(Defender's exclusion of {f} could not be taken off: {e})"));
-                left.push(f.clone());
-            }
-        }
-    }
-    if !added.is_empty() {
-        let mut a = lock(app);
-        a.settings.insert("defender_added".to_string(), left.join("\n"));
-        a.save();
+    // 5. Windows' settings stay as they are: they go back only when the
+    // person clicks for it, with every drive unplugged (back.rs).
+    if !back::changes(app).is_empty() {
+        summary.push(
+            "Windows' settings the program changed stay as they are for now: put them back in 7. Put Windows back as it \
+             was, once the recovered SSD, the 4 TB SSD and SPARE are all unplugged."
+                .to_string(),
+        );
     }
     if problem.is_none() {
         summary.insert(

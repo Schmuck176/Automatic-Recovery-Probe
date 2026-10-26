@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 mod auto;
+mod back;
 mod finalise;
 mod places;
 
@@ -763,37 +764,9 @@ pub fn recovered_disk_attached(map_size: Option<u64>) -> Option<u32> {
     None
 }
 
-/// Run the page until the program is closed.
-/// When the program's window is closed (or the PC shuts down) while Windows
-/// is still set to leave new disks switched off, put that setting back -
-/// but only once the recovered SSD is no longer plugged in. (Otherwise every
-/// drive plugged in later would arrive switched off too; with the SSD still
-/// attached, the setting stays and the page offers to put it back when the
-/// program is started again.) Windows allows a few seconds for this, and
-/// diskpart needs about one.
-#[cfg(windows)]
-fn restore_setting_on_close() {
-    extern "system" fn handler(ctrl: u32) -> i32 {
-        // Ctrl+C, Ctrl+Break, the window closed, signing out, shutting down.
-        if matches!(ctrl, 0 | 1 | 2 | 5 | 6)
-            && crate::cli::policy_to_restore().is_some()
-            && recovered_disk_attached(map_size_now()).is_none()
-        {
-            let _ = crate::cli::guard_restore();
-        }
-        0 // then end the program as usual
-    }
-    extern "system" {
-        fn SetConsoleCtrlHandler(handler: Option<extern "system" fn(u32) -> i32>, add: i32) -> i32;
-    }
-    unsafe {
-        SetConsoleCtrlHandler(Some(handler), 1);
-    }
-}
-
-#[cfg(not(windows))]
-fn restore_setting_on_close() {}
-
+/// Run the page until the program is closed. (Closing it puts nothing of
+/// Windows' back: only 7. Put Windows back as it was does that, once every
+/// drive is unplugged - back.rs.)
 pub fn serve(cfg: Config) -> i32 {
     let listener = match TcpListener::bind(("127.0.0.1", cfg.port)) {
         Ok(l) => l,
@@ -802,7 +775,6 @@ pub fn serve(cfg: Config) -> i32 {
             return 1;
         }
     };
-    restore_setting_on_close();
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(cfg.port);
     if port != DEFAULT_PORT {
         let _ = std::fs::write(port_note(), port.to_string());
@@ -948,6 +920,7 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
             (200, "application/json", places::places_json(app, &image, &work))
         }
         ("GET", "api/tools") => (200, "application/json", crate::tools::status_json(&lock(app).home.clone())),
+        ("GET", "api/windows-back") => (200, "application/json", back::back_json(app)),
         ("GET", "api/ready") => {
             if q("fresh") == "1" {
                 crate::tools::forget();
@@ -1356,16 +1329,10 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             }
         }
         "guard-prepare" => need_admin(app).and_then(|_| crate::cli::guard_prepare()).map(|m| format!("\"message\":{}", json_str(&m))),
-        "guard-restore" => need_admin(app)
-            .and_then(|_| match recovered_disk_attached(map_size_now()) {
-                Some(n) => Err(format!(
-                    "The recovered SSD (disk {n}) is still plugged in, so Windows stays set to leave new disks switched \
-                     off: if it dropped off and came back, it must arrive switched off again. Switch it off and unplug it \
-                     first, then click this again."
-                )),
-                None => crate::cli::guard_restore(),
-            })
-            .map(|m| format!("\"message\":{}", json_str(&m))),
+        // (One rule for every button that puts Windows back: only with every
+        // drive unplugged. back.rs.)
+        "windows-back" | "guard-restore" => back::put_back(app).map(|m| format!("\"message\":{}", json_str(&m))),
+        "show-windows" => crate::showme::open(&g("what")).map(|m| format!("\"message\":{}", json_str(&m))),
         "guard-protect" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
             crate::guard::protect(n, on("online")).map(|s| {
                 format!(
@@ -1429,7 +1396,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 }
                 Ok(())
             })
-            .map(|_| format!("\"message\":{}", json_str("Windows no longer restarts by itself after a crash: it stops at the blue screen instead (Finalise puts this back)."))),
+            .map(|_| format!("\"message\":{}", json_str("Windows no longer restarts by itself after a crash: it stops at the blue screen instead (7. Put Windows back as it was puts this back)."))),
         "defender-ensure" => need_admin(app).map(|_| {
             let map = lock(app).setting("mapfile");
             let (si, sw, _) = suggested_folders(app, &map);
@@ -1476,11 +1443,12 @@ fn could_be_recovered(app: &Arc<Mutex<App>>, n: u32) -> bool {
 }
 
 /// While anything reads the recovered SSD, Windows is set to leave new disks
-/// switched off (normally it already is, from "Get Windows ready", and it
-/// stays so until the SSD is unplugged): if the SSD comes unplugged and is
+/// switched off (normally it already is, from the rehearsal, and it stays
+/// so until you put Windows back): if the SSD comes unplugged and is
 /// plugged in again (a cable knocked, a USB hiccup), it arrives switched
 /// off, not open for Windows to write to. The setting is put back only by
-/// "Put Windows' setting back", once the SSD is unplugged.
+/// 7. Put Windows back as it was (web/back.rs), which is refused while any
+/// copy of the old drive or SPARE is still plugged in.
 fn hold_new_disks_off(ctx: &Ctx, guard: bool) {
     if !guard || crate::cli::policy_to_restore().is_some() {
         return;
@@ -1488,7 +1456,8 @@ fn hold_new_disks_off(ctx: &Ctx, guard: bool) {
     match crate::cli::guard_prepare() {
         Ok(_) => ctx.line(
             "Windows now leaves newly plugged-in disks switched off, so the recovered SSD stays protected even if it \
-             is unplugged and plugged in again. This stays so until the SSD is unplugged.",
+             is unplugged and plugged in again. This stays so until you put Windows back (7. Put Windows back as it was), \
+             with every drive unplugged.",
         ),
         Err(e) => ctx.line(&format!("(Could not set Windows to leave new disks switched off: {e})")),
     }

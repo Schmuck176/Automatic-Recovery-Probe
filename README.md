@@ -43,15 +43,22 @@ after their repair (click one to see it bigger). Beside each folder: the drive i
 free space, what it needs and what it holds (from the mapfile, then the map
 check, then the copies), whether SPARE is switched off, and whether Defender
 leaves it alone. Start tells Defender itself to leave the image's folder and
-SPARE alone, and confirms it in Defender's own list; Finalise takes that off
-again. Never Windows' own drive or folders, nor a whole drive other than SPARE.
+SPARE alone, and confirms it in Defender's own list; 7. Put Windows back as it
+was takes that off again. Never Windows' own drive or folders, nor a whole drive
+other than SPARE. Every setting the program changes has a **Show me** button
+beside it that opens Windows' own page for it (Windows Security at Exclusions,
+the "Automatically restart" setting, Windows Update, Disk Management, the
+notification settings), and **Show what Windows itself says** opens a window
+with Windows' own answers, read-only: Defender's exclusions, the policy for new
+disks (`diskpart san`), the disks and whether each is switched off, the crash
+setting, a restart waiting, what keeps the PC awake.
 
 The parts of the Automatic tab:
 
 1. **Get ready** - checks the PC (administrator rights, the mapfile, the
    self-test, a restart Windows is waiting to do, "Automatically restart"
-   after a crash) and the open-source tools, with an Install button for AIM
-   Toolkit and a Download button for qpdf.
+   after a crash, Defender) and the open-source tools, with an Install button
+   for AIM Toolkit and a Download button for qpdf.
 2. **The rehearsal with SPARE** - makes Windows leave new disks switched off,
    then looks at what Windows does with SPARE plugged in exactly the way the
    recovered SSD will be (the same case or adapter, port and cable). Arrived
@@ -88,10 +95,20 @@ The parts of the Automatic tab:
    **Bring back**: takes in what comes back from the Mac or a paid tool (by
    the `[R0012]` number in its name), puts it back, checks everything again.
 6. **Finalise** - `RECORDS` beside WORK, the second copy (resumable, dates
-   kept), the final check of both copies and of the image, and Windows'
-   settings the program changed put back. Run again twice a year.
+   kept), the final check of both copies and of the image. Run again twice a
+   year. It leaves Windows' settings as they are.
+7. **Put Windows back as it was** - what the program changed in Windows (new
+   disks arriving switched off, "Automatically restart" after a crash if it
+   turned that off, Defender's exclusions it added), each with its Show me
+   button, and one button that puts them all back. It is greyed out, and the
+   program itself refuses, while a job runs or anything is plugged in that
+   holds a copy of the old drive (the recovered SSD, the 4 TB SSD) or is SPARE:
+   with a drive still plugged in, the recovered SSD could otherwise one day
+   arrive switched on. Nothing puts these back by itself - not Start, not
+   Finalise, not closing the window. (Step 9 of the program's steps has the
+   same button, by the same rule.)
 
-The checklist (now 30 boxes, `docs/automatic-checklist.md`) and the program's
+The checklist (now 28 boxes, `docs/automatic-checklist.md`) and the program's
 steps one at a time are the other two tabs. The page shows each stage's results
 in the steps tab as if its button had been clicked, and both programs read the
 same results folder, so Recovery Probe can carry on from anything this one did.

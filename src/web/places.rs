@@ -8,7 +8,8 @@
 //! scanning makes the writing 2-3 times slower, and it could quarantine a
 //! recovered file. Start tells it to leave the image's folder and SPARE
 //! alone, by itself, and then reads Defender's own list back to confirm it
-//! took; Finalise takes those exclusions off again. Never Windows' own drive
+//! took; 7. Put Windows back as it was takes those exclusions off again
+//! (web/back.rs), once every drive is unplugged. Never Windows' own drive
 //! or its system folders, and never a whole drive other than SPARE.
 
 use super::*;
@@ -182,7 +183,10 @@ pub(super) fn defender_ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str
             if added.is_empty() {
                 format!("Defender leaves {what} alone (it did already): checked in its own list.")
             } else {
-                format!("Defender now leaves {what} alone: checked in its own list (Finalise takes this off again).")
+                format!(
+                    "Defender now leaves {what} alone: checked in its own list (7. Put Windows back as it was takes this \
+                     off again)."
+                )
             },
         );
     } else {

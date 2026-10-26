@@ -51,9 +51,10 @@ The user's answers (23 Oct, 15:05):
   repos work; building code cloned from elsewhere was not allowed.
 - Here: ffmpeg, qpdf, ImageMagick 6 (`convert`), zip/unzip. Not here: 7z,
   mp3val, untrunc (the Linux CI run installs them with apt / builds untrunc).
-- The program builds here for Linux (no dependencies to download). A debug
-  build needs `RUSTFLAGS="-C overflow-checks=off"`: the exFAT checksums add
-  with wrapping, which a debug build stops at (release builds don't check).
+- The program builds here for Linux (no dependencies to download). Since
+  2026-10-26 (3) a plain debug build works (the exFAT checksum now wraps
+  explicitly), and CI's Linux job runs the unit tests with overflow checks
+  on as well, so a sum that runs past its type's range is caught.
   Chromium and Playwright are here (/opt/npm-tools/node_modules/playwright),
   so both page tests run here, and Xvfb gives a real `--app` window. For
   previews: Barlow Semi Condensed (in ~/.fonts) and Inter stand in for
@@ -421,6 +422,76 @@ just happened" feed; photos before and after their repair.
 - [ ] On the PC (the user): open it; beside Start, Try it should show a
   notification (from "Windows PowerShell"); then carry on as before.
 
+## 26 Oct 2026 (evening): Windows put back separately, "Show me in Windows", bugs
+
+The user (26 Oct 20:08 GMT): Finalise putting back "the Windows settings the
+program changed" could run with the drive still connected - make it a
+separate button, greyed out until all drives are disconnected; link to
+Windows' own settings that show the evidence ("Defender leaves the image
+folder and SPARE alone", and whatever else is set), to verify personally;
+and look for bugs.
+
+- Nothing puts Windows' settings back by itself any more: not Start's end,
+  not the copy stage (after the SSD is unplugged), not Finalise, not closing
+  the window. Only **7. Put Windows back as it was** (a new part after
+  Finalise; the same button in step 9 of the program's steps; the old
+  guard-restore action goes the same way): web/back.rs `put_back`. It lists
+  what the program changed (new disks arrive switched off; "Automatically
+  restart" off, if it turned that off; Defender's exclusions it added), each
+  with how it is now and how it goes back. "All drives" is taken as every
+  drive of this recovery: any disk that holds a copy of the old drive (the
+  recovered SSD, the 4 TB SSD - mapcheck::is_the_copy), a disk that will not
+  let itself be read (it could be the SSD; not an empty card reader), and
+  SPARE (its identity from the rehearsal, or the label). The page greys the
+  button out and names each one still plugged in, with how to unplug it;
+  the program itself refuses too (and while a job runs). The image opened by
+  AIM Toolkit is not a drive to unplug. Other USB drives (a stick) do not
+  hold it up.
+- In the Automatic tab it says it comes last, after Finalise (the top banner
+  and the part's own words); the part's state is "Last, after Finalise"
+  until then.
+- If Windows is put back before the end anyway, Start sets what it needs
+  again when it carries on: new disks switched off before it waits for the
+  recovered SSD (stage_image), Defender's exclusions (carrying on skips the
+  ready stage). Found while checking the new button: before, carrying on
+  after a put-back would have let the SSD arrive switched on.
+- "Show me in Windows" (showme.rs): buttons that open Windows' own page for
+  each setting - Windows Security at Exclusions (windowsdefender://
+  exclusions/), System Properties > Advanced (Startup and Recovery), Windows
+  Update, Disk Management, the notification settings - and "Show what
+  Windows itself says": a PowerShell window (read-only; a test checks it
+  holds no command that changes anything, and on Windows that it parses)
+  with Get-MpPreference's ExclusionPath, `diskpart san`, Get-Disk (IsOffline,
+  IsReadOnly), AutoReboot, a restart waiting, powercfg /requests. In Get
+  ready's rows, the rehearsal, step 3 and part 7.
+- The checklist: Finalise no longer says it puts the settings back; a new box
+  "7. Put Windows back as it was" after the final check; the last box says
+  part 7 took Defender's exclusions off; the tab's name ("Automatic
+  recovery"); the top says the image and the second copy go on `C:`. Ticks
+  follow (RENAMED), and the copy delivered since 2026-10-25 (1) is known
+  (KNOWN_CHECKLISTS), so it is updated in place.
+- Bugs fixed:
+  - PowerShell takes the curly single quotes (‘ ’ ‚ ‛) for quotes too: a
+    file or folder named like "Mum’s iPhone" (as Macs and iPhones write it)
+    ended the quoted words early, so a notification naming it was never
+    shown, and a Defender exclusion of such a folder failed. winset::ps_quote
+    now doubles every one of them (unit test; on Windows, PowerShell reads
+    the words back exactly).
+  - The SSD's speed graph counted a cooling pause as reading time when a
+    piece was in flight as the pause began (a false dip after every pause).
+  - "Nothing to put back" needed administrator rights to say so (Linux CI).
+  - The put-back button could be clicked twice while it worked.
+  - The exFAT entry-set checksum relied on silent wrapping (only release
+    builds): now explicit, so a plain debug build runs every test with
+    overflow checks on - all unit tests, auto_check, ui_check, the map-check
+    tests and resume_check pass that way here, and CI's Linux job now runs
+    the unit tests with overflow checks too.
+  - Stale words: what Finalise does, "Finalise takes this off again", "step 9
+    puts it back", "until the SSD is unplugged" (page, messages, README,
+    guard.rs, the old program's README); README said the checklist has 30
+    boxes (it had 27; now 28).
+- Version 2026-10-26 (3).
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be
@@ -429,8 +500,3 @@ just happened" feed; photos before and after their repair.
 - HEIC salvage on Windows with FFmpeg 8.1+ (as JPEG), before the Mac.
 - A Windows scheduled reminder every six months (the checklist says to set a
   phone reminder instead).
-- exfat.rs: write the checksums with wrapping_add (they rely on wrapping,
-  which only release builds do silently).
-- The checklist still says the page opens on "Automatic" (the tab is now
-  "Automatic recovery"): left as it is so its ticks are untouched; reword it
-  (with RENAMED entries) next time the checklist changes anyway.

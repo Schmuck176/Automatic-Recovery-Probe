@@ -34,6 +34,21 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-10-26 (3): Finalise leaves Windows' settings as they are; 7. Put
+    // Windows back as it was does that, once every drive is unplugged. The
+    // tab's name.
+    (
+        "Unplug every USB drive. Double-click `automatic-recovery-probe.exe` → **Yes**. The page opens on **Automatic**.",
+        "Unplug every USB drive. Double-click `automatic-recovery-probe.exe` → **Yes**. The page opens on **Automatic recovery**.",
+    ),
+    (
+        "**6. Finalise.** It makes `RECORDS` beside `WORK` (the results, the mapfile, the checklists), copies `WORK`, `REPAIR` and `RECORDS` into `COPY 2`, checks both copies and the image, and puts Windows' settings it changed back as they were.",
+        "**6. Finalise.** It makes `RECORDS` beside `WORK` (the results, the mapfile, the checklists), copies `WORK`, `REPAIR` and `RECORDS` into `COPY 2`, and checks both copies and the image. It leaves Windows' settings as they are: they go back in 7, below, once every drive is unplugged.",
+    ),
+    (
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, Finalise took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+    ),
     // 2026-10-25 (1): the rehearsal switches SPARE off; the image on a drive with room.
     (
         "In the list, click **This is SPARE: check it**. You want *\"SPARE arrived switched off\"*, or *\"…Windows shows it by the SSD's own name\"*. It says to **stop** (removable media, or the adapter's name)? Then don't plug the recovered SSD in that way: tell Claude.",
@@ -50,7 +65,7 @@ const RENAMED: &[(&str, &str)] = &[
     // 2026-10-24 (1): AIM Toolkit's "Try it"; the hand-made Defender exclusion.
     (
         "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
-        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, Finalise took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
     ),
     (
         "**AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again. (Without it everything still works, but the map check can't check itself against Windows' own reading.)",
@@ -64,6 +79,7 @@ const RENAMED: &[(&str, &str)] = &[
 const KNOWN_CHECKLISTS: &[u64] = &[
     2884287995947329277,  // 2026-10-23 (1)
     13782956021636484442, // 2026-10-24 (1)
+    12729693661235439205, // 2026-10-25 (1) to 2026-10-26 (2)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 
