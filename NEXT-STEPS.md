@@ -591,7 +591,27 @@ Found and fixed:
   COPY 2\WORK; never open-and-save, rename or delete inside WORK or COPY 2.
   The 2026-10-26 (3) text is known (KNOWN_CHECKLISTS) so the person's copy is
   updated in place.
+- The watcher forgets a disk that is unplugged, so whatever comes next under
+  its number is looked at afresh (in the CI test the copy came back under
+  SPARE's number, with SPARE's name and size).
 - Version 2026-10-27 (1).
+- Tests here (2 CPUs today: the unit tests take 45 s): unit tests 137 with
+  overflow checks, auto_check 84/84, auto_ui_check 34/34 and ui_check 67/67
+  with Windows-like and GitHub-like fonts; alarmshot.js and pcstate.js for the
+  new warnings.
+- CI run 40512140601 (e4fd265), green on both systems (13c25ed's run was
+  cancelled for it). Windows: unit tests 140, unplugged 42/42 (E: the copy
+  plugged in switched on was marked read-only and switched off by the page
+  itself, and the page said so), automatic 93/93 (the hand-off holds the 2
+  files it says - the check that would have caught the empty hand-off; the
+  older program's stand-in; a second copy inside WORK refused), page 68/68,
+  Automatic tab 34/34, disk protection 20/20, resume 17/17; Linux: unit
+  tests 137 twice, automatic 91/91, Automatic tab 34/34.
+- Delivered 27 Oct 2026, about 13:50 GMT: version 2026-10-27 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,896,192 bytes, SHA-256
+  7ade7786f1a47518ade1e81fe04d6793fdafc0da487738c35ba5d6d217faebb9 (staged
+  back and compared). main moved to it; the 2026-10-26 (3) main is kept as
+  branch version-2026-10-26-3.
 
 The PC as it stands (results read 27 Oct): unchanged since 26 Oct 19:58; the
 setting for new disks is not on now (versions before 26 Oct (3) put it back
