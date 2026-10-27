@@ -524,6 +524,81 @@ and look for bugs.
   in between the page's look and the click) says "Switch it off and unplug
   it" for SPARE too, where the page says Eject.
 
+## 27 Oct 2026: bugs again, the logic, and how a person could go wrong
+
+The user (27 Oct 12:48 GMT): check for bugs again, review how logical and
+efficient the program is, and how a human could mess up using it.
+
+Found and fixed:
+- **The hand-off folders were emptied on Windows.** handoff::prepare kept a
+  set of the copies it had just made (paths built with the `\\?\` long-path
+  prefix) and then deleted every numbered file in the hand-off folders not in
+  that set - comparing with paths read from the folder, without the prefix,
+  which never match on Windows. So the copies for the Mac and the paid tools
+  were deleted as soon as they were made (on Linux the paths match, and the
+  tests only checked the folder was there). Now compared without the prefix
+  (path_key); auto_check counts the numbered files in the hand-off against
+  what it says is ready (CI on Windows checks it). supersede() had the same
+  comparison (harmless there).
+- **The hand-off could delete what the person saved in it**: a repaired
+  version saved beside the damaged copy (a paid tool's default) instead of
+  in "returned" was deleted by the next refresh. Now only the program's own
+  copies (their name and size) are taken out; anything else with a number
+  is moved into "returned" (" (2)" if the name is taken), and said.
+- **Finalise copied WORK into COPY 2 before checking WORK**: a file changed
+  in WORK (opened and saved by an app) would overwrite the good one in the
+  second copy, then be found by the check - with both copies spoilt. Now
+  WORK is checked first; only if it passes may a file already in COPY 2 be
+  replaced (and replaced files are counted and said: COPY 2 is put right from
+  a checked WORK); otherwise COPY 2 is only added to.
+- **Writes could land on the wrong drive when letters moved**: the copy stage
+  made WORK on whatever drive had WORK's letter (a USB stick, or the 4 TB SSD
+  switched on, could take SPARE's E:). Now check_destination refuses any
+  folder on a disk holding a copy of the old drive (image, copies, COPY 2,
+  Bring back), and while WORK is not there yet on a USB drive it must be
+  SPARE (label, or the rehearsal's disk identity); the copy stage waits and
+  says why. If SPARE comes back under another letter, WORK (with its list of
+  copies, on SPARE) is found there again (plan_of: work_elsewhere) - Finalise
+  six months on said "Start has not copied everything yet" instead.
+- **Folders inside each other / the second copy on WORK's drive** were
+  accepted (COPY 2 inside WORK copies WORK into itself). check_folders refuses
+  them at Start and Finalise, and the folders part says so at once (red,
+  "Needs changing"). One drive is allowed in the page's tests only.
+- **Step 9's "Switch it off"** acted on the disk number remembered from the
+  image stage - after replugging, that number can be SPARE's. Now it finds
+  the copy as plugged in now; and switching a drive off while a job runs is
+  refused unless it holds a copy of the old drive.
+- **Finalise's words**: "the image is as it was made" also when the image
+  could not be checked (deleted to free room, say), and "both copies" with no
+  second copy chosen.
+- **The recovered SSD plugged in too early**: nothing protected it until
+  Start's image stage. guard_watch (every 2 s while the program is open,
+  elevated, on Windows): a disk holding a copy of the old drive that is
+  online and writable is marked read-only and switched off at once; the page
+  shows it at the top until read ("I've read this"), what-happened and a
+  notification say it. Not AIM's read-only image (model Arsenal, or
+  write-protected), not the system disk; disks found not to be copies are not
+  read again. dropout_check E tests it on Windows.
+- **The older Recovery Probe open at the same time** (port 47115, name
+  "Recovery Probe"): both write the same results and could work on the same
+  folders. Now launch refuses, the page shows it at the top, and no job
+  starts while it answers (checked every 4 s). auto_check tests it with a
+  stand-in on that port.
+- The steps tab says to redo a step there only if Claude asks.
+- The checklist: rule 5 (a label on each drive itself: SPARE and the
+  recovered SSD take turns in one case), rule 6 (one program at a time), and
+  a box after "Keep SPARE somewhere else": to use the files, copy them out of
+  COPY 2\WORK; never open-and-save, rename or delete inside WORK or COPY 2.
+  The 2026-10-26 (3) text is known (KNOWN_CHECKLISTS) so the person's copy is
+  updated in place.
+- Version 2026-10-27 (1).
+
+The PC as it stands (results read 27 Oct): unchanged since 26 Oct 19:58; the
+setting for new disks is not on now (versions before 26 Oct (3) put it back
+on closing) - Start sets it again before it asks for the SSD, and the
+watcher covers an early plug-in while the program is open. Not covered: the
+SSD plugged in while the program is closed, before Start has set it.
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be

@@ -389,6 +389,11 @@ pub(super) fn places_json(app: &Arc<Mutex<App>>, suggested_image: &str, suggeste
                 .end(),
         )
         .raw("defender", &defender_json(app, &image_dir, &work, false))
+        // (What Start and Finalise would refuse about the folders, said now.)
+        .s(
+            "problem",
+            &super::auto::check_folders(&image_dir, &work, copy2.trim(), !lock(app).test_disks.is_empty()).err().unwrap_or_default(),
+        )
         .end()
 }
 

@@ -189,6 +189,22 @@ pub(super) struct Plan {
 }
 
 pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
+    // SPARE plugged in under another letter than before (Windows gives a
+    // drive the first free one): WORK is found there again.
+    let moved = {
+        let (w, spare_id) = {
+            let a = lock(app);
+            (a.setting("auto_work"), a.setting("spare_disk"))
+        };
+        work_elsewhere(&w, &spare_id).map(|n| (w, n))
+    };
+    if let Some((was, now)) = moved {
+        let mut a = lock(app);
+        a.settings.insert("auto_work".to_string(), now.clone());
+        a.save();
+        drop(a);
+        crate::live::event("info", &format!("WORK is {now} now ({was} before): Windows gave SPARE another letter"));
+    }
     let a = lock(app);
     let map = a.setting("mapfile");
     let image_dir = a.setting("auto_image_dir");
@@ -213,9 +229,95 @@ pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
     })
 }
 
+/// WORK, if it is not where it was but on SPARE under another letter (by
+/// SPARE's label, or the disk the rehearsal saw), the same path, with its
+/// list of copies: Windows gave SPARE another letter.
+pub(super) fn work_elsewhere(work: &str, spare_id: &str) -> Option<String> {
+    let w = work.trim();
+    let rest = w.get(2..)?;
+    if w.len() < 4 || !w.get(..2)?.ends_with(':') || Path::new(w).exists() {
+        return None;
+    }
+    let disks = crate::win::disks();
+    let is_spare = |d: &crate::win::Drive| {
+        d.label.eq_ignore_ascii_case("SPARE")
+            || (!spare_id.is_empty()
+                && d.disk.and_then(|n| disks.iter().find(|x| x.number == n)).is_some_and(|x| format!("{}|{}", x.model, x.size) == spare_id))
+    };
+    let found: Vec<String> = crate::win::drives()
+        .into_iter()
+        .filter(|d| is_spare(d))
+        .map(|d| format!("{}{rest}", d.letter))
+        .filter(|c| !c.eq_ignore_ascii_case(w) && Path::new(c).join(crate::rescue::LOG_NAME).is_file())
+        .collect();
+    (found.len() == 1).then(|| found[0].clone())
+}
+
+/// "C:\IMAGE\" -> "c:\image", to compare folders.
+fn folder_key(p: &str) -> String {
+    p.trim().trim_start_matches(r"\\?\").replace('/', "\\").trim_end_matches('\\').to_lowercase()
+}
+
+/// Is `inner` the folder `outer`, or inside it?
+fn within(inner: &str, outer: &str) -> bool {
+    let (i, o) = (folder_key(inner), folder_key(outer));
+    !i.is_empty() && !o.is_empty() && (i == o || i.starts_with(&format!("{o}\\")))
+}
+
+/// The physical disk a folder is on (or, not known, its drive letter);
+/// None for a path with no drive letter.
+fn disk_key(folder: &str) -> Option<String> {
+    let k = folder_key(folder);
+    let letter = k.get(..2).filter(|l| l.ends_with(':') && l.as_bytes()[0].is_ascii_alphabetic())?.to_uppercase();
+    Some(match drive_of(folder) {
+        Some(d) => d.disk.map(|n| format!("disk {n}")).unwrap_or(letter),
+        None => letter,
+    })
+}
+
+/// The folders, checked against each other before anything is written: none
+/// inside another (copying a folder into itself never ends), and the second
+/// copy on another drive than WORK - on the same drive, it is no second copy
+/// (`one_drive_ok`: the page's tests, which have only one).
+pub(super) fn check_folders(image_dir: &str, work: &str, copy2: &str, one_drive_ok: bool) -> Result<(), String> {
+    let (image_dir, work, copy2) = (image_dir.trim(), work.trim(), copy2.trim());
+    // (By the text, the same on every system: WORK's folder, and REPAIR and
+    // RECORDS beside it.)
+    let base = work.trim_end_matches(['\\', '/']).rsplit_once(['\\', '/']).map(|(b, _)| b.to_string()).unwrap_or_default();
+    if !work.is_empty() && (base.is_empty() || folder_key(work).len() <= 3) {
+        return Err(format!("WORK must be a folder ({work} is a whole drive): such as E:\\WORK (3. The folders)."));
+    }
+    let beside = |name: &str| if base.is_empty() { String::new() } else { format!("{base}\\{name}") };
+    let (repair, records) = (beside(crate::repair::REPAIR_DIR), beside("RECORDS"));
+    if !image_dir.is_empty() && !work.is_empty() && (within(image_dir, work) || within(work, image_dir)) {
+        return Err(format!(
+            "The image's folder ({image_dir}) and WORK ({work}) are one inside the other: give each a folder of its own \
+             (3. The folders)."
+        ));
+    }
+    if !copy2.is_empty() && !work.is_empty() {
+        for (what, f) in [("WORK", work), ("REPAIR", repair.as_str()), ("RECORDS", records.as_str())] {
+            if !f.is_empty() && (within(copy2, f) || within(f, copy2)) {
+                return Err(format!(
+                    "The second copy's folder ({copy2}) and {what} ({f}) are one inside the other: the second copy needs a \
+                     folder of its own, on another drive (3. The folders)."
+                ));
+            }
+        }
+        if !one_drive_ok && disk_key(copy2).is_some_and(|c| Some(c) == disk_key(work)) {
+            return Err(format!(
+                "The second copy ({copy2}) is on the same drive as WORK ({work}): if that drive fails, both copies go with it. \
+                 Choose a folder on another drive for it (3. The folders) - on your PC, beside the image."
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Start (or carry on).
 pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     let plan = plan_of(app)?;
+    check_folders(&plan.image_dir, &plan.work, &plan.copy2, !lock(app).test_disks.is_empty())?;
     {
         // The rehearsal first, before the recovered SSD is plugged in (not
         // needed once the image is made, or for the page's test disks).
@@ -935,6 +1037,32 @@ fn switch_spare_on(app: &Arc<Mutex<App>>, ctx: &Ctx) {
     }
 }
 
+/// Before WORK is made or written to: its drive holds no copy of the old
+/// drive, and - while WORK is not there yet, on a USB drive (whose letters
+/// move as drives come and go) - it is SPARE, by its label or by the disk
+/// the rehearsal saw, not whatever USB drive has that letter now.
+fn work_drive_ok(app: &Arc<Mutex<App>>, work: &str) -> Result<(), String> {
+    super::check_destination(app, work)?;
+    if !cfg!(windows) || Path::new(work).exists() || !lock(app).test_disks.is_empty() {
+        return Ok(());
+    }
+    let Some(d) = drive_of(work) else { return Ok(()) };
+    let spare_id = lock(app).setting("spare_disk");
+    let disk = d.disk.and_then(|n| crate::win::disks().into_iter().find(|x| x.number == n));
+    let usb = disk.as_ref().is_some_and(|x| x.bus == "USB" || x.removable);
+    if !usb || d.label.eq_ignore_ascii_case("SPARE") || spare_id.is_empty() {
+        return Ok(());
+    }
+    if disk.as_ref().is_some_and(|x| format!("{}|{}", x.model, x.size) == spare_id) {
+        return Ok(());
+    }
+    Err(format!(
+        "{} is a USB drive that is not SPARE (it is labelled \"{}\"), and the copies go into {work}. Unplug it and plug SPARE \
+         in - or, if this really is the drive for the copies, choose the copies' folder again (3. The folders).",
+        d.letter, d.label
+    ))
+}
+
 fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     let image = image_done(app).ok_or("there is no checked image to copy from")?;
     let work = PathBuf::from(&plan.work);
@@ -944,9 +1072,18 @@ fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Stri
     if recovered_disk_attached(map_size_now()).is_none() {
         banner(app, "");
     }
-    // WORK's drive must be there.
+    // WORK's drive must be there - and be the right one.
     loop {
         let root_ok = work.ancestors().last().is_some_and(|r| r.exists()) && drive_of(&plan.work).is_some_or_not_windows();
+        if root_ok {
+            if let Err(why) = work_drive_ok(app, &plan.work) {
+                waiting(app, ctx, "copy", &why);
+                if !sleep_or_stop(ctx, 3) {
+                    return Ok(End::Stopped);
+                }
+                continue;
+            }
+        }
         if root_ok && std::fs::create_dir_all(&work).is_ok() {
             break;
         }
@@ -1197,6 +1334,7 @@ fn stage_handoff(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
 /// everything again.
 pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64, String> {
     let plan = plan_of(app)?;
+    super::check_destination(app, &plan.work)?;
     let work = PathBuf::from(&plan.work);
     let repair = crate::repair::repair_dir(&work)?;
     let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR).join(handoff::RETURNED) } else { PathBuf::from(from.trim()) };
@@ -1602,6 +1740,32 @@ impl<T> SomeOrNotWindows for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folders_inside_each_other_or_on_one_drive_are_refused() {
+        let ok = |i: &str, w: &str, c: &str| check_folders(i, w, c, false);
+        // The PC's: the image and the second copy on C:, WORK on SPARE.
+        assert!(ok(r"C:\IMAGE", r"E:\WORK", r"C:\COPY 2").is_ok());
+        assert!(ok(r"C:\IMAGE", r"E:\WORK", "").is_ok(), "no second copy chosen yet");
+        assert!(ok("", r"E:\WORK", r"C:\COPY 2").is_ok(), "the image made, its folder not needed");
+        // One inside the other.
+        assert!(ok(r"E:\WORK\IMAGE", r"E:\WORK", r"C:\COPY 2").unwrap_err().contains("one inside the other"));
+        assert!(ok(r"C:\IMAGE", r"C:\IMAGE\WORK", r"D:\COPY 2").unwrap_err().contains("one inside the other"));
+        assert!(ok(r"C:\IMAGE", r"e:\work\", r"E:\WORK").unwrap_err().contains("one inside the other"));
+        assert!(ok(r"C:\IMAGE", r"E:\WORK", r"E:\WORK\COPY 2").unwrap_err().contains("one inside the other"));
+        assert!(ok(r"C:\IMAGE", r"E:\WORK", r"E:\REPAIR\COPY 2").unwrap_err().contains("REPAIR"));
+        assert!(ok(r"C:\IMAGE", r"E:\X\WORK", r"E:\").unwrap_err().contains("one inside the other"));
+        // Not inside, but a name that starts the same is another folder.
+        assert!(ok(r"C:\IMAGE", r"D:\WORKS\WORK", r"C:\WORK").is_ok());
+        // The second copy on WORK's drive: no second copy at all.
+        assert!(ok(r"C:\IMAGE", r"E:\WORK", r"E:\COPY 2").unwrap_err().contains("same drive"));
+        assert!(check_folders(r"C:\IMAGE", r"E:\WORK", r"E:\COPY 2", true).is_ok(), "the page's tests have one drive");
+        // WORK a whole drive.
+        assert!(ok(r"C:\IMAGE", r"E:\", r"C:\COPY 2").unwrap_err().contains("whole drive"));
+        // No drive letters (the tests on Linux): only the nesting is checked.
+        assert!(ok("/t/IMAGE", "/t/SPARE/WORK", "/t/COPY 2").is_ok());
+        assert!(ok("/t/IMAGE", "/t/SPARE/WORK", "/t/SPARE/WORK/COPY 2").is_err());
+    }
 
     #[test]
     fn stages_survive_being_kept() {

@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-10-26 (3) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-10-27 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -30,6 +30,9 @@ very end, with every drive unplugged, you put back the Windows settings it chang
    own put-back is the only change ever made there, and every one is listed in `WORK\repair-returns.csv`.
 4. **If the program stops and says a check found something, stop too.** Read what it says; if it isn't clear, ask
    Claude before pressing Start again.
+5. **Put a label on each drive itself**, not only on its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. SPARE and
+   the recovered SSD take turns in the same case, so they are easy to mix up.
+6. **Only one program at a time:** the old Recovery Probe (`recovery-probe.exe`) stays closed while this one is open.
 
 > **How the program works:** double-click `automatic-recovery-probe.exe` in `C:\RECOVERY-TOOLS` and click **Yes**
 > when Windows asks (it needs that to read the recovered SSD; it never writes to it). A black window opens — leave
@@ -98,6 +101,7 @@ are, with a glitch where data was lost, are not handed off: nothing can bring th
 - [ ] **✅ The final check — both copies** — this ticks when Finalise's checks of both copies pass.
 - [ ] **7. Put Windows back as it was.** In File Explorer, right-click `SPARE` → **Eject**, then unplug it (the recovered SSD and the 4 TB SSD are in their drawers already). The button stays greyed out until the page sees none of them plugged in. Click it: new disks arrive switched on again, and the other settings the program changed go back. Beside each one, a **Show me** button opens Windows' own page for it, to see for yourself.
 - [ ] Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.
+- [ ] **To use your files day to day,** copy what you want out of `COPY 2\WORK` into your own folders (Pictures, Documents…) — copy, don't move. Never open-and-save, rename or delete anything inside `WORK` or `COPY 2`: they are the checked copies Finalise checks twice a year (it puts back from `WORK` anything changed in `COPY 2`).
 - [ ] The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.
 - [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
 

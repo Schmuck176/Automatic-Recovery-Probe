@@ -17,7 +17,10 @@ the way a person uses it:
   D. A drive that is not the recovered SSD (NTFS, like SPARE), plugged in
      while new disks are left switched off: the page switches it on,
      writable. It refuses to do that to the recovered SSD, and refuses to
-     switch that on unless it is read-only.
+     switch that on unless it is read-only. Then Windows is put back - only
+     with every drive unplugged.
+  E. The copy plugged in switched on and writable, with the page open: the
+     page marks it read-only and switches it off by itself, within seconds.
 
     python dropout_check.py <recovery-probe.exe> <work folder>
 """
@@ -338,6 +341,34 @@ def main():
         j = page.act(action="windows-back")
         check(j.get("ok"), "with every drive unplugged, Windows is put back as it was: %s" % j)
         check(policy(exe) == start_policy, "Windows' setting is back (%s)" % policy(exe))
+
+        # E. The copy plugged in switched on and writable (as before anything
+        # was set, or in another case), with the page open: the page marks it
+        # read-only and switches it off by itself, within seconds, and says so.
+        log("E. The copy plugged in switched on, with the page open:")
+        n = attach(vhd)
+        vhd_in = True
+        time.sleep(1)
+        info = disk_info(n)
+        log("     it arrived: %s" % info)
+        if info.get("offline") or info.get("read_only"):
+            # (Windows kept a setting from before: switched on and writable
+            # here, as a disk plugged in before anything was set arrives.)
+            W.ps("Set-Disk -Number %d -IsReadOnly $false; Set-Disk -Number %d -IsOffline $false" % (n, n), check=False)
+        guarded = None
+        for _ in range(40):
+            info = disk_info(n)
+            if info.get("offline") is True and info.get("read_only") is True:
+                guarded = info
+                break
+            time.sleep(0.5)
+        check(guarded, "the page marked it read-only and switched it off by itself (%s)" % disk_info(n))
+        alarm = page.get("api/state").get("alarm") or ""
+        check("arrived as disk %d" % n in alarm, "and says so at the top of the page: %s" % alarm[:110])
+        page.act(action="alarm-read")
+        check(not page.get("api/state").get("alarm"), "until it has been read")
+        detach(vhd)
+        vhd_in = False
     finally:
         if vhd_in:
             detach(vhd)

@@ -51,6 +51,15 @@ fn ext_lower(name: &str) -> String {
     }
 }
 
+/// A path to compare with another: without Windows' long-path prefix
+/// (`\\?\`, which `under` adds), one kind of slash, lower case. (A path
+/// read from a folder and the same path built with the prefix are the same
+/// file, but not equal as paths.)
+fn path_key(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('/', "\\");
+    s.strip_prefix(r"\\?\").unwrap_or(&s).trim_end_matches('\\').to_lowercase()
+}
+
 fn under(base: &Path, rel: &str) -> PathBuf {
     let mut p = crate::rescue::verbatim(base);
     for c in rel.split('\\').filter(|c| !c.is_empty()) {
@@ -100,6 +109,10 @@ pub struct HandedOff {
     /// Read whole from the old drive, so exactly as they were on it (a
     /// checking tool found something in them that was so already).
     pub as_before: Vec<(String, String)>,
+    /// Files with a number found in the hand-off folders that the program
+    /// did not put there - a repaired version saved beside the damaged copy
+    /// instead of into "returned" - moved into "returned" for Bring back.
+    pub moved: Vec<String>,
 }
 
 /// Copy everything still damaged into REPAIR\hand-off, sorted by who can
@@ -112,7 +125,18 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
     let back = repair::returned_now(work);
     let root = repair.join(HANDOFF_DIR);
     let mut o = HandedOff { folder: root.clone(), ..Default::default() };
-    let mut keep: HashSet<PathBuf> = HashSet::new();
+    let mut keep: HashSet<String> = HashSet::new();
+    // What the program itself puts in the hand-off folders, by name: a copy
+    // of the damaged file in to-repair (its size, or None for a folder).
+    let own: HashMap<String, Option<u64>> = items
+        .iter()
+        .map(|item| {
+            let name = item.copied_as.rsplit('\\').next().unwrap_or(&item.copied_as).to_lowercase();
+            let src = under(&repair, &item.copied_as);
+            let size = std::fs::metadata(&src).ok().filter(|m| m.is_file()).map(|m| m.len());
+            (name, size)
+        })
+        .collect();
     for item in &items {
         if back.get(&item.path.to_lowercase()).is_some_and(|n| n.repaired) {
             continue;
@@ -149,7 +173,7 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
         if !dest.exists() {
             copy_tree(&src, &dest).map_err(|e| format!("could not copy {} into the hand-off: {e}", item.copied_as))?;
         }
-        keep.insert(dest);
+        keep.insert(path_key(&dest));
         match next {
             Next::Mac => o.mac.push(item.path.clone()),
             Next::OwnApp => o.own.push(item.path.clone()),
@@ -157,15 +181,19 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
         }
     }
     // What was repaired since an earlier hand-off comes out of it.
-    for f in [FOR_MAC, FOR_PAID, FOR_OWN] {
-        remove_unkept(&root.join(f), &keep);
-    }
     std::fs::create_dir_all(root.join(RETURNED)).map_err(|e| format!("could not make {}: {e}", root.join(RETURNED).display()))?;
+    for f in [FOR_MAC, FOR_PAID, FOR_OWN] {
+        remove_unkept(&root.join(f), &keep, &own, &root.join(RETURNED), &mut o.moved);
+    }
     write_readmes(&root, &o)?;
     Ok(o)
 }
 
-fn remove_unkept(dir: &Path, keep: &HashSet<PathBuf>) {
+/// Take out of a hand-off folder the copies no longer needed there (the
+/// program's own: their name and size). Anything else with a number - a
+/// repaired version saved here instead of into "returned", say - is never
+/// deleted: it is moved into "returned", where Bring back finds it.
+fn remove_unkept(dir: &Path, keep: &HashSet<String>, own: &HashMap<String, Option<u64>>, returned: &Path, moved: &mut Vec<String>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let p = e.path();
@@ -174,18 +202,43 @@ fn remove_unkept(dir: &Path, keep: &HashSet<PathBuf>) {
             continue;
         }
         if repair::tag_in(&name).is_some() {
-            if !keep.contains(&p) {
-                if p.is_dir() {
-                    let _ = std::fs::remove_dir_all(&p);
-                } else {
-                    let _ = std::fs::remove_file(&p);
+            if keep.contains(&path_key(&p)) {
+                continue;
+            }
+            let ours = match own.get(&name.to_lowercase()) {
+                Some(Some(size)) => std::fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() == *size),
+                Some(None) => p.is_dir(),
+                None => false,
+            };
+            if ours {
+                let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+            } else {
+                let to = free_name(returned, &name);
+                if std::fs::rename(&p, &to).is_ok() {
+                    moved.push(name);
                 }
             }
         } else if p.is_dir() {
-            remove_unkept(&p, keep);
+            remove_unkept(&p, keep, own, returned, moved);
             let _ = std::fs::remove_dir(&p); // only if empty
         }
     }
+}
+
+/// `dir\name`, or `dir\stem (2).ext`... when that is taken.
+fn free_name(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.to_string(), String::new()),
+    };
+    (2..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
 }
 
 const MAC_README: &str = "These files are copies of damaged files the PC could not repair. The Mac's own decoders know \
@@ -496,7 +549,7 @@ fn supersede(repair: &Path, id: &str, keep: &Path) -> Result<usize, String> {
                 continue;
             }
             let tagged = repair::tag_in(&name);
-            if tagged.as_deref() == Some(id) && p != keep {
+            if tagged.as_deref() == Some(id) && path_key(&p) != path_key(keep) {
                 let to = repair.join(repair::REPLACED).join(format!("{id} {} {name}", crate::fmt::now_stamp()));
                 let _ = std::fs::create_dir_all(repair.join(repair::REPLACED));
                 std::fs::rename(&p, &to).map_err(|e| format!("could not move {} aside: {e}", p.display()))?;
@@ -540,6 +593,14 @@ pub fn summary(o: &HandedOff) -> Vec<String> {
             commas(o.as_before.len() as u64)
         ));
     }
+    if !o.moved.is_empty() {
+        t.push(format!(
+            "{} files with a number were saved in the hand-off folders rather than in \"{RETURNED}\" (such as {}): moved \
+             into \"{RETURNED}\", where Bring back takes them in.",
+            commas(o.moved.len() as u64),
+            o.moved.first().cloned().unwrap_or_default()
+        ));
+    }
     t
 }
 
@@ -573,6 +634,56 @@ pub fn brought_summary(o: &Brought) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_is_the_same_with_or_without_the_long_path_prefix() {
+        assert_eq!(path_key(Path::new(r"\\?\D:\REPAIR\hand-off\a [R0001].jpg")), path_key(Path::new(r"D:\REPAIR\Hand-off\A [R0001].JPG")));
+        assert_ne!(path_key(Path::new(r"D:\REPAIR\a [R0001].jpg")), path_key(Path::new(r"D:\REPAIR\a [R0002].jpg")));
+    }
+
+    /// The hand-off keeps its own copies, takes out those no longer needed,
+    /// and never deletes a file with a number the person saved there: it
+    /// goes into "returned", for Bring back.
+    #[test]
+    fn the_hand_off_never_deletes_what_the_person_saved_in_it() {
+        let base = std::env::temp_dir().join(format!("arp-handoff-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Pics")).unwrap();
+        std::fs::write(work.join("Pics").join("a.jpg"), b"damaged").unwrap();
+        let repair = base.join("REPAIR");
+        let src = repair.join("to-repair").join("1 Photos");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a [R0001].jpg"), b"damaged").unwrap();
+        let mut h = crate::sha256::Sha256::new();
+        h.update(b"damaged");
+        let list = format!(
+            "\u{FEFF}id,path_in_work,kind,repair_with,size_bytes,sha256,why,inside_package,copied_out_as\r\n\
+             R0001,Pics\\a.jpg,file,1 Photos,7,{},HOLE,,to-repair\\1 Photos\\a [R0001].jpg\r\n",
+            h.finish_hex()
+        );
+        std::fs::write(repair.join(repair::LIST_NAME), list).unwrap();
+        let o = prepare(&work).unwrap();
+        assert_eq!(o.paid.len(), 1, "{o:?}");
+        let paid = repair.join(HANDOFF_DIR).join(FOR_PAID).join("1 Photos");
+        assert_eq!(std::fs::read(paid.join("a [R0001].jpg")).unwrap(), b"damaged", "its own copy is there");
+        // A paid tool saved its result beside the copy, not in "returned";
+        // and an old copy of the program's for a number no longer handed off.
+        std::fs::write(paid.join("a [R0001] (repaired).jpg"), b"repaired by the paid tool").unwrap();
+        let o = prepare(&work).unwrap();
+        assert_eq!(std::fs::read(paid.join("a [R0001].jpg")).unwrap(), b"damaged", "kept: still to repair");
+        assert!(!paid.join("a [R0001] (repaired).jpg").exists());
+        let returned = repair.join(HANDOFF_DIR).join(RETURNED);
+        assert_eq!(std::fs::read(returned.join("a [R0001] (repaired).jpg")).unwrap(), b"repaired by the paid tool");
+        assert_eq!(o.moved, vec!["a [R0001] (repaired).jpg".to_string()]);
+        assert!(summary(&o).iter().any(|l| l.contains("moved") && l.contains(RETURNED)), "{:?}", summary(&o));
+        // The same name saved there again: kept beside the first, not over it.
+        std::fs::write(paid.join("a [R0001] (repaired).jpg"), b"second try").unwrap();
+        prepare(&work).unwrap();
+        assert_eq!(std::fs::read(returned.join("a [R0001] (repaired) (2).jpg")).unwrap(), b"second try");
+        assert_eq!(std::fs::read(returned.join("a [R0001] (repaired).jpg")).unwrap(), b"repaired by the paid tool");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn where_unrepaired_files_go() {

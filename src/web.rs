@@ -357,6 +357,9 @@ fn start_job(
     title: &str,
     work: impl FnOnce(&Ctx) -> Result<Outcome, String> + Send + 'static,
 ) -> Result<u64, String> {
+    if OLDER_OPEN.load(Ordering::Relaxed) {
+        return Err(OLDER_OPEN_TEXT.to_string());
+    }
     let ctx = {
         let mut a = lock(app);
         if let Some(j) = &a.job {
@@ -813,6 +816,12 @@ pub fn serve(cfg: Config) -> i32 {
         let app = app.clone();
         crate::taskbar::watch(move || taskbar_now(&lock(&app)));
     }
+    // A copy of the old drive arriving switched on is switched off at once;
+    // the older program open at the same time is said on the page.
+    if cfg!(windows) && elevated && cfg.test_disks.is_empty() {
+        guard_watch(app.clone());
+    }
+    watch_older_program();
     let url = format!("http://127.0.0.1:{port}/{}/", cfg.token);
     println!("{} {} is running in your web browser.", crate::APP, crate::VERSION);
     println!();
@@ -970,6 +979,8 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .b("notify", crate::notify::is_on())
         .raw("last", &last.end())
         .raw("auto", &auto::state_json(&a))
+        .s("alarm", &ALARM.lock().unwrap_or_else(|e| e.into_inner()))
+        .b("older_open", OLDER_OPEN.load(Ordering::Relaxed))
         .end()
 }
 
@@ -1299,6 +1310,10 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             }
             Ok(String::new())
         }
+        "alarm-read" => {
+            ALARM.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            Ok(String::new())
+        }
         "notify-test" => crate::notify::try_now(
             "Automatic Recovery Probe",
             "This is how Start tells you it needs you, has stopped on a problem, or is done.",
@@ -1345,6 +1360,14 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             })
         }),
         "guard-online" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
+            // Switching a drive off under a job writing to it (SPARE, say)
+            // would cut the job short: only a copy of the old drive is
+            // switched off while something runs.
+            if !on("on") && lock(app).job.as_ref().is_some_and(|j| j.state == "running") && !holds_a_copy(app, n) {
+                return Err(format!(
+                    "Something is running, and disk {n} may hold the folders it works in: switch it off once it has finished."
+                ));
+            }
             if on("on") && !crate::guard::state(n)?.read_only && could_be_recovered(app, n) {
                 return Err(format!(
                     "Disk {n} could be the recovered SSD and is not marked read-only, so it stays switched off: \
@@ -1440,6 +1463,39 @@ fn could_be_recovered(app: &Arc<Mutex<App>>, n: u32) -> bool {
         }
     }
     crate::mapcheck::find_volume_quick(&*src, &table).is_ok()
+}
+
+/// Does disk `n` hold a copy of the old drive - the recovered SSD, the 4 TB
+/// SSD (mapcheck::is_the_copy, for the mapfile chosen)?
+fn holds_a_copy(app: &Arc<Mutex<App>>, n: u32) -> bool {
+    let map = lock(app).setting("mapfile");
+    let Some((s, e)) = mapfile_domain(&map) else { return false };
+    let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{n}")) else { return false };
+    let table = crate::gpt::read(&*src, &[]);
+    crate::mapcheck::is_the_copy(&*src, &table, e - s)
+}
+
+/// A folder about to be written to: never on a disk that holds a copy of the
+/// old drive. Drive letters move as drives are plugged in and out - E: today
+/// may be another drive than E: yesterday - so this is asked each time.
+fn check_destination(app: &Arc<Mutex<App>>, folder: &str) -> Result<(), String> {
+    if !cfg!(windows) || !lock(app).elevated || !lock(app).test_disks.is_empty() {
+        return Ok(());
+    }
+    let Some(d) = drive_of(folder) else { return Ok(()) };
+    let Some(n) = d.disk else { return Ok(()) };
+    if crate::win::disks().iter().any(|x| x.number == n && x.system) {
+        return Ok(());
+    }
+    if holds_a_copy(app, n) {
+        return Err(format!(
+            "{} is on disk {n}, which holds a copy of the old drive (the recovered SSD or the 4 TB SSD): nothing is ever \
+             written there. Unplug it. (If {} was SPARE's letter before, plug SPARE in: it gets a letter of its own.)",
+            folder.trim(),
+            d.letter
+        ));
+    }
+    Ok(())
 }
 
 /// While anything reads the recovered SSD, Windows is set to leave new disks
@@ -1569,6 +1625,7 @@ fn prepare_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool
     if out.trim().is_empty() {
         return Err("Choose where the copies go first.".to_string());
     }
+    check_destination(app, out)?;
     let opts_disk = disk.to_string();
     let opts_out = out.to_string();
     let guard = cfg!(windows) && physical_number(disk).is_some() && !is_test_disk(app, disk);
@@ -2050,6 +2107,7 @@ fn prepare_image(app: &Arc<Mutex<App>>, disk: &str, out: &str) -> Result<Prepare
         return Err("Choose the mapfile first (step 2): it says how big the old drive was.".to_string());
     };
     let size = e.saturating_sub(s);
+    check_destination(app, out)?;
     if let Some(d) = drive_of(out) {
         if physical_number(disk).is_some_and(|n| d.disk == Some(n)) {
             return Err(format!("{} is on the recovered SSD itself. Choose a folder on another drive.", d.letter));
@@ -2579,16 +2637,108 @@ fn remembered_port() -> Option<u16> {
     std::fs::read_to_string(port_note()).ok()?.trim().parse().ok()
 }
 
-/// Does this program answer on `port`?
-fn already_running_on(port: u16) -> bool {
-    let Ok(mut s) = TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, port).into(), Duration::from_millis(500)) else {
-        return false;
-    };
+/// What the program on `port` of this PC answers when asked its name.
+fn ping(port: u16) -> Option<String> {
+    let mut s = TcpStream::connect_timeout(&(std::net::Ipv4Addr::LOCALHOST, port).into(), Duration::from_millis(500)).ok()?;
     let _ = s.write_all(format!("GET /ping HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes());
     let mut buf = Vec::new();
     let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = s.read_to_end(&mut buf);
-    String::from_utf8_lossy(&buf).contains(crate::APP)
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Does this program answer on `port`?
+fn already_running_on(port: u16) -> bool {
+    ping(port).is_some_and(|t| t.contains(crate::APP))
+}
+
+/// The older Recovery Probe (recovery-probe.exe, in the same folder) answers
+/// on its own port, by its own name.
+const OLDER_PORT: u16 = 47115;
+const OLDER_NAME: &str = "Recovery Probe";
+
+/// Is the older Recovery Probe open? The two read and write the same results
+/// folder (and their copies may go into the same folders): they must never
+/// be open together.
+fn older_program_open() -> bool {
+    ping(OLDER_PORT).is_some_and(|t| t.contains(OLDER_NAME) && !t.contains(crate::APP))
+}
+
+const OLDER_OPEN_TEXT: &str = "Recovery Probe - the older program, recovery-probe.exe - is open as well. The two use the \
+                               same results and folders and must never work at the same time: close its black window \
+                               first.";
+
+static OLDER_OPEN: AtomicBool = AtomicBool::new(false);
+
+/// Looks every few seconds whether the older program is open (said on the
+/// page; no job starts while it is).
+fn watch_older_program() {
+    std::thread::spawn(|| loop {
+        OLDER_OPEN.store(older_program_open(), Ordering::Relaxed);
+        std::thread::sleep(Duration::from_secs(4));
+    });
+}
+
+/// What the page must say at once, above everything: a copy of the old
+/// drive found switched on (guard_watch). Kept until read.
+static ALARM: Mutex<String> = Mutex::new(String::new());
+
+/// Whatever the page shows and whatever runs: a copy of the old drive (the
+/// recovered SSD, the 4 TB SSD) that turns up switched on and writable -
+/// plugged in before Windows was set to leave new disks switched off, say,
+/// or in another case or port - is marked read-only and switched off at
+/// once, so Windows has as little time as possible to write to it. (Disks
+/// seen before and found not to be a copy are not read again.)
+fn guard_watch(app: Arc<Mutex<App>>) {
+    std::thread::spawn(move || {
+        let mut not_copies: HashMap<u32, String> = HashMap::new();
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            if map_size_now().is_none() {
+                continue;
+            }
+            for d in crate::win::disks() {
+                // (Not the image itself, opened read-only by AIM Toolkit for
+                // the map check: it is a copy of the old drive too, and
+                // switching it off would cut the map check's comparison.)
+                if d.system || d.size == 0 || d.model.to_ascii_lowercase().contains("arsenal") {
+                    continue;
+                }
+                let id = format!("{}|{}", d.model, d.size);
+                if not_copies.get(&d.number) == Some(&id) {
+                    continue;
+                }
+                let Ok(st) = crate::guard::state(d.number) else { continue };
+                // Switched off, marked read-only, or a disk that cannot be
+                // written to at all (write-protected): nothing to do.
+                if st.offline || st.read_only || st.writable == Some(false) {
+                    continue;
+                }
+                if !holds_a_copy(&app, d.number) {
+                    not_copies.insert(d.number, id);
+                    continue;
+                }
+                let r = crate::guard::set_read_only(d.number).and_then(|_| crate::guard::set_online(d.number, false));
+                let text = match &r {
+                    Ok(()) => format!(
+                        "A copy of the old drive - the recovered SSD or the 4 TB SSD - arrived as disk {} switched on, where \
+                         Windows could write to it. The program marked it read-only and switched it off straight away. If \
+                         Windows wrote anything in that moment, the map check will see it and stop Start. Unplug it unless \
+                         Start is asking for it now.",
+                        d.number
+                    ),
+                    Err(e) => format!(
+                        "A copy of the old drive - the recovered SSD or the 4 TB SSD - is plugged in as disk {} switched on, \
+                         and the program could not switch it off ({e}). Unplug it now.",
+                        d.number
+                    ),
+                };
+                crate::live::event("bad", &text);
+                crate::notify::toast("A copy of the old drive arrived switched on", &text, true);
+                *ALARM.lock().unwrap_or_else(|e| e.into_inner()) = text;
+            }
+        }
+    });
 }
 
 /// What double-clicking the program does.
@@ -2602,6 +2752,12 @@ pub fn launch() -> i32 {
         println!("{} is already running in another window.", crate::APP);
         println!("Its window shows the web address to open. To start again, close that window first.");
         pause(8);
+        return 0;
+    }
+    if older_program_open() {
+        println!("{OLDER_OPEN_TEXT}");
+        println!("Then double-click {} again.", crate::APP);
+        pause(15);
         return 0;
     }
     let port = TcpListener::bind(("127.0.0.1", DEFAULT_PORT))

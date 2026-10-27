@@ -110,7 +110,7 @@ The parts of the Automatic tab:
    Start sets what it needs again when it carries on). Step 9 of the
    program's steps has the same button, by the same rule.
 
-The checklist (now 28 boxes, `docs/automatic-checklist.md`) and the program's
+The checklist (now 29 boxes, `docs/automatic-checklist.md`) and the program's
 steps one at a time are the other two tabs. The page shows each stage's results
 in the steps tab as if its button had been clicked, and both programs read the
 same results folder, so Recovery Probe can carry on from anything this one did.
@@ -118,7 +118,20 @@ same results folder, so Recovery Probe can carry on from anything this one did.
 ## What never changes
 
 - Nothing is ever written to the recovered SSD or the image. The SSD is read
-  once, read-only, switched off for Windows.
+  once, read-only, switched off for Windows. While the program is open, a
+  copy of the old drive (the recovered SSD, the 4 TB SSD) that turns up
+  switched on and writable - plugged in too early, or in another case - is
+  marked read-only and switched off within seconds, and the page says so.
+- Nothing is written to a drive that holds a copy of the old drive, whatever
+  letter it has: the image, WORK, the second copy and Bring back all check
+  the drive under their folder first (letters move as drives come and go).
+  WORK is made only on SPARE (by its label or the disk the rehearsal saw)
+  when it is on a USB drive; if SPARE comes back under another letter, WORK
+  is found there again.
+- The folders are checked against each other: none inside another, and the
+  second copy on another drive than WORK.
+- The older Recovery Probe open at the same time: the page says so, and
+  nothing starts until it is closed (they share the results and folders).
 - The open-source tools never see the SSD or the image: the checks run them
   only with options that read, on the copies in WORK; the repairs run them on
   copies of copies, in a folder of their own.
@@ -127,6 +140,13 @@ same results folder, so Recovery Probe can carry on from anything this one did.
   exactly the damaged original, keeps the original in `REPAIR\originals`, and
   lists both checksums in `WORK\repair-returns.csv`.
 - Any check that finds something stops Start, and says why.
+- Finalise checks WORK before it copies anything from it: a file changed in
+  WORK since it was copied never spreads over the second copy (only what the
+  second copy lacks is added, and the problem is named). With WORK as copied,
+  anything changed in the second copy is put back from WORK.
+- The hand-off folders never lose a file the person saved in them: a file
+  with a number there that the program did not put there (a repaired version
+  saved beside the damaged copy, say) is moved into `returned` for Bring back.
 - Every file keeps its dates (created and modified), for sorting by date:
   the copies get the old drive's; a repaired file put back gets its
   original's, whatever tool made it (here, on the Mac or a paid tool), and

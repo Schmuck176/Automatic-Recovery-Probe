@@ -19,6 +19,7 @@ used when found, and what they repair is expected only then.
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import struct
@@ -301,6 +302,51 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
+def older_program_check(prog):
+    """The older Recovery Probe open at the same time (a stand-in answering on
+    its port, by its name): the page says so, and nothing starts."""
+    import http.server
+    import threading
+
+    class Older(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Recovery Probe")
+
+        def log_message(self, *a):
+            pass
+
+    try:
+        srv = http.server.HTTPServer(("127.0.0.1", 47115), Older)
+    except OSError as e:
+        print("(the older program's port is in use here: %s; not checked)" % e)
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        seen = False
+        for _ in range(40):
+            if prog.get("api/state").get("older_open"):
+                seen = True
+                break
+            time.sleep(0.25)
+        check(seen, "the page sees the older Recovery Probe open")
+        r = prog.do(action="selftest")
+        check(not r.get("ok") and "older program" in (r.get("error") or ""),
+              "and nothing starts while it is: %s" % (r.get("error") or "")[:80])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    gone = False
+    for _ in range(40):
+        if not prog.get("api/state").get("older_open"):
+            gone = True
+            break
+        time.sleep(0.25)
+    check(gone, "closed again: the page says nothing more")
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -324,6 +370,16 @@ def main():
     try:
         prog.do(action="set", mapfile=mp, auto_image_dir=os.path.join(work, "IMAGE"), auto_work=w,
                 auto_copy2=os.path.join(work, "COPY 2"), auto_videos="1")
+        older_program_check(prog)
+        # The folders checked against each other: the second copy inside WORK
+        # is refused, and said in the folders part at once.
+        prog.do(action="set", auto_copy2=os.path.join(w, "COPY 2"))
+        r = prog.do(action="auto-start")
+        check(not r.get("ok") and "one inside the other" in (r.get("error") or ""),
+              "Start refuses a second copy inside WORK: %s" % r.get("error"))
+        check("one inside the other" in (prog.get("api/places").get("problem") or ""), "and the folders part says so")
+        prog.do(action="set", auto_copy2=os.path.join(work, "COPY 2"))
+        check(not prog.get("api/places").get("problem"), "chosen again beside it: nothing to say")
         r = prog.do(action="auto-start")
         check(r.get("ok"), "Start begins: %s" % r.get("error", ""))
         s = prog.wait()
@@ -429,6 +485,13 @@ def main():
         check(os.path.isdir(hand), "the hand-off folder is there")
         if os.path.isdir(os.path.join(hand, "1 For the Mac")):
             check(os.path.isfile(os.path.join(hand, "1 For the Mac", "Repair on the Mac.command")), "with the Mac script")
+        # It holds the files it says it does (each with its number), not just
+        # its READ ME and the Mac script.
+        said_ready = re.search(r"(\d+) files are ready in", " ".join(stages["handoff"]["summary"]))
+        numbered = [f for sub in ("1 For the Mac", "2 For a paid repair tool", "3 For their own program")
+                    for _, ds, fs in os.walk(os.path.join(hand, sub)) for f in fs + ds if re.search(r"\[R\d{4,}\]", f)]
+        check(said_ready and len(numbered) == int(said_ready.group(1)),
+              "the hand-off holds the %s files it says are ready (%d there)" % (said_ready and said_ready.group(1), len(numbered)))
         # What just happened: the page's lines, kept in the results folder too.
         feed = [e["text"] for e in s.get("feed") or []]
         check(feed and feed[0].startswith("Start is done"), "what just happened ends with Start done (%s)" % feed[:1])

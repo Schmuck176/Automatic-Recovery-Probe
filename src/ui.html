@@ -890,6 +890,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
     </div>
 
     <main id="main">
+      <div id="alarm-banner" role="alert"></div>
       <div id="restore-banner" role="status"></div>
       <div id="where" class="where" role="status"></div>
 
@@ -1024,7 +1025,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
 
       <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
         <div class="panel intro" style="margin: 0 0 22px"><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>
-          <p>These are the program's own steps, one at a time: the same work <b>Start</b> does by itself, and what Start did shows here too. Use them to look at a result in detail, or to do one step again.</p></div>
+          <p>These are the program's own steps, one at a time: the same work <b>Start</b> does by itself, and what Start did shows here too. Use them to look at a result in detail. Do a step again from here only if Claude asks you to: <b>Automatic recovery</b> does them all, in the right order, and keeps track of what is done.</p></div>
         <section class="map" aria-labelledby="map-lead">
           <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
           <div id="map-picture"></div>
@@ -1636,6 +1637,17 @@ function renderTop() {
   $("version").textContent = `Version ${S.version}. Results are kept in ${S.results}.`;
   // While the program is not answering, its banner (set by refresh) stays.
   if (lost) return;
+  // Above everything: the older program open as well, or a copy of the old
+  // drive found switched on (the program switched it off at once).
+  let al = "";
+  if (S.older_open) al += `<div class="banner lost">${ic("triangle-alert")}<div><p><b>Recovery Probe, the older program, is open as well.</b> The two use the same results and folders and must never work at the same time: close its black window (recovery-probe.exe). Nothing can be started here until it is closed.</p></div></div>`;
+  if (S.alarm) al += `<div class="banner lost">${ic("shield-alert")}<div><p>${esc(S.alarm)}</p><button class="second" id="b-alarm-read">${ic("check")}I've read this</button></div></div>`;
+  const ab = $("alarm-banner");
+  if (ab.dataset.html !== al) {
+    ab.innerHTML = al; ab.dataset.html = al;
+    const rb = $("b-alarm-read");
+    if (rb) rb.onclick = async () => { try { await act({ action: "alarm-read" }); } catch (e) { /* (said next time) */ } await refresh(); };
+  }
   const b = $("restore-banner");
   const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue" || S.job.kind === "image");
   if (S.policy_to_restore && reading) {
@@ -2102,7 +2114,10 @@ function renderRepair() {
 }
 
 function renderFinish() {
-  const chosen = disks.find((d) => d.spec === setting("disk"));
+  // (The recovered SSD as it is plugged in now - found by what it holds, not
+  // by a disk number remembered from before: numbers change as drives come
+  // and go, and could now be SPARE's.)
+  const chosen = disks.find((d) => isCopy(d) && !d.system && !d.test);
   let h = "";
   h += `<p>To take the recovered SSD out: ${chosen && !chosen.offline && !chosen.test ? `<button class="second" id="b-off2">${ic("power-off")}Switch it off</button> then ` : ""}unplug it. Keep it in a drawer: it is your untouched master copy. Whenever it is plugged in again, use step 3 first.</p>`;
   // Windows' settings: put back here too, by the same rule (every drive unplugged).
@@ -2623,11 +2638,13 @@ function renderAuto() {
   if ($("view-auto").hidden === false && !rehearsed) watchDisks(30);
 
   // 3. The folders.
-  const foldersOk = (imageMade || !!setting("auto_image_dir")) && !!setting("auto_work");
+  const folderProblem = (PLACES && PLACES.problem) || "";
+  const foldersOk = (imageMade || !!setting("auto_image_dir")) && !!setting("auto_work") && !folderProblem;
   h = noteHtml("folders");
+  if (folderProblem) h += msg("err", esc(folderProblem));
   if (READY && !setting("auto_work") && !READY.suggest_work) h += `<p class="small soft">No drive called SPARE is plugged in now: type the folder (such as E:\\WORK), or plug SPARE in and click Check this PC.</p>`;
   put($("ar-folders"), h);
-  setAuto("folders", foldersOk ? "done" : "", foldersOk ? "Chosen" : "");
+  setAuto("folders", foldersOk ? "done" : folderProblem ? "problem" : "", foldersOk ? "Chosen" : folderProblem ? "Needs changing" : "");
 
   // 4. Start.
   const A = S.auto || { stages: [], resume_at: 0 };
