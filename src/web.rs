@@ -2697,7 +2697,11 @@ fn guard_watch(app: Arc<Mutex<App>>) {
             if map_size_now().is_none() {
                 continue;
             }
-            for d in crate::win::disks() {
+            let disks = crate::win::disks();
+            // (A disk unplugged is forgotten: whatever comes next under its
+            // number is looked at afresh, even with the same name and size.)
+            not_copies.retain(|n, _| disks.iter().any(|d| d.number == *n));
+            for d in disks {
                 // (Not the image itself, opened read-only by AIM Toolkit for
                 // the map check: it is a copy of the old drive too, and
                 // switching it off would cut the map check's comparison.)
