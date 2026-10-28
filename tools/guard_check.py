@@ -209,10 +209,11 @@ def main():
         code, text = rp(exe, "disk-guard", "status")
         mine = [x for x in text.splitlines() if x.startswith("disk %d:" % n)]
         log("     the program sees: %s" % mine)
-        # (What the program reads to know the setting is on now - not its own
-        # note, which can outlive the setting: cli::new_disks_held_off.)
-        check("SAN policy in the registry: Some(3)" in text and "Held off now: true" in text,
-              "Windows' own record of the setting says new disks stay switched off (%s)" %
+        # (What the program asks to know the setting is on now - not its own
+        # note, which can outlive the setting, nor the registry, whose
+        # SanPolicy stays as it was: cli::new_disks_held_off.)
+        check("Held off now: true" in text,
+              "diskpart says new disks stay switched off (%s)" %
               [x for x in text.splitlines() if "registry" in x or "Held off" in x])
         mp = os.path.join(work, "b.map")
         X.write_mapfile(mp, t["gpt_disk_size"], [])

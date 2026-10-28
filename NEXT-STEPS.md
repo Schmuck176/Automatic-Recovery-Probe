@@ -662,12 +662,15 @@ Found and fixed (each with a test that fails without the fix):
   back (by the older program or by hand, a put-back cut short, an update),
   Start's ready and image stages and the image step would not set it again,
   and the recovered SSD would arrive switched on (the watcher would switch it
-  off within 2 s). cli::new_disks_held_off asks Windows (the registry's
-  SanPolicy, 3 = offline all; diskpart where it has none); the page's claims
-  ("New disks arrive switched off: On", the banner while the SSD is read,
-  step 3's Get Windows ready) go by it too, and say "Set back" when the note
-  is there and the setting is not. guard_check (Windows CI) checks the
-  registry says 3 after prepare.
+  off within 2 s). cli::new_disks_held_off asks diskpart (its SAN policy)
+  at those moments; the answer is kept for the page (the ready check asks
+  again at most once a minute, never while a job runs), whose claims ("New
+  disks arrive switched off: On", the banner while the SSD is read, step 3's
+  Get Windows ready) go by it, and say "Set back" when the note is there and
+  the setting is not. Not the registry: the first try read SanPolicy under
+  partmgr\Parameters, and the Windows CI run (40773843342) showed it stays 1
+  after diskpart sets "offline all" (the disk did arrive switched off) -
+  guard_check now checks diskpart's answer after prepare.
 - **A Mac name ending in a space or a dot** ("Holiday ", "notes.") is cut off
   by Windows when a path is given the usual way, so the scan, the extra
   checks and the twin search opened another file or none (a false "could not

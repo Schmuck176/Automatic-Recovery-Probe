@@ -975,7 +975,9 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .s("results", &a.results.display().to_string())
         .raw("settings", &s.end())
         .raw("policy_to_restore", &restore)
-        .b("new_disks_off", crate::cli::new_disks_held_off_quick())
+        // (Windows' own answer as last asked - by the ready check, Start,
+        // Get Windows ready - not asked here, every second.)
+        .raw("new_disks_off", opt_bool(crate::cli::new_disks_held_off_known(Duration::MAX)))
         .raw("job", &a.job.as_ref().map(|j| j.json(60)).unwrap_or_else(|| "null".to_string()))
         .raw("live", &crate::live::snapshot().map(|b| b.json()).unwrap_or_else(|| "null".to_string()))
         .raw("feed", &crate::live::feed_json(40))
@@ -1786,6 +1788,16 @@ fn ready_json(app: &Arc<Mutex<App>>, fresh: bool) -> String {
     let crash = crate::winset::restarts_after_crash();
     let aim_driver = crate::winset::aim_driver_installed();
     let aim_setup = find_aim_setup(&home);
+    // Whether new disks arrive switched off: Windows' own answer (diskpart),
+    // asked again when "Check again" is clicked or the last answer is a
+    // minute old - not while a job runs (that is not the moment to make
+    // Windows go over every disk): the last answer stands then.
+    let running = lock(app).job.as_ref().is_some_and(|j| j.state == "running");
+    let new_disks_off = match crate::cli::new_disks_held_off_known(Duration::from_secs(60)) {
+        Some(held) if !fresh || running => Some(held),
+        _ if running || !elevated => crate::cli::new_disks_held_off_known(Duration::MAX),
+        _ => Some(crate::cli::new_disks_held_off()),
+    };
     let (suggest_image, suggest_work, suggest_copy2) = suggested_folders(app, &map);
     Obj::new()
         .b("elevated", elevated)
@@ -1805,7 +1817,7 @@ fn ready_json(app: &Arc<Mutex<App>>, fresh: bool) -> String {
         )
         .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
         .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
-        .b("new_disks_off", crate::cli::new_disks_held_off_quick())
+        .raw("new_disks_off", opt_bool(new_disks_off))
         .raw("tools", &crate::tools::status_json(&home))
         .s("image_dir", &image_dir)
         .s("work", &work)

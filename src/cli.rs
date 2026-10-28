@@ -597,21 +597,33 @@ pub fn policy_to_restore() -> Option<crate::guard::SanPolicy> {
         .and_then(crate::guard::SanPolicy::from_keyword)
 }
 
-/// Is Windows set to leave new disks switched off right now? Windows' own
-/// record of the setting (the registry: 3 is "offline all"), or diskpart's
-/// answer where there is none - never the program's note alone, which can
-/// outlive the setting (put back by the older program or by hand, a put-back
-/// cut short, a Windows update).
-pub fn new_disks_held_off() -> bool {
-    match crate::guard::san_policy_registry() {
-        Some(v) => v == 3,
-        None => cfg!(windows) && crate::guard::san_policy().is_ok_and(|p| p == crate::guard::SanPolicy::OfflineAll),
-    }
+/// The last answer to `new_disks_held_off`, and when it was given.
+static HELD_OFF: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+
+fn note_held_off(held: bool) {
+    *HELD_OFF.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), held));
 }
 
-/// The same, quickly (the registry only): for the page, asked every second.
-pub fn new_disks_held_off_quick() -> bool {
-    crate::guard::san_policy_registry() == Some(3)
+/// Is Windows set to leave new disks switched off right now? Windows' own
+/// answer (diskpart's SAN policy, asked now) - never the program's note
+/// alone, which can outlive the setting (put back by the older program or by
+/// hand, a put-back cut short, an update). (Not the registry either: its
+/// SanPolicy value stays as it was when diskpart changes the setting, as
+/// GitHub's Windows machines show.)
+pub fn new_disks_held_off() -> bool {
+    let held = cfg!(windows) && crate::guard::san_policy().is_ok_and(|p| p == crate::guard::SanPolicy::OfflineAll);
+    note_held_off(held);
+    held
+}
+
+/// The last answer, if it was given within `max_age` (for the page, which
+/// asks every second: diskpart is not run that often).
+pub fn new_disks_held_off_known(max_age: std::time::Duration) -> Option<bool> {
+    HELD_OFF
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .filter(|(at, _)| at.elapsed() <= max_age)
+        .map(|(_, held)| held)
 }
 
 /// Set Windows to leave new disks switched off, noting how it was.
@@ -634,6 +646,7 @@ pub fn guard_prepare() -> Result<String, String> {
     }
     set_san_policy(SanPolicy::OfflineAll)?;
     let after = san_policy()?;
+    note_held_off(after == SanPolicy::OfflineAll);
     if after != SanPolicy::OfflineAll {
         return Err(format!("Windows still says: {}", after.describe()));
     }
@@ -648,6 +661,7 @@ pub fn guard_restore() -> Result<String, String> {
     };
     set_san_policy(old)?;
     let now = san_policy()?;
+    note_held_off(now == crate::guard::SanPolicy::OfflineAll);
     if now != old {
         return Err(format!("Windows still says: {}", now.describe()));
     }
@@ -752,17 +766,16 @@ pub fn run_repair_step(step: &str, folder: &str, scans: &[String], id: Option<&s
 
 #[cfg(test)]
 mod tests {
-    /// Whether new disks are held off is Windows' own answer: the registry
-    /// agrees with diskpart (where diskpart can be asked).
+    /// Whether new disks are held off is diskpart's answer, kept for the
+    /// page.
     #[cfg(windows)]
     #[test]
     fn whether_new_disks_are_held_off_is_windows_own_answer() {
         match crate::guard::san_policy() {
             Ok(p) => {
-                assert_eq!(super::new_disks_held_off(), p == crate::guard::SanPolicy::OfflineAll, "{p:?}");
-                if crate::guard::san_policy_registry().is_some() {
-                    assert_eq!(super::new_disks_held_off_quick(), super::new_disks_held_off());
-                }
+                let held = super::new_disks_held_off();
+                assert_eq!(held, p == crate::guard::SanPolicy::OfflineAll, "{p:?}");
+                assert_eq!(super::new_disks_held_off_known(std::time::Duration::from_secs(60)), Some(held));
             }
             Err(e) => eprintln!("(diskpart not asked here: {e})"),
         }
@@ -771,6 +784,8 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn new_disks_are_never_held_off_but_on_windows() {
-        assert!(!super::new_disks_held_off() && !super::new_disks_held_off_quick());
+        assert!(!super::new_disks_held_off());
+        assert_eq!(super::new_disks_held_off_known(std::time::Duration::from_secs(60)), Some(false));
+        assert_eq!(super::new_disks_held_off_known(std::time::Duration::ZERO).filter(|_| false), None);
     }
 }
