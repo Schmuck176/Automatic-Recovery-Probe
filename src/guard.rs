@@ -98,16 +98,50 @@ fn run_diskpart(program: &std::path::Path, lines: &[&str]) -> Result<String, Str
     input.push_str("exit\r\n");
     // (Closed once written: diskpart then has all its input.)
     let wrote = child.stdin.take().map(|mut s| s.write_all(input.as_bytes()));
-    let out = child.wait_with_output().map_err(|e| format!("could not run diskpart: {e}"))?;
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    // What it prints, read as it comes (a full pipe would hold it up).
+    let read_all = |r: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut b = Vec::new();
+            if let Some(mut r) = r {
+                let _ = r.read_to_end(&mut b);
+            }
+            b
+        })
+    };
+    let out = read_all(child.stdout.take().map(|o| Box::new(o) as Box<dyn std::io::Read + Send>));
+    let err = read_all(child.stderr.take().map(|o| Box::new(o) as Box<dyn std::io::Read + Send>));
+    // Never waited for for ever: Windows' disk service can hang, and Start
+    // waits on this.
+    let began = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) if began.elapsed() < DISKPART_LIMIT => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "diskpart did not answer in {} seconds (Windows' disk service may be busy): try again",
+                    DISKPART_LIMIT.as_secs()
+                ));
+            }
+            Err(e) => return Err(format!("could not run diskpart: {e}")),
+        }
+    };
+    let text = String::from_utf8_lossy(&out.join().unwrap_or_default()).into_owned();
+    let _ = err.join();
     if let Some(Err(e)) = wrote {
         return Err(format!("could not give diskpart its commands ({e}): {}", text.trim()));
     }
-    if !out.status.success() {
+    if !status.success() {
         return Err(format!("diskpart failed: {}", text.trim()));
     }
     Ok(text)
 }
+
+/// How long diskpart is given to answer.
+const DISKPART_LIMIT: std::time::Duration =
+    if cfg!(test) { std::time::Duration::from_secs(3) } else { std::time::Duration::from_secs(120) };
 
 /// One disk's switches.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -414,5 +448,14 @@ mod tests {
         assert_eq!(out, "san\r\nsan policy=OfflineAll\r\nexit\r\n");
         assert!(run_diskpart(std::path::Path::new("/nonexistent/diskpart"), &["san"]).unwrap_err().contains("could not run"));
         assert!(run_diskpart(std::path::Path::new("false"), &["san"]).is_err());
+        // One that never answers is not waited for for ever.
+        use std::os::unix::fs::PermissionsExt;
+        let hang = std::env::temp_dir().join(format!("arp-hang-{}.sh", std::process::id()));
+        std::fs::write(&hang, "#!/bin/sh\nsleep 60\n").unwrap();
+        std::fs::set_permissions(&hang, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let t = std::time::Instant::now();
+        let e = run_diskpart(&hang, &[]).unwrap_err();
+        assert!(e.contains("did not answer") && t.elapsed() < std::time::Duration::from_secs(10), "{e}");
+        let _ = std::fs::remove_file(&hang);
     }
 }

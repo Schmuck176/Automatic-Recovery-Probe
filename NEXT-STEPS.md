@@ -671,6 +671,9 @@ Found and fixed (each with a test that fails without the fix):
   partmgr\Parameters, and the Windows CI run (40773843342) showed it stays 1
   after diskpart sets "offline all" (the disk did arrive switched off) -
   guard_check now checks diskpart's answer after prepare.
+- **diskpart was waited for for ever**: if Windows' disk service hung, Start
+  (and the page's ready check) would hang with it. Now 120 s, then it is
+  stopped and the step says so (tested with a stand-in that never answers).
 - **A Mac name ending in a space or a dot** ("Holiday ", "notes.") is cut off
   by Windows when a path is given the usual way, so the scan, the extra
   checks and the twin search opened another file or none (a false "could not
