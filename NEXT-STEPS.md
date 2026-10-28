@@ -688,6 +688,25 @@ copy list being re-read only when it changes (places.rs).
 - Version 2026-10-28 (1). The checklist's Bring back box says to leave the
   folder as it is for what was saved on the PC; the 2026-10-27 (1) text is
   known (KNOWN_CHECKLISTS 10842394862369969888) so the person's copy follows.
+- Tests here: unit tests 143 (with overflow checks), auto_check 88/88 (Bring
+  back's refusals and its default folder), auto_ui_check 34/34 and ui_check
+  67/67 with Windows-like and GitHub-like fonts.
+- CI run 40778230913 (a4c77ab), green on both systems. Windows: unit tests
+  146, disk protection 21/21 (diskpart says held off after prepare; the
+  registry still says 1), unplugged 42/42, page 68/68, automatic 97/97,
+  Automatic tab 34/34, resume 17/17. (4f9fc28's run 40772793432 was green
+  too; db9f83f's failed only the registry check that showed the mistake;
+  166d0d6's was cancelled for a4c77ab's.)
+- Delivered 28 Oct 2026, about 22:40 GMT: version 2026-10-28 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,935,616 bytes, SHA-256
+  81fb2351c2010ff6a50518f0a067e86edde119ee168116703144a34e7a4e5794 (staged
+  back and compared). main moved to it; the 2026-10-27 (1) main is kept as
+  branch version-2026-10-27-1.
+
+The PC as it stands (read 28 Oct, 22:30): the program was opened at 21:25
+(it updated the person's checklist copy), nothing run since 26 Oct; no
+folders chosen yet; no note of the setting for new disks, and the setting is
+normal (Start sets it before it asks for the SSD).
 
 ## Not done / ideas for later
 
