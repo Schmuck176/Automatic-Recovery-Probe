@@ -975,6 +975,7 @@ fn state_json(app: &Arc<Mutex<App>>) -> String {
         .s("results", &a.results.display().to_string())
         .raw("settings", &s.end())
         .raw("policy_to_restore", &restore)
+        .b("new_disks_off", crate::cli::new_disks_held_off_quick())
         .raw("job", &a.job.as_ref().map(|j| j.json(60)).unwrap_or_else(|| "null".to_string()))
         .raw("live", &crate::live::snapshot().map(|b| b.json()).unwrap_or_else(|| "null".to_string()))
         .raw("feed", &crate::live::feed_json(40))
@@ -1510,7 +1511,7 @@ fn check_destination(app: &Arc<Mutex<App>>, folder: &str) -> Result<(), String> 
 /// 7. Put Windows back as it was (web/back.rs), which is refused while any
 /// copy of the old drive or SPARE is still plugged in.
 fn hold_new_disks_off(ctx: &Ctx, guard: bool) {
-    if !guard || crate::cli::policy_to_restore().is_some() {
+    if !guard || crate::cli::new_disks_held_off() {
         return;
     }
     match crate::cli::guard_prepare() {
@@ -1804,6 +1805,7 @@ fn ready_json(app: &Arc<Mutex<App>>, fresh: bool) -> String {
         )
         .s("aim_setup", &aim_setup.map(|p| p.display().to_string()).unwrap_or_default())
         .raw("policy_to_restore", if crate::cli::policy_to_restore().is_some() { "true" } else { "false" })
+        .b("new_disks_off", crate::cli::new_disks_held_off_quick())
         .raw("tools", &crate::tools::status_json(&home))
         .s("image_dir", &image_dir)
         .s("work", &work)

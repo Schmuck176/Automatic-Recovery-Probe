@@ -597,6 +597,23 @@ pub fn policy_to_restore() -> Option<crate::guard::SanPolicy> {
         .and_then(crate::guard::SanPolicy::from_keyword)
 }
 
+/// Is Windows set to leave new disks switched off right now? Windows' own
+/// record of the setting (the registry: 3 is "offline all"), or diskpart's
+/// answer where there is none - never the program's note alone, which can
+/// outlive the setting (put back by the older program or by hand, a put-back
+/// cut short, a Windows update).
+pub fn new_disks_held_off() -> bool {
+    match crate::guard::san_policy_registry() {
+        Some(v) => v == 3,
+        None => cfg!(windows) && crate::guard::san_policy().is_ok_and(|p| p == crate::guard::SanPolicy::OfflineAll),
+    }
+}
+
+/// The same, quickly (the registry only): for the page, asked every second.
+pub fn new_disks_held_off_quick() -> bool {
+    crate::guard::san_policy_registry() == Some(3)
+}
+
 /// Set Windows to leave new disks switched off, noting how it was.
 pub fn guard_prepare() -> Result<String, String> {
     use crate::guard::{san_policy, set_san_policy, SanPolicy};
@@ -654,6 +671,7 @@ pub fn run_disk_guard(args: &[String]) -> i32 {
                 Err(e) => t.push_str(&format!("SAN policy: unknown ({e})\n")),
             }
             t.push_str(&format!("SAN policy in the registry: {:?}\n", san_policy_registry()));
+            t.push_str(&format!("Held off now: {}\n", new_disks_held_off()));
             if let Some(p) = policy_to_restore() {
                 t.push_str(&format!("To put back afterwards: {}\n", p.keyword()));
             }
@@ -729,5 +747,30 @@ pub fn run_repair_step(step: &str, folder: &str, scans: &[String], id: Option<&s
             println!("{e}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Whether new disks are held off is Windows' own answer: the registry
+    /// agrees with diskpart (where diskpart can be asked).
+    #[cfg(windows)]
+    #[test]
+    fn whether_new_disks_are_held_off_is_windows_own_answer() {
+        match crate::guard::san_policy() {
+            Ok(p) => {
+                assert_eq!(super::new_disks_held_off(), p == crate::guard::SanPolicy::OfflineAll, "{p:?}");
+                if crate::guard::san_policy_registry().is_some() {
+                    assert_eq!(super::new_disks_held_off_quick(), super::new_disks_held_off());
+                }
+            }
+            Err(e) => eprintln!("(diskpart not asked here: {e})"),
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn new_disks_are_never_held_off_but_on_windows() {
+        assert!(!super::new_disks_held_off() && !super::new_disks_held_off_quick());
     }
 }

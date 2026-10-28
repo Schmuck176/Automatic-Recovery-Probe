@@ -1650,8 +1650,12 @@ function renderTop() {
   }
   const b = $("restore-banner");
   const reading = busy() && S.job && (S.job.kind === "mapcheck" || S.job.kind === "rescue" || S.job.kind === "image");
-  if (S.policy_to_restore && reading) {
+  // (Windows' own record of the setting, new_disks_off - not the program's
+  // note, which can outlive it: something else may have put it back.)
+  if (S.new_disks_off && reading) {
     put(b, `<div class="banner">${ic("shield-check")}<div><p>Windows leaves newly plugged-in disks switched off while the recovered SSD is plugged in, so the SSD stays protected even if it comes unplugged and goes back in.</p></div></div>`);
+  } else if (S.policy_to_restore && S.windows && !S.new_disks_off) {
+    put(b, `<div class="banner">${ic("shield-alert")}<div><p>Windows has been set back to switch newly plugged-in disks on (not by this program: by the older one, by hand, or an update). Don't plug the recovered SSD in by itself: Start sets this again before it asks for the SSD.</p></div></div>`);
   } else if (S.policy_to_restore) {
     const h = `<div class="banner">${ic("shield")}<div><p>${setting("finalised")
       ? "Finalise is done. Windows is still set to leave newly plugged-in disks switched off (the program did this, to protect the recovered SSD): put it back in 7. Put Windows back as it was, once every drive is unplugged."
@@ -1765,7 +1769,7 @@ function diskLine(d) {
 function renderConnect() {
   const el = $("connect");
   const chosen = setting("disk");
-  const prepared = !!S.policy_to_restore;
+  const prepared = !!S.new_disks_off;
   let h = "";
   if (!S.elevated) {
     h += msg("warn", "This step needs administrator rights. Close the program's window, double-click it again and click <b>Yes</b> when Windows asks.");
@@ -2244,7 +2248,7 @@ async function protect(d) {
     }
     protectedHere.add(d.spec);
     let m = `Disk ${d.number} is read-only: Windows cannot write to it.`;
-    if (S.policy_to_restore) m += " Windows stays set to leave new disks switched off until you put it back (step 9), with every drive unplugged.";
+    if (S.new_disks_off) m += " Windows stays set to leave new disks switched off until you put it back (step 9), with every drive unplugged.";
     note("connect", "ok", m);
   } catch (e) { note("connect", "err", e.message); }
   await refresh(); await loadDisks();
@@ -2553,7 +2557,9 @@ function renderAuto() {
       pc.push(READY.restarts_after_crash === false ? ["good", "OK", "power", "After a crash, Windows stops at the blue screen", "It does not restart by itself.", showMe("crash")]
         : ["note", "Note", "power", "After a crash, Windows stops at the blue screen", READY.restarts_after_crash ? "Windows would restart by itself after a crash, with the recovered SSD plugged in." : "Could not tell whether Windows restarts by itself after a crash.",
           (READY.restarts_after_crash ? `<button class="second" data-act="crash-restart-off">${ic("power-off")}Turn that off</button>` : "") + showMe("crash")]);
-      pc.push(READY.policy_to_restore ? ["good", "On", "usb", "New disks arrive switched off", "Windows leaves newly plugged-in disks switched off, until you put it back (7. Put Windows back as it was) with every drive unplugged.", showMe("answers", "Show what Windows says")]
+      pc.push(READY.new_disks_off ? ["good", "On", "usb", "New disks arrive switched off", "Windows leaves newly plugged-in disks switched off, until you put it back (7. Put Windows back as it was) with every drive unplugged.", showMe("answers", "Show what Windows says")]
+        : READY.policy_to_restore && !(setting("image") && setting("image_sha"))
+          ? ["note", "Set back", "usb", "New disks arrive switched off", "Windows switches new disks on again: it was set back since (by the older program, by hand or an update). Start sets it again by itself before it asks for the recovered SSD.", showMe("answers", "Show what Windows says")]
         : setting("image") && setting("image_sha")
           ? ["good", "Not needed", "usb", "New disks arrive switched off", "The image is made, so the recovered SSD is not plugged in again: this is not needed any more.", showMe("answers", "Show what Windows says")]
           : setting("rehearsal") === "passed"
@@ -2600,9 +2606,9 @@ function renderAuto() {
       h += msg(verdict === "passed" ? "ok" : verdict === "stop" ? "err" : "warn", `${esc(setting("rehearsal_text"))} <span class="small soft">(${esc(setting("rehearsal_when"))})</span>`);
     }
     const windows = READY ? READY.windows : S.windows;
-    if (windows && !S.policy_to_restore && verdict !== "passed") {
+    if (windows && !S.new_disks_off && verdict !== "passed") {
       h += `<div class="row"><button data-prep="1">${ic("shield")}First: make Windows leave new disks switched off</button></div><p class="small soft">Then plug SPARE in, exactly as the recovered SSD will be.</p>`;
-    } else if (windows && !S.policy_to_restore) {
+    } else if (windows && !S.new_disks_off) {
       // (Passed, and Windows' setting for new disks put back since: Start
       // sets it again before it asks for the SSD - nothing to do again here.)
       h += `<div class="row"><span class="small soft">${ic("shield")} Start sets Windows to leave new disks switched off again by itself, before it asks for the recovered SSD.</span>${showMe("answers", "Show what Windows says")}</div>`;

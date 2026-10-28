@@ -657,6 +657,17 @@ Found and fixed (each with a test that fails without the fix):
   by another program. Now its own list, "could not be read" (on the page, in
   the problems list, in the safety check's words); still a problem, so
   Finalise does not spread anything over the second copy.
+- **Whether new disks arrive switched off was taken from the program's own
+  note**, not from Windows: with the note left behind but the setting put
+  back (by the older program or by hand, a put-back cut short, an update),
+  Start's ready and image stages and the image step would not set it again,
+  and the recovered SSD would arrive switched on (the watcher would switch it
+  off within 2 s). cli::new_disks_held_off asks Windows (the registry's
+  SanPolicy, 3 = offline all; diskpart where it has none); the page's claims
+  ("New disks arrive switched off: On", the banner while the SSD is read,
+  step 3's Get Windows ready) go by it too, and say "Set back" when the note
+  is there and the setting is not. guard_check (Windows CI) checks the
+  registry says 3 after prepare.
 - **A Mac name ending in a space or a dot** ("Holiday ", "notes.") is cut off
   by Windows when a path is given the usual way, so the scan, the extra
   checks and the twin search opened another file or none (a false "could not

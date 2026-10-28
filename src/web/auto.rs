@@ -703,7 +703,7 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
             );
         }
         // Before the SSD is plugged in: new disks arrive switched off.
-        if real_ssd && cfg!(windows) && crate::cli::policy_to_restore().is_none() {
+        if real_ssd && cfg!(windows) && !crate::cli::new_disks_held_off() {
             match crate::cli::guard_prepare() {
                 Ok(m) => lines.push(m),
                 Err(e) => return Ok(End::Stop(format!("Windows could not be set to leave new disks switched off: {e}"), Vec::new())),
@@ -734,8 +734,10 @@ fn stage_image(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
     // New disks arrive switched off - set again if Windows was put back since
     // the ready stage (7. Put Windows back as it was works whenever every
     // drive is unplugged, as they are while Start waits here for the SSD).
+    // (Windows' own answer, not the program's note: something else may have
+    // put it back - cli::new_disks_held_off.)
     let testing = !lock(app).test_disks.is_empty();
-    if cfg!(windows) && !testing && crate::cli::policy_to_restore().is_none() {
+    if cfg!(windows) && !testing && !crate::cli::new_disks_held_off() {
         match crate::cli::guard_prepare() {
             Ok(m) => ctx.line(&format!("Windows is set again to leave new disks switched off: {m}")),
             Err(e) => {

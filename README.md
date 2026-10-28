@@ -122,7 +122,9 @@ same results folder, so Recovery Probe can carry on from anything this one did.
 ## What never changes
 
 - Nothing is ever written to the recovered SSD or the image. The SSD is read
-  once, read-only, switched off for Windows. While the program is open, a
+  once, read-only, switched off for Windows. Before it is asked for, Start
+  makes sure Windows itself is set to leave new disks switched off (it asks
+  Windows, not its own note of having set it). While the program is open, a
   copy of the old drive (the recovered SSD, the 4 TB SSD) that turns up
   switched on and writable - plugged in too early, or in another case - is
   marked read-only and switched off within seconds, and the page says so.
