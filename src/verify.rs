@@ -109,6 +109,9 @@ pub struct Report {
     /// Copies whose contents are not what was copied (path inside the folder).
     pub changed: Vec<String>,
     pub missing: Vec<String>,
+    /// Copies that are there but could not be read (open in another program
+    /// that keeps others out, or the drive failing): not known to be as copied.
+    pub unreadable: Vec<String>,
     /// Files in the folder the list does not name (added since).
     pub extra: Vec<String>,
     /// Lines with no checksum (lists made before checksums were kept).
@@ -135,6 +138,14 @@ pub struct Report {
     pub on_ssd: Option<OnSsd>,
     pub stopped: bool,
     pub written: Option<String>,
+}
+
+impl Report {
+    /// Copies not known to be what was copied: changed, missing, or not
+    /// readable.
+    pub fn bad(&self) -> usize {
+        self.changed.len() + self.missing.len() + self.unreadable.len()
+    }
 }
 
 struct Want {
@@ -297,13 +308,13 @@ pub fn run_checked(
                 break;
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => r.missing.push(w.rel.clone()),
-            Err(_) => r.changed.push(w.rel.clone()),
+            Err(_) => r.unreadable.push(w.rel.clone()),
         }
         crate::live::done(&w.rel, w.size);
         done += w.size;
         if last.elapsed().as_millis() > 300 {
             amount(done, total);
-            progress(&format!("Checked {} of {} copies", commas(r.ok + (r.changed.len() + r.missing.len()) as u64), commas(r.listed)));
+            progress(&format!("Checked {} of {} copies", commas(r.ok + r.bad() as u64), commas(r.listed)));
             last = std::time::Instant::now();
         }
     }
@@ -329,7 +340,7 @@ pub fn run_checked(
             Ok(Some(_)) => r.changed.push(pk.path.clone()),
             Ok(None) => r.stopped = true,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => r.missing.push(pk.path.clone()),
-            Err(_) => r.changed.push(pk.path.clone()),
+            Err(_) => r.unreadable.push(pk.path.clone()),
         }
     }
     amount(done, total);
@@ -362,13 +373,16 @@ pub fn run_checked(
         r.extra.sort();
     }
     if let Some(out) = out_csv {
-        if !r.changed.is_empty() || !r.missing.is_empty() || !r.extra.is_empty() {
+        if r.bad() > 0 || !r.extra.is_empty() {
             let mut body = csv_row(&["problem", "path"]);
             for p in &r.changed {
                 body.push_str(&csv_row(&["CHANGED: not what was copied", p.as_str()]));
             }
             for p in &r.missing {
                 body.push_str(&csv_row(&["MISSING", p.as_str()]));
+            }
+            for p in &r.unreadable {
+                body.push_str(&csv_row(&["COULD NOT BE READ: open in another program, or the drive failing?", p.as_str()]));
             }
             for p in &r.extra {
                 body.push_str(&csv_row(&["NOT IN THE LIST (added since)", p.as_str()]));
@@ -383,7 +397,7 @@ pub fn run_checked(
 /// The report in plain words.
 pub fn summary(r: &Report) -> Vec<String> {
     let mut t = Vec::new();
-    let bad = r.changed.len() + r.missing.len();
+    let bad = r.bad();
     if r.stopped {
         t.push(format!("Stopped before the end: {} of {} copies checked.", commas(r.ok + bad as u64), commas(r.listed)));
     } else if bad == 0 {
@@ -400,19 +414,36 @@ pub fn summary(r: &Report) -> Vec<String> {
                 String::new()
             }
         ));
-    } else {
+    } else if r.changed.len() + r.missing.len() > 0 {
         t.push(format!(
-            "{} of {} copies are NOT what was copied off the disk: {} changed, {} missing.",
-            commas(bad as u64),
+            "{} of {} copies are NOT what was copied off the disk: {} changed, {} missing{}.",
+            commas((r.changed.len() + r.missing.len()) as u64),
             commas(r.listed),
             commas(r.changed.len() as u64),
-            commas(r.missing.len() as u64)
+            commas(r.missing.len() as u64),
+            if r.unreadable.is_empty() {
+                String::new()
+            } else {
+                format!("; and {} could not be read", commas(r.unreadable.len() as u64))
+            }
         ));
+    } else {
+        t.push(format!(
+            "{} of {} copies could not be read, so it is not known that they are what was copied: is a file open in \
+             another program (close it), or is the drive failing? Check again; if it stays so, stop and ask.",
+            commas(r.unreadable.len() as u64),
+            commas(r.listed)
+        ));
+    }
+    if bad > 0 {
         for p in r.changed.iter().take(10) {
             t.push(format!("  changed: {p}"));
         }
         for p in r.missing.iter().take(10) {
             t.push(format!("  missing: {p}"));
+        }
+        for p in r.unreadable.iter().take(10) {
+            t.push(format!("  could not be read: {p}"));
         }
     }
     if !r.extra.is_empty() {
@@ -536,15 +567,20 @@ fn list_stage(l: &ListTotals, on: Option<&OnSsd>, problems: &mut Vec<String>) ->
 }
 
 fn here_stage(r: &Report, problems: &mut Vec<String>) -> Stage {
-    let bad = r.changed.len() + r.missing.len();
+    let bad = r.bad();
     let mut words = Vec::new();
     if bad == 0 {
         words.push("every one exactly as copied".to_string());
     } else {
         words.push(format!(
-            "{} changed, {} missing",
+            "{} changed, {} missing{}",
             commas(r.changed.len() as u64),
-            commas(r.missing.len() as u64)
+            commas(r.missing.len() as u64),
+            if r.unreadable.is_empty() {
+                String::new()
+            } else {
+                format!(", {} could not be read", commas(r.unreadable.len() as u64))
+            }
         ));
     }
     if r.here_repaired > 0 {
@@ -580,15 +616,24 @@ fn here_stage(r: &Report, problems: &mut Vec<String>) -> Stage {
             format!("{} files added since", commas(r.extra.len() as u64))
         });
     }
-    if bad > 0 {
+    let gone = r.changed.len() + r.missing.len();
+    if gone > 0 {
         problems.push(format!(
             "{} of the copies {} not what was copied: {} changed, {} missing (they are named below). Something changed \
              or deleted {} after step 6: stop, and find out what before going on.",
-            commas(bad as u64),
-            if bad == 1 { "is" } else { "are" },
+            commas(gone as u64),
+            if gone == 1 { "is" } else { "are" },
             commas(r.changed.len() as u64),
             commas(r.missing.len() as u64),
-            if bad == 1 { "it" } else { "them" }
+            if gone == 1 { "it" } else { "them" }
+        ));
+    }
+    if !r.unreadable.is_empty() {
+        problems.push(format!(
+            "{} could not be read (named below), so it is not known that {} what was copied: open in another program \
+             that keeps others out (close it), or the drive failing? Check again; if it stays so, stop and ask.",
+            if r.unreadable.len() == 1 { "1 copy".to_string() } else { format!("{} copies", commas(r.unreadable.len() as u64)) },
+            if r.unreadable.len() == 1 { "it is" } else { "they are" }
         ));
     }
     if !r.extra.is_empty() {
@@ -896,6 +941,23 @@ mod tests {
         assert_eq!(r.changed, vec!["Photos\\a.jpg".to_string()]);
         assert_eq!(r.missing, vec!["c.txt".to_string()]);
         assert_eq!(r.extra, vec!["new.txt".to_string()]);
+        // A copy that is there but cannot be read is not called changed: it
+        // is not known either way (a folder in its place stands for one held
+        // open by another program).
+        std::fs::write(dir.join("Photos").join("a.jpg"), b"hello").unwrap();
+        std::fs::write(dir.join("c.txt"), b"gone soon").unwrap();
+        std::fs::remove_file(dir.join("new.txt")).unwrap();
+        std::fs::remove_file(dir.join("Photos").join("b_.jpg")).unwrap();
+        std::fs::create_dir_all(dir.join("Photos").join("b_.jpg")).unwrap();
+        let r = super::run(&dir, None, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(r.changed.is_empty() && r.missing.is_empty(), "{r:?}");
+        assert_eq!(r.unreadable, vec!["Photos\\b_.jpg".to_string()]);
+        assert_eq!(r.bad(), 1);
+        let t = super::summary(&r);
+        assert!(t[0].contains("1 of 3 copies could not be read") && t.iter().any(|l| l == "  could not be read: Photos\\b_.jpg"), "{t:?}");
+        let s = super::safety(&r);
+        assert!(!s.fine && s.verdict.iter().any(|l| l.starts_with("1 copy could not be read")), "{:?}", s.verdict);
+        assert!(s.verdict.iter().all(|l| !l.contains("Something changed")), "{:?}", s.verdict);
         std::fs::remove_dir_all(&dir).ok();
     }
 

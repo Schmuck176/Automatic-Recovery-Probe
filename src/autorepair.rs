@@ -1984,19 +1984,22 @@ pub fn run(
             commas(sizes.len() as u64),
             if opts.search.is_empty() { String::new() } else { format!(" and {} more folders", opts.search.len()) }
         ));
-        let repair_low = repair.display().to_string().to_lowercase();
+        // (REPAIR is not looked in: its copies are of the damaged files.)
+        let key = |p: &str| p.replace('/', "\\").trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase();
+        let repair_key = key(&repair.display().to_string());
         for root in std::iter::once(work.clone()).chain(opts.search.iter().cloned()) {
             crate::walk::walk(&root.display().to_string(), |dir, dirs, files| {
                 dirs.retain(|d| !crate::formats::SYSTEM_DIRS.contains(&d.as_str()));
-                if dir.to_lowercase().starts_with(&repair_low) {
+                let k = key(dir);
+                if k == repair_key || k.starts_with(&format!("{repair_key}\\")) {
                     dirs.clear();
                     return !stop();
                 }
                 for f in files {
-                    let full = crate::walk::join(dir, f);
+                    let full = crate::walk::literal(&crate::walk::join(dir, f));
                     if let Ok(m) = std::fs::metadata(&full) {
                         if sizes.contains(&m.len()) {
-                            env.by_size.entry(m.len()).or_default().push(PathBuf::from(full));
+                            env.by_size.entry(m.len()).or_default().push(full);
                         }
                     }
                 }

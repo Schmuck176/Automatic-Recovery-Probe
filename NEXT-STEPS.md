@@ -619,6 +619,59 @@ on closing) - Start sets it again before it asks for the SSD, and the
 watcher covers an early plug-in while the program is open. Not covered: the
 SSD plugged in while the program is closed, before Start has set it.
 
+## 28 Oct 2026: another pass for bugs ("See if you can find and fix any more")
+
+Found and fixed (each with a test that fails without the fix):
+
+- **Set-aside versions overwritten in REPAIR\replaced.** Names there are
+  "R0012 <date-time to the minute> name", and a rename replaces what is at
+  its target (on Windows too) - so two set aside under one name in the same
+  minute (Bring back twice, put back then Undo) lost the first.
+  repair::aside picks "... (2)" and so on; used by put-back, Undo, and Bring
+  back's supersede.
+- **Bring back deleted the version it brought back before** when a new one
+  came under the same name: now kept in replaced.
+- **Bring back from a folder above REPAIR never looked in REPAIR\hand-off**
+  (REPAIR was skipped whole), and skipped any folder whose name only began
+  like REPAIR's ("REPAIR-old"). Now: REPAIR itself means its hand-off
+  folder, REPAIR's own folders are refused, names are compared whole
+  (path_key). The twin search had the same prefix slip (autorepair.rs).
+- **Bring back's default folder** is the whole hand-off folder (a repaired
+  version saved beside its damaged copy, by a paid tool in place, say, was
+  missed). It refuses WORK, a folder inside it and a folder or drive holding
+  it (every copy looked at for hours, none repaired).
+- **Files Bring back could not read** (in use, the stick unplugged) were
+  passed over in silence: now listed, and the job ends with a problem.
+- **The hand-off deleted a paid tool's in-place repair** of the same size
+  when the file left the hand-off (it went by name and size): now only an
+  exact copy (size and SHA-256) of the damaged file is taken out.
+- **Start carried on when the program's own repaired versions could not be
+  put back** (a move or read that failed): the code's comment said it should
+  stop, it did not. PutBack::problem / OWN_NOT_BACK: Start stops with why,
+  and carries on from there when clicked again. Bring back no longer cuts off
+  its "Not put back" lines, and ends with the put-back's problem.
+- **A step run by itself let Windows sleep** (only Start and Finalise kept it
+  awake): every job does now (web.rs start_job).
+- **A copy that could not be read was called "changed"** by the check of the
+  copies ("Something changed or deleted them: stop") - for a file held open
+  by another program. Now its own list, "could not be read" (on the page, in
+  the problems list, in the safety check's words); still a problem, so
+  Finalise does not spread anything over the second copy.
+- **A Mac name ending in a space or a dot** ("Holiday ", "notes.") is cut off
+  by Windows when a path is given the usual way, so the scan, the extra
+  checks and the twin search opened another file or none (a false "could not
+  be read"). walk::literal gives such paths as \\?\ paths.
+
+Looked at and found sound: the image (resume points, read-back, mapfile),
+the disk switches (guard.rs), the SSD watcher and holds_a_copy (SPARE is
+NTFS, so it is never taken for a copy), check_destination, the tool
+downloads (pinned by size and SHA-256), Start over (keeps all data), the
+copy list being re-read only when it changes (places.rs).
+
+- Version 2026-10-28 (1). The checklist's Bring back box says to leave the
+  folder as it is for what was saved on the PC; the 2026-10-27 (1) text is
+  known (KNOWN_CHECKLISTS 10842394862369969888) so the person's copy follows.
+
 ## Not done / ideas for later
 
 - Two damaged copies of the same file whose lost places differ could be

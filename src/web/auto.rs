@@ -1284,7 +1284,11 @@ fn stage_putback(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
         return Ok(End::Stopped);
     }
     // A repaired version that could not go back is a problem only if it is
-    // one of the program's own (the person's own may be sorted later).
+    // one of the program's own (the person's own may be sorted later): Start
+    // stops, says why, and carries on from here when clicked again.
+    if let Some(p) = o.problem.as_ref().filter(|p| p.contains(crate::repair::OWN_NOT_BACK)) {
+        return Ok(End::Stop(p.clone(), o.summary));
+    }
     Ok(End::Done(o.summary))
 }
 
@@ -1319,7 +1323,8 @@ fn stage_handoff(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
             .n("own", h.own.len() as u64)
             .n("nothing", h.nothing.len() as u64)
             .s("folder", &h.folder.display().to_string())
-            .s("returned", &h.folder.join(handoff::RETURNED).display().to_string())
+            // (Where Bring back looks unless told: the whole hand-off folder.)
+            .s("returned", &h.folder.display().to_string())
             .end(),
         stopped: false,
         problem: None,
@@ -1337,9 +1342,35 @@ pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64,
     super::check_destination(app, &plan.work)?;
     let work = PathBuf::from(&plan.work);
     let repair = crate::repair::repair_dir(&work)?;
-    let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR).join(handoff::RETURNED) } else { PathBuf::from(from.trim()) };
+    // (By default the whole hand-off folder: "returned", and a repaired
+    // version saved beside its damaged copy too. The damaged copies
+    // themselves are known by their checksum and left.)
+    let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR) } else { PathBuf::from(from.trim()) };
     if !from.is_dir() {
         return Err(format!("{} is not a folder this PC can see (is the USB stick plugged in?)", from.display()));
+    }
+    // Never WORK, or a folder or drive holding it: every copy in it would be
+    // looked at (for hours), and none is a repaired file. Nor one of REPAIR's
+    // own folders (the program's copies), but for the hand-off folder - or
+    // REPAIR itself, which is taken as its hand-off folder.
+    let from_s = from.display().to_string();
+    let (repair_s, hand_s) = (repair.display().to_string(), repair.join(handoff::HANDOFF_DIR).display().to_string());
+    let choose = format!(
+        "choose the USB stick, or the folder, that holds what came back from the Mac or a paid tool - or leave the folder \
+         as it is, for what was saved in {hand_s}"
+    );
+    if within(&from_s, &plan.work) || within(&plan.work, &from_s) {
+        let how = if folder_key(&from_s) == folder_key(&plan.work) {
+            "is WORK".to_string()
+        } else if within(&from_s, &plan.work) {
+            format!("is inside WORK ({})", plan.work)
+        } else {
+            format!("holds WORK ({})", plan.work)
+        };
+        return Err(format!("{from_s} {how}, where the copies are: {choose}."));
+    }
+    if within(&from_s, &repair_s) && !within(&from_s, &hand_s) && folder_key(&from_s) != folder_key(&repair_s) {
+        return Err(format!("{from_s} is one of REPAIR's own folders, which hold the program's copies: {choose}."));
     }
     let app2 = app.clone();
     start_job(app, "bringback", "Bringing back the repaired files", move |ctx| {
@@ -1355,15 +1386,30 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
     ctx.line(&format!("Looking for repaired files (with their numbers) in {}...", from.display()));
     let b = handoff::bring_back(&work, from, &mut |s| ctx.line(s))?;
     let mut summary = handoff::brought_summary(&b);
+    // (Files it could not read: said as a problem at the end, so Bring back
+    // is not taken for done while they are still left out.)
+    let unread = (!b.unreadable.is_empty()).then(|| {
+        format!(
+            "{} files could not be read, so they were not brought back (such as {}): close what has them open, or plug the \
+             USB stick in again, and click Bring back again",
+            b.unreadable.len(),
+            b.unreadable.first().cloned().unwrap_or_default()
+        )
+    });
     if b.repaired.is_empty() {
-        return Ok(Outcome { summary, ..Default::default() });
+        return Ok(Outcome { summary, problem: unread, ..Default::default() });
     }
     // The same as after Start: put back, check, check every file, evaluate.
     let o = step(app, ctx, prepare_repair_step(app, "put-back", &plan.work, "")?)?;
-    summary.extend(o.summary.iter().take(3).cloned());
+    // (Every "Not put back" line: none is cut off.)
+    summary.extend(o.summary.iter().enumerate().filter(|(i, l)| *i < 3 || l.starts_with("Not put back") || l.starts_with("...and")).map(|(_, l)| l.clone()));
     if o.stopped {
         return Ok(Outcome { summary, stopped: true, ..Default::default() });
     }
+    let unread = match (unread, o.problem) {
+        (Some(a), Some(b)) => Some(format!("{a}; and {b}")),
+        (a, b) => a.or(b),
+    };
     let v = step(app, ctx, prepare_verify(app, &plan.work)?)?;
     if v.stopped {
         return Ok(Outcome { summary, stopped: true, ..Default::default() });
@@ -1383,7 +1429,7 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
     if let Ok(h) = handoff::prepare(&work) {
         summary.extend(handoff::summary(&h));
     }
-    Ok(Outcome { summary, ..Default::default() })
+    Ok(Outcome { summary, problem: unread, ..Default::default() })
 }
 
 // ---------------------------------------------------------------- AIM Toolkit, tried

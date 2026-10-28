@@ -6,7 +6,6 @@
 
 use crate::formats::{is_damage, LIBRARY_BUNDLES, LIBRARY_DBS, SYSTEM_DIRS};
 use crate::probe::probe_file;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const SEP: char = std::path::MAIN_SEPARATOR;
@@ -25,6 +24,31 @@ pub fn join(dir: &str, name: &str) -> String {
         format!("{dir}{name}")
     } else {
         format!("{dir}{SEP}{name}")
+    }
+}
+
+/// A path the walk gives, the way Windows must be given it to open that
+/// very file. A Mac allows a name that ends in a space or a dot; Windows
+/// cuts those off a path given the usual way - to another file's name, or
+/// to none - so such a path is given as one Windows takes literally.
+pub fn literal(p: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(literal_for(p, cfg!(windows)))
+}
+
+fn literal_for(p: &str, windows: bool) -> String {
+    if !windows || p.starts_with(r"\\") {
+        return p.to_string();
+    }
+    let b = p.as_bytes();
+    // (Only a path from a drive letter, "E:\...": its first three bytes plain.)
+    if !(b.len() > 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')) {
+        return p.to_string();
+    }
+    let cut = p[3..].split(['\\', '/']).any(|c| !c.is_empty() && c != "." && c != ".." && (c.ends_with(' ') || c.ends_with('.')));
+    if cut {
+        format!(r"\\?\{}", p.replace('/', "\\"))
+    } else {
+        p.to_string()
     }
 }
 
@@ -385,7 +409,7 @@ pub fn walk_and_probe(
                 return false;
             }
             let p = join(dirpath, name);
-            let res = std::panic::catch_unwind(|| probe_file(Path::new(&p), hole_bytes, do_hole));
+            let res = std::panic::catch_unwind(|| probe_file(&literal(&p), hole_bytes, do_hole));
             let r = match res {
                 Ok(r) => r,
                 Err(_) => crate::probe::Verdict {
@@ -432,6 +456,21 @@ lost: plug the drive back in, check it shows in File Explorer, and run this chec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_ending_in_a_space_or_dot_is_opened_literally_on_windows() {
+        let l = |p: &str| literal_for(p, true);
+        assert_eq!(l(r"E:\WORK\Pics\a.jpg"), r"E:\WORK\Pics\a.jpg");
+        assert_eq!(l(r"E:\WORK\Pics\a.jpg "), r"\\?\E:\WORK\Pics\a.jpg ");
+        assert_eq!(l(r"E:\WORK\Notes.\b.txt"), r"\\?\E:\WORK\Notes.\b.txt");
+        assert_eq!(l("E:/WORK/Holiday /c.jpg"), r"\\?\E:\WORK\Holiday \c.jpg");
+        assert_eq!(l(r"\\?\E:\WORK\a.jpg "), r"\\?\E:\WORK\a.jpg ", "already literal");
+        assert_eq!(l(r"E:\"), r"E:\");
+        assert_eq!(l("é:\\x "), "é:\\x ", "not a drive path (and no panic)");
+        assert_eq!(l("ab"), "ab");
+        // Not on the Mac or Linux, where a name is always taken as it is.
+        assert_eq!(literal_for("/w/a.jpg ", false), "/w/a.jpg ");
+    }
 
     #[cfg(unix)]
     #[test]

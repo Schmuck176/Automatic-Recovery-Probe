@@ -94,6 +94,10 @@ The parts of the Automatic tab:
 5. **What is left** - every damaged file and what was done with it, and
    **Bring back**: takes in what comes back from the Mac or a paid tool (by
    the `[R0012]` number in its name), puts it back, checks everything again.
+   By itself it looks in the whole `REPAIR\hand-off` folder (a repaired
+   version saved beside its damaged copy too); for the Mac, the USB stick is
+   chosen. It refuses WORK, a drive or folder holding WORK, and REPAIR's own
+   folders, and names any file it could not read rather than passing it by.
 6. **Finalise** - `RECORDS` beside WORK, the second copy (resumable, dates
    kept), the final check of both copies and of the image. Run again twice a
    year. It leaves Windows' settings as they are.
@@ -147,6 +151,12 @@ same results folder, so Recovery Probe can carry on from anything this one did.
 - The hand-off folders never lose a file the person saved in them: a file
   with a number there that the program did not put there (a repaired version
   saved beside the damaged copy, say) is moved into `returned` for Bring back.
+  Only an exact copy of the damaged file (its size and checksum) is ever
+  taken out - not one a paid tool repaired where it was.
+- Nothing set aside is ever lost: a version that makes way (put back, Undo,
+  Bring back) goes into `REPAIR\replaced` under a name of its own, never
+  over one set aside before in the same minute.
+- Windows does not go to sleep while any job runs, a step run by itself too.
 - Every file keeps its dates (created and modified), for sorting by date:
   the copies get the old drive's; a repaired file put back gets its
   original's, whatever tool made it (here, on the Mac or a paid tool), and

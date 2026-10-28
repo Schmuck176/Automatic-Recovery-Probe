@@ -547,7 +547,7 @@ pub fn run_verify(folder: &str, map_check: Option<&str>) -> i32 {
                 }
                 s.fine
             };
-            if r.changed.is_empty() && r.missing.is_empty() && fine {
+            if r.bad() == 0 && fine {
                 0
             } else {
                 1

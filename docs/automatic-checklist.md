@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-10-27 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-10-28 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -89,7 +89,7 @@ are, with a glitch where data was lost, are not handed off: nothing can bring th
 - [ ] 🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.
 - [ ] **Paid repair tools**, only if you decide some files are worth it: use only the copies in `2 For a paid repair tool`; look at the tool's free preview first. Save each repaired file into `hand-off\returned`, keeping its number (`[R0012]`) in its name.
 - [ ] **Office documents**, if any (`3 For their own program`): Word, Excel or PowerPoint → File → Open → arrow beside Open → **Open and Repair**; save into `hand-off\returned` with the same name.
-- [ ] **Bring back:** choose the USB stick (or `hand-off\returned`) and click **Bring back**. It puts every repaired file back exactly where it belongs, and checks everything again.
+- [ ] **Bring back:** for what comes from the Mac, choose the USB stick; for what was saved on this PC, leave the folder as it is (the whole `hand-off` folder). Click **Bring back**: it puts every repaired file back exactly where it belongs, and checks everything again.
 - [ ] **✅ Checkpoint** — Bring back checks every copy by itself; this ticks when that check passes.
 - [ ] 🍎 **A Photos library with damage inside** (What is left names it): copy the whole library from `SPARE` to the Mac, hold **⌥ Option** while opening Photos and choose the copy; only if it won't open or looks wrong, repair the copy (old checklist, Phase 7, steps 5–12). The library in `WORK` stays as it is.
 

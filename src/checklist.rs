@@ -34,6 +34,11 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-10-28 (1): Bring back looks in the whole hand-off folder.
+    (
+        "**Bring back:** choose the USB stick (or `hand-off\\returned`) and click **Bring back**. It puts every repaired file back exactly where it belongs, and checks everything again.",
+        "**Bring back:** for what comes from the Mac, choose the USB stick; for what was saved on this PC, leave the folder as it is (the whole `hand-off` folder). Click **Bring back**: it puts every repaired file back exactly where it belongs, and checks everything again.",
+    ),
     // 2026-10-26 (3): Finalise leaves Windows' settings as they are; 7. Put
     // Windows back as it was does that, once every drive is unplugged. The
     // tab's name.
@@ -81,6 +86,7 @@ const KNOWN_CHECKLISTS: &[u64] = &[
     13782956021636484442, // 2026-10-24 (1)
     12729693661235439205, // 2026-10-25 (1) to 2026-10-26 (2)
     363384249484575511,   // 2026-10-26 (3)
+    10842394862369969888, // 2026-10-27 (1)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 

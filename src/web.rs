@@ -390,7 +390,11 @@ fn start_job(
         crate::live::event("info", &format!("Began: {title}"));
     }
     std::thread::spawn(move || {
+        // Windows does not go to sleep while any job runs (a step run by
+        // itself from the Steps tab too: an image takes hours).
+        crate::winset::keep_awake(true);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&ctx)));
+        crate::winset::keep_awake(false);
         crate::live::watch(false);
         let mut a = lock(&ctx.app);
         let Some(mut j) = a.job.take() else { return };
@@ -2283,7 +2287,7 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
                     outputs: vec![repair_s.clone()],
                     data,
                     stopped: o.stopped,
-                    problem: (!o.skipped.is_empty()).then(|| "some repaired files were not put back".to_string()),
+                    problem: o.problem(),
                 })
             }
             "undo" => {
@@ -2382,14 +2386,16 @@ fn prepare_verify(app: &Arc<Mutex<App>>, folder: &str) -> Result<Prepared, Strin
             .n("ok", r.ok)
             .n("changed", r.changed.len() as u64)
             .n("missing", r.missing.len() as u64)
+            .n("unreadable", r.unreadable.len() as u64)
             .n("extra", r.extra.len() as u64)
             .b("stopped", r.stopped)
             .raw("safety", &safety.as_ref().map(|s| s.json()).unwrap_or_else(|| "null".to_string()))
             .raw("history", &crate::verify::history_json(&results, HISTORY_SHOWN))
             .end();
-        let bad = !r.changed.is_empty() || !r.missing.is_empty();
-        let problem = if bad {
+        let problem = if !r.changed.is_empty() || !r.missing.is_empty() {
             Some("some copies are not what was copied".to_string())
+        } else if !r.unreadable.is_empty() {
+            Some("some copies could not be read, so it is not known that they are what was copied".to_string())
         } else if safety.as_ref().is_some_and(|s| !s.fine) {
             Some("The safety check found something: read it before going on.".to_string())
         } else {

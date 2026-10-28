@@ -1886,7 +1886,7 @@ function renderVerify() {
     const good = j.state === "done" && !d.stopped;
     if (j.error && j.state === "failed" && !(j.summary || []).length) h += msg("err", esc(j.error));
     const ls = j.summary || [];
-    const bad = (d.changed || 0) + (d.missing || 0) > 0;
+    const bad = (d.changed || 0) + (d.missing || 0) + (d.unreadable || 0) > 0;
     if (ls.length) h += msg(good ? "ok" : (d.stopped ? "warn" : bad ? "err" : "warn"), ls.map(esc).join("<br>"));
     h += safetyHtml(d.safety);
     if (j.outputs && j.outputs.length) h += `<div class="row"><button class="second" data-open="${esc(j.outputs[0])}">${ic("external-link")}Show the list of problems</button></div>`;
@@ -2737,7 +2737,7 @@ function renderAuto() {
     const d = ho.data;
     h += `<p>${lines(ho.summary || []).replace(/\n/g, "<br>")}</p>`;
     h += `<div class="row"><button class="second" data-open="${esc(d.folder)}">${ic("folder-open")}Open the hand-off folder</button></div>`;
-    h += `<h3>${ic("folder-input")} Bring back</h3><p class="small">When repaired files come back (from the Mac, on the USB stick, or saved by a paid tool into <code>hand-off\\returned</code>), the program puts each one back where it belongs, by its number, and checks everything again.</p>
+    h += `<h3>${ic("folder-input")} Bring back</h3><p class="small">When repaired files come back (from the Mac, on the USB stick, or saved by a paid tool anywhere in <code>REPAIR\\hand-off</code>), the program puts each one back where it belongs, by its number, and checks everything again. Leave the folder below as it is for what was saved on this PC; choose the USB stick for what comes from the Mac.</p>
       <div class="inputrow"><input type="text" id="ab-from" value="${esc(d.returned || "")}" aria-label="Bring back from this folder"><button class="second" id="b-ab-from">${ic("folder-open")}Choose…</button></div>
       <div class="row"><button id="b-bring">${ic("folder-input")}Bring back</button></div>`;
   }

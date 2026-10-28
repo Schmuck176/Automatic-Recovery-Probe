@@ -389,6 +389,24 @@ pub fn repair_dir(work: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// Where something set aside goes in REPAIR\replaced: "R0012
+/// 20261027-1400 name" - and, as the time is to the minute, "... (2)" and so
+/// on rather than over something set aside before (a rename would replace
+/// it, on Windows as on the Mac).
+pub fn aside(repair: &Path, id: &str, name: &str) -> PathBuf {
+    let dir = repair.join(REPLACED);
+    let base = format!("{id} {} {name}", crate::fmt::now_stamp());
+    let first = dir.join(&base);
+    if std::fs::symlink_metadata(&first).is_err() {
+        return first;
+    }
+    let (stem, ext) = match base.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() && !e.is_empty() && !e.contains(' ') => (s.to_string(), format!(".{e}")),
+        _ => (base.clone(), String::new()),
+    };
+    (2..).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| std::fs::symlink_metadata(p).is_err()).unwrap_or(first)
+}
+
 fn under(base: &Path, rel: &str) -> PathBuf {
     let mut p = crate::rescue::verbatim(base);
     for c in rel.split('\\').filter(|c| !c.is_empty()) {
@@ -1218,6 +1236,31 @@ pub struct PutBack {
     pub stopped: bool,
 }
 
+/// How a put-back says that some of the automatic repair's own versions
+/// could not go back (a read or a move that failed): Start stops on it.
+pub const OWN_NOT_BACK: &str = "of the program's own repaired files could not be put back";
+
+impl PutBack {
+    /// Not put back, of the automatic repair's own versions (REPAIR\repaired\auto):
+    /// never the person's doing, so something the person needs to know.
+    pub fn own_skipped(&self) -> Vec<&(String, String)> {
+        let own = format!("{REPAIRED}\\{}\\", crate::autorepair::AUTO_DIR).to_lowercase();
+        self.skipped.iter().filter(|(what, _)| what.to_lowercase().starts_with(&own)).collect()
+    }
+
+    /// The put-back's problem, if any: the program's own first.
+    pub fn problem(&self) -> Option<String> {
+        let own = self.own_skipped();
+        if let Some((what, why)) = own.first() {
+            Some(format!("{} {OWN_NOT_BACK} (such as {what}: {why})", own.len()))
+        } else if !self.skipped.is_empty() {
+            Some("some repaired files were not put back".to_string())
+        } else {
+            None
+        }
+    }
+}
+
 /// The repaired versions in REPAIR\repaired: (id, path, its name), and
 /// what in there has no number.
 fn candidates(repair: &Path) -> (Vec<(String, PathBuf, String)>, Vec<String>) {
@@ -1460,25 +1503,15 @@ fn put_one(
                 let _ = std::fs::create_dir_all(p);
             }
             if std::fs::symlink_metadata(&kept).is_ok() {
-                let aside = repair.join(REPLACED).join(format!(
-                    "{} {} {}",
-                    item.id,
-                    crate::fmt::now_stamp(),
-                    kept.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-                ));
                 let _ = std::fs::create_dir_all(repair.join(REPLACED));
+                let aside = aside(repair, &item.id, &kept.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
                 std::fs::rename(&kept, &aside).map_err(|e| format!("could not move aside {}: {e}", kept.display()))?;
             }
             Some(kept.clone())
         }
         Then::SetAside => {
             let _ = std::fs::create_dir_all(repair.join(REPLACED));
-            Some(repair.join(REPLACED).join(format!(
-                "{} {} {}",
-                item.id,
-                crate::fmt::now_stamp(),
-                target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-            )))
+            Some(aside(repair, &item.id, &target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
         }
         Then::Nothing => None,
     };
@@ -1581,12 +1614,7 @@ pub fn undo(work: &Path, id: &str) -> Result<String, String> {
         _ => return Err(format!("the original is not in {} as it was, so it was left as it is", kept.display())),
     };
     let _ = std::fs::create_dir_all(repair.join(REPLACED));
-    let aside = repair.join(REPLACED).join(format!(
-        "{} {} {}",
-        id,
-        crate::fmt::now_stamp(),
-        target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-    ));
+    let aside = aside(&repair, &id, &target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
     let _folder_dates = target.parent().map(KeepFolderDates::of);
     std::fs::rename(&target, &aside).map_err(|e| format!("could not move the repaired version out of WORK: {e}"))?;
     if let Err(e) = std::fs::rename(&kept, &target) {
@@ -1973,6 +2001,47 @@ pub fn evaluation_summary(ev: &Evaluation) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_programs_own_repairs_not_going_back_is_a_problem_for_start() {
+        let mut o = PutBack::default();
+        assert_eq!(o.problem(), None);
+        // The person's own: two versions of one file - for them to sort out.
+        o.skipped.push(("R0003".to_string(), "more than one repaired version".to_string()));
+        o.skipped.push((r"repaired\returned\b [R0004].tif".to_string(), "it is a .tif file".to_string()));
+        let p = o.problem().unwrap();
+        assert!(!p.contains(OWN_NOT_BACK), "{p}");
+        // The automatic repair's own, which only a failed read or move stops.
+        o.skipped.push((r"Repaired\Auto\a [R0001].jpg".to_string(), "could not move the file in WORK out of the way".to_string()));
+        let p = o.problem().unwrap();
+        assert!(p.starts_with("1 ") && p.contains(OWN_NOT_BACK) && p.contains("a [R0001].jpg") && p.contains("out of the way"), "{p}");
+    }
+
+    #[test]
+    fn what_is_set_aside_never_goes_over_what_was_set_aside_before() {
+        let repair = std::env::temp_dir().join(format!("arp-aside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repair);
+        std::fs::create_dir_all(repair.join(REPLACED)).unwrap();
+        // Three set aside in the same minute, under the same name.
+        for (n, what) in [b"first".as_slice(), b"second", b"third"].iter().enumerate() {
+            let to = aside(&repair, "R0001", "a [R0001].jpg");
+            assert!(!to.exists(), "{n}: {}", to.display());
+            std::fs::write(&to, what).unwrap();
+        }
+        let mut kept: Vec<Vec<u8>> =
+            std::fs::read_dir(repair.join(REPLACED)).unwrap().flatten().map(|e| std::fs::read(e.path()).unwrap()).collect();
+        kept.sort();
+        assert_eq!(kept, vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()]);
+        let names: Vec<String> =
+            std::fs::read_dir(repair.join(REPLACED)).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().any(|n| n.starts_with("R0001 ") && n.ends_with(" a [R0001] (2).jpg")), "{names:?}");
+        // A folder (a package) or a name without an extension.
+        std::fs::create_dir_all(aside(&repair, "R0002", "Report [R0002].pages")).unwrap();
+        assert!(aside(&repair, "R0002", "Report [R0002].pages").display().to_string().ends_with("Report [R0002] (2).pages"));
+        std::fs::write(aside(&repair, "R0003", "README"), b"x").unwrap();
+        assert!(aside(&repair, "R0003", "README").display().to_string().ends_with(" README (2)"));
+        let _ = std::fs::remove_dir_all(&repair);
+    }
 
     #[test]
     fn plans() {

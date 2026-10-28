@@ -2,9 +2,10 @@
 //! program may change, changed only when the person clicks for it, and put
 //! back at the end):
 //!
-//! - The PC must not sleep while the program works: while Start runs, the
-//!   program asks Windows to stay awake (SetThreadExecutionState), so no power
-//!   setting needs changing; it lapses by itself when the program stops.
+//! - The PC must not sleep while the program works: while any job runs
+//!   (Start, Finalise, a step by itself), the program asks Windows to stay
+//!   awake (SetThreadExecutionState), so no power setting needs changing; it
+//!   lapses by itself when the program stops.
 //! - A restart Windows is waiting to do (an update) must not happen with the
 //!   recovered SSD plugged in: checked, and the person told to restart first.
 //! - Windows restarting by itself after a crash would restart with the SSD

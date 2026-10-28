@@ -395,9 +395,10 @@ fn limit_for(check: Check, size: u64) -> Duration {
     })
 }
 
-/// A path every Windows program can open: plain ASCII, and short.
+/// A path every Windows program can open: plain ASCII, short, and given
+/// the usual way (not as one Windows takes literally: walk::literal).
 fn plain_path(p: &Path) -> bool {
-    p.to_str().is_some_and(|s| s.is_ascii() && s.len() < 240)
+    p.to_str().is_some_and(|s| s.is_ascii() && s.len() < 240 && !s.starts_with(r"\\?\"))
 }
 
 fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
@@ -544,7 +545,7 @@ pub fn run(
             if wanted.is_empty() {
                 continue;
             }
-            let Ok(meta) = std::fs::metadata(&full) else { continue };
+            let Ok(meta) = std::fs::metadata(crate::walk::literal(&full)) else { continue };
             let size = meta.len();
             if size == 0 {
                 continue;
@@ -629,7 +630,7 @@ pub fn run(
                 let Some((c, path, size)) = next else { break };
                 let shown = path.to_string_lossy().into_owned();
                 crate::live::now(&shown);
-                let v = check_one(c, &exes[&c], &path, size, stop);
+                let v = check_one(c, &exes[&c], &crate::walk::literal(&shown), size, stop);
                 if !matches!(&v, Verdict::NotChecked(why) if why == "stopped") {
                     crate::live::done(&shown, size);
                 }

@@ -537,7 +537,16 @@ def main():
             f.write(media["IMG_0007.JPG"])
         with open(os.path.join(ret, "._" + name), "wb") as f:
             f.write(b"mac metadata")
-        r = prog.do(action="bring-back", **{"from": os.path.join(hand, "returned")})
+        # Never from WORK, or a drive or folder holding it (every copy would
+        # be looked at, and none is a repaired file).
+        for f in [w, os.path.join(w, "DCIM"), os.path.dirname(w)]:
+            r = prog.do(action="bring-back", **{"from": f})
+            check(not r.get("ok") and "WORK" in r.get("error", ""), "Bring back refuses %s: %s" % (f, r.get("error")))
+        # Nor from REPAIR's own folders (the program's copies).
+        r = prog.do(action="bring-back", **{"from": os.path.join(repair, "to-repair")})
+        check(not r.get("ok") and "REPAIR's own" in r.get("error", ""), "Bring back refuses to-repair: %s" % r.get("error"))
+        # By itself, it looks in the whole hand-off folder ("returned" in it).
+        r = prog.do(action="bring-back", **{"from": ""})
         check(r.get("ok"), "Bring back begins: %s" % r.get("error", ""))
         s = prog.wait()
         print("\n".join(s["job"].get("summary") or []))

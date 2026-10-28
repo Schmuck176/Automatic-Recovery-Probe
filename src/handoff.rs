@@ -127,14 +127,12 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
     let mut o = HandedOff { folder: root.clone(), ..Default::default() };
     let mut keep: HashSet<String> = HashSet::new();
     // What the program itself puts in the hand-off folders, by name: a copy
-    // of the damaged file in to-repair (its size, or None for a folder).
-    let own: HashMap<String, Option<u64>> = items
+    // of the damaged file (its size, or None for a folder, and its checksum).
+    let own: HashMap<String, (Option<u64>, String)> = items
         .iter()
         .map(|item| {
             let name = item.copied_as.rsplit('\\').next().unwrap_or(&item.copied_as).to_lowercase();
-            let src = under(&repair, &item.copied_as);
-            let size = std::fs::metadata(&src).ok().filter(|m| m.is_file()).map(|m| m.len());
-            (name, size)
+            (name, ((!item.package).then_some(item.size), item.sha256.clone()))
         })
         .collect();
     for item in &items {
@@ -190,10 +188,17 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
 }
 
 /// Take out of a hand-off folder the copies no longer needed there (the
-/// program's own: their name and size). Anything else with a number - a
-/// repaired version saved here instead of into "returned", say - is never
-/// deleted: it is moved into "returned", where Bring back finds it.
-fn remove_unkept(dir: &Path, keep: &HashSet<String>, own: &HashMap<String, Option<u64>>, returned: &Path, moved: &mut Vec<String>) {
+/// program's own: their name, size and checksum - so not one a paid tool
+/// repaired where it was, even at the same size). Anything else with a
+/// number - a repaired version saved here instead of into "returned", say -
+/// is never deleted: it is moved into "returned", where Bring back finds it.
+fn remove_unkept(
+    dir: &Path,
+    keep: &HashSet<String>,
+    own: &HashMap<String, (Option<u64>, String)>,
+    returned: &Path,
+    moved: &mut Vec<String>,
+) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let p = e.path();
@@ -206,8 +211,13 @@ fn remove_unkept(dir: &Path, keep: &HashSet<String>, own: &HashMap<String, Optio
                 continue;
             }
             let ours = match own.get(&name.to_lowercase()) {
-                Some(Some(size)) => std::fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() == *size),
-                Some(None) => p.is_dir(),
+                Some((size, sha)) => {
+                    let like = match size {
+                        Some(size) => std::fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() == *size),
+                        None => p.is_dir(),
+                    };
+                    like && repair::hash_of(&p, &|| false).ok().flatten().is_some_and(|(_, h)| h == *sha)
+                }
                 None => false,
             };
             if ours {
@@ -427,6 +437,9 @@ pub struct Brought {
     pub unknown: Vec<String>,
     /// Earlier versions moved to REPAIR\replaced to make way.
     pub superseded: usize,
+    /// Files that could not be read (in use, or the stick unplugged): not
+    /// brought back.
+    pub unreadable: Vec<String>,
 }
 
 fn is_mac_housekeeping(name: &str) -> bool {
@@ -450,18 +463,39 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
     }
     let mut o = Brought::default();
     let mut files: Vec<(PathBuf, String)> = Vec::new();
-    let mut stack = vec![from.to_path_buf()];
-    let repair_low = repair.display().to_string().to_lowercase();
+    // Of REPAIR, only the hand-off folder is looked in (when "from" is REPAIR
+    // or above it): the rest is the program's own - the damaged copies, the
+    // repaired versions already there.
+    let (repair_key, handoff_key) = (path_key(&repair), path_key(&repair.join(HANDOFF_DIR)));
+    let inside = |k: &str, of: &str| k == of || k.starts_with(&format!("{of}\\"));
+    let from_key = path_key(from);
+    if inside(&from_key, &repair_key) && !inside(&from_key, &handoff_key) && from_key != repair_key {
+        return Err(format!(
+            "{} is one of REPAIR's own folders, which hold the program's copies: choose the USB stick, or the folder, that \
+             holds what came back - or REPAIR\\{HANDOFF_DIR}",
+            from.display()
+        ));
+    }
+    let mut stack = vec![if from_key == repair_key { from.join(HANDOFF_DIR) } else { from.to_path_buf() }];
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            if dir.exists() {
+                o.unreadable.push(dir.display().to_string());
+            }
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             let p = e.path();
             let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
             if is_dir {
-                // Not REPAIR's own folders (when "from" is REPAIR or above it).
-                let low = p.display().to_string().to_lowercase();
-                if drive_housekeeping(&name) || (low.starts_with(&repair_low) && !low.starts_with(&format!("{repair_low}\\{HANDOFF_DIR}").to_lowercase()) && !low.starts_with(&format!("{repair_low}/{HANDOFF_DIR}").to_lowercase())) {
+                let k = path_key(&p);
+                if k == repair_key {
+                    // REPAIR, below the folder chosen: its hand-off folder only.
+                    stack.push(p.join(HANDOFF_DIR));
+                    continue;
+                }
+                if drive_housekeeping(&name) || (inside(&k, &repair_key) && !inside(&k, &handoff_key)) {
                     continue;
                 }
                 if repair::tag_in(&name).is_some() && repair::package_of_name(&name).is_some() {
@@ -489,7 +523,10 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         } else {
             crate::sha256::file_hex(&p, &|| false).ok().flatten()
         };
-        let Some(sha) = sha else { continue };
+        let Some(sha) = sha else {
+            o.unreadable.push(p.display().to_string());
+            continue;
+        };
         if sha == item.sha256 {
             o.unchanged += 1; // the damaged original itself (the hand-off's own copy)
             continue;
@@ -520,7 +557,12 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             o.superseded += supersede(&repair, &id, &dest)?;
         }
         if dest.exists() {
-            let _ = if dest.is_dir() { std::fs::remove_dir_all(&dest) } else { std::fs::remove_file(&dest) };
+            // A different version under the same name, brought back before:
+            // kept too, in REPAIR\replaced (nothing is ever deleted).
+            let _ = std::fs::create_dir_all(repair.join(repair::REPLACED));
+            let to = repair::aside(&repair, &id, &name);
+            std::fs::rename(&dest, &to).map_err(|e| format!("could not move {} aside: {e}", dest.display()))?;
+            o.superseded += 1;
         }
         copy_tree(&p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
         // The file's own dates, whatever the Mac or the paid tool gave it.
@@ -550,8 +592,8 @@ fn supersede(repair: &Path, id: &str, keep: &Path) -> Result<usize, String> {
             }
             let tagged = repair::tag_in(&name);
             if tagged.as_deref() == Some(id) && path_key(&p) != path_key(keep) {
-                let to = repair.join(repair::REPLACED).join(format!("{id} {} {name}", crate::fmt::now_stamp()));
                 let _ = std::fs::create_dir_all(repair.join(repair::REPLACED));
+                let to = repair::aside(repair, id, &name);
                 std::fs::rename(&p, &to).map_err(|e| format!("could not move {} aside: {e}", p.display()))?;
                 moved += 1;
             } else if tagged.is_none() && e.file_type().is_ok_and(|t| t.is_dir()) {
@@ -628,6 +670,14 @@ pub fn brought_summary(o: &Brought) -> Vec<String> {
             o.unknown.first().cloned().unwrap_or_default()
         ));
     }
+    if !o.unreadable.is_empty() {
+        t.push(format!(
+            "{} files could not be read, so they were not brought back (open in another program, or the USB stick was \
+             unplugged?), for example {}. Close what has them open and click Bring back again.",
+            commas(o.unreadable.len() as u64),
+            o.unreadable.first().cloned().unwrap_or_default()
+        ));
+    }
     t
 }
 
@@ -682,6 +732,110 @@ mod tests {
         prepare(&work).unwrap();
         assert_eq!(std::fs::read(returned.join("a [R0001] (repaired) (2).jpg")).unwrap(), b"second try");
         assert_eq!(std::fs::read(returned.join("a [R0001] (repaired).jpg")).unwrap(), b"repaired by the paid tool");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_repair_made_in_place_in_the_hand_off_is_kept_once_it_leaves() {
+        let base = std::env::temp_dir().join(format!("arp-handoff-inplace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Pics")).unwrap();
+        std::fs::write(work.join("Pics").join("a.jpg"), b"damaged").unwrap();
+        std::fs::write(work.join("Pics").join("b.jpg"), b"damaged too").unwrap();
+        let repair = base.join("REPAIR");
+        let src = repair.join("to-repair").join("1 Photos");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a [R0001].jpg"), b"damaged").unwrap();
+        std::fs::write(src.join("b [R0002].jpg"), b"damaged too").unwrap();
+        let sha = |b: &[u8]| {
+            let mut h = crate::sha256::Sha256::new();
+            h.update(b);
+            h.finish_hex()
+        };
+        let list = format!(
+            "\u{FEFF}id,path_in_work,kind,repair_with,size_bytes,sha256,why,inside_package,copied_out_as\r\n\
+             R0001,Pics\\a.jpg,file,1 Photos,7,{},HOLE,,to-repair\\1 Photos\\a [R0001].jpg\r\n\
+             R0002,Pics\\b.jpg,file,1 Photos,11,{},HOLE,,to-repair\\1 Photos\\b [R0002].jpg\r\n",
+            sha(b"damaged"),
+            sha(b"damaged too")
+        );
+        std::fs::write(repair.join(repair::LIST_NAME), list).unwrap();
+        prepare(&work).unwrap();
+        let paid = repair.join(HANDOFF_DIR).join(FOR_PAID).join("1 Photos");
+        // A paid tool repairs a [R0001] where it is, at the same size.
+        std::fs::write(paid.join("a [R0001].jpg"), b"fixed!!").unwrap();
+        // Both are repaired another way (put back), so both leave the hand-off.
+        let returns = format!(
+            "\u{FEFF}action,id,path_in_work,kind,size_before,sha256_before,size_after,sha256_after,when,from\r\n\
+             RETURNED,R0001,Pics\\a.jpg,file,7,{},5,{},2026-10-27 12:00,repaired\\returned\\a [R0001].jpg\r\n\
+             RETURNED,R0002,Pics\\b.jpg,file,11,{},5,{},2026-10-27 12:00,repaired\\returned\\b [R0002].jpg\r\n",
+            sha(b"damaged"),
+            sha(b"other"),
+            sha(b"damaged too"),
+            sha(b"other")
+        );
+        std::fs::write(work.join(repair::RETURNS_NAME), returns).unwrap();
+        let o = prepare(&work).unwrap();
+        assert!(o.paid.is_empty(), "{o:?}");
+        // The program's own copy goes; the paid tool's work is kept.
+        assert!(!paid.join("b [R0002].jpg").exists());
+        assert!(!paid.join("a [R0001].jpg").exists());
+        let returned = repair.join(HANDOFF_DIR).join(RETURNED);
+        assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"fixed!!");
+        assert_eq!(o.moved, vec!["a [R0001].jpg".to_string()]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn bring_back_from_above_repair_skips_its_own_folders_only() {
+        let base = std::env::temp_dir().join(format!("arp-bring-above-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Pics")).unwrap();
+        std::fs::write(work.join("Pics").join("a.jpg"), b"damaged").unwrap();
+        std::fs::write(work.join("Pics").join("b.jpg"), b"damaged b").unwrap();
+        let repair = base.join("REPAIR");
+        let sha = |b: &[u8]| {
+            let mut h = crate::sha256::Sha256::new();
+            h.update(b);
+            h.finish_hex()
+        };
+        std::fs::create_dir_all(repair.join("to-repair").join("1 Photos")).unwrap();
+        std::fs::write(
+            repair.join(repair::LIST_NAME),
+            format!(
+                "\u{FEFF}id,path_in_work,kind,repair_with,size_bytes,sha256,why,inside_package,copied_out_as\r\n\
+                 R0001,Pics\\a.jpg,file,1 Photos,7,{},HOLE,,to-repair\\1 Photos\\a [R0001].jpg\r\n\
+                 R0002,Pics\\b.jpg,file,1 Photos,9,{},HOLE,,to-repair\\1 Photos\\b [R0002].jpg\r\n",
+                sha(b"damaged"),
+                sha(b"damaged b")
+            ),
+        )
+        .unwrap();
+        std::fs::write(repair.join("to-repair").join("1 Photos").join("a [R0001].jpg"), b"damaged").unwrap();
+        std::fs::create_dir_all(repair.join("repaired").join("auto")).unwrap();
+        std::fs::write(repair.join("repaired").join("auto").join("a [R0001].jpg"), b"auto version").unwrap();
+        std::fs::create_dir_all(repair.join(HANDOFF_DIR).join(RETURNED)).unwrap();
+        std::fs::write(repair.join(HANDOFF_DIR).join(RETURNED).join("a [R0001].jpg"), b"paid version").unwrap();
+        // A folder of the person's whose name only begins like REPAIR's.
+        std::fs::create_dir_all(base.join("REPAIR-old")).unwrap();
+        std::fs::write(base.join("REPAIR-old").join("b [R0002].jpg"), b"older repair").unwrap();
+        let o = bring_back(&work, &base, &mut |_| {}).unwrap();
+        let ids: Vec<&str> = o.repaired.iter().map(|r| r.0.as_str()).collect();
+        assert_eq!(ids, vec!["R0001", "R0002"], "{o:?}");
+        let returned = repair.join("repaired").join(RETURNED);
+        assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"paid version");
+        assert_eq!(std::fs::read(returned.join("b [R0002].jpg")).unwrap(), b"older repair");
+        // REPAIR's own copies were not taken for repaired files.
+        assert_eq!(o.superseded, 1, "the automatic repair's version made way: {o:?}");
+        assert!(o.unreadable.is_empty(), "{o:?}");
+        // REPAIR itself: its hand-off folder only. One of its own folders: no.
+        std::fs::write(repair.join("READ ME.txt"), b"about REPAIR").unwrap();
+        let o = bring_back(&work, &repair, &mut |_| {}).unwrap();
+        assert!(o.repaired.is_empty() && o.unknown.is_empty() && o.unchanged == 1, "{o:?}");
+        let e = bring_back(&work, &repair.join("repaired"), &mut |_| {}).unwrap_err();
+        assert!(e.contains("REPAIR's own folders"), "{e}");
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -748,6 +902,26 @@ mod tests {
         // Again: nothing new.
         let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
         assert!(o.repaired.is_empty() && o.salvaged.is_empty(), "{o:?}");
+        // A better try saved under the same name, in the same minute: the
+        // one brought back before is kept (in REPAIR\replaced), and so is
+        // the automatic repair's that made way for it.
+        std::fs::write(stick.join("returned").join("repaired").join("a [R0001].jpg"), b"mac version 2").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!(o.repaired.len(), 1, "{o:?}");
+        assert_eq!(std::fs::read(repair.join("repaired").join(RETURNED).join("a [R0001].jpg")).unwrap(), b"mac version 2");
+        let mut kept: Vec<Vec<u8>> =
+            std::fs::read_dir(repair.join(repair::REPLACED)).unwrap().flatten().map(|e| std::fs::read(e.path()).unwrap()).collect();
+        kept.sort();
+        assert_eq!(kept, vec![b"auto version".to_vec(), b"mac version".to_vec()]);
+        // A file it cannot read is said, not passed over.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(base.join("gone"), stick.join("returned").join("repaired").join("b [R0002].cr2")).unwrap();
+            let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+            assert_eq!(o.unreadable.len(), 1, "{o:?}");
+            let t = brought_summary(&o);
+            assert!(t.iter().any(|l| l.contains("1 files could not be read") && l.contains("b [R0002].cr2")), "{t:?}");
+        }
         let _ = std::fs::remove_dir_all(&base);
     }
 }
