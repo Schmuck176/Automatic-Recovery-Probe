@@ -155,9 +155,13 @@ class Oracle:
             return out, False
         limit = min(want if want is not None else (256 << 20) // self.cs + 1, self.cc)
         c = first
+        met = set()
         while True:
             if not self.valid(c):
                 return out, True
+            if c in met:
+                return out, True  # the chain loops back on itself
+            met.add(c)
             out.append(c)
             if want is not None and len(out) >= want:
                 return out, False
@@ -805,6 +809,7 @@ class Case:
         self.zero = zero  # areas to zero (default: all)
         self.garbage = garbage  # areas to fill with random bytes (a used SSD's leftovers)
         self.flips = []  # single bytes to change (near-miss corruption)
+        self.patches = []  # (offset, bytes) written over the disk as it is (a volume damaged in itself)
         self.earlier = None  # what an earlier attempt read onto the same disk: [(start, length)]
         self.rescue = True  # also check rescuing files from this disk
         self.domain = domain  # mapfile size (default: the GPT's disk size)
@@ -833,6 +838,11 @@ def run_case(exe, work, case, keep=False):
             for s, n, *_ in case.garbage:
                 f.seek(s)
                 f.write(g.randbytes(n))
+    if case.patches:
+        with open(img, "r+b") as f:
+            for off, data in case.patches:
+                f.seek(off)
+                f.write(data)
     if case.flips:
         with open(img, "r+b") as f:
             for off in case.flips:
@@ -1438,6 +1448,24 @@ def fat_case():
     return Case("fat-damage", disk, [(sector_of(off), SECTOR, "-")], expect={"min_items": 1})
 
 
+def fat_loop_case():
+    """The FAT loops: the root's cluster names itself as the next, and a
+    file's chain leads back into itself. Each is read once and called broken -
+    not read over and over (the root's files listed again and again, each
+    copied as "name (2)", "name (3)"...)."""
+    disk = basic_disk(4096, seed=6)
+    t = disk.truth()
+    v = t["volume"]
+    fat = v["offset"] + v["fat_offset"]
+    root = v["root"][0][0]
+    clip = node(t, "Videos\\clip.mp4")
+    first = clip["runs"][0][0]
+    case = Case("fat-loop", disk, [], expect={"min_items": 2})
+    case.patches = [(fat + 4 * root, struct.pack("<I", root)), (fat + 4 * (first + 10), struct.pack("<I", first + 3))]
+    case.breaks_rules = True
+    return case
+
+
 def bigger_ssd_case():
     """The copy is on a bigger disk: the partition table still describes
     the old disk, and the mapfile's size must match it."""
@@ -1762,7 +1790,7 @@ def main():
     cases = []
     for cs in (512, 4096, 32768, 131072):
         cases += deliberate_cases(cs)
-    cases += [hidden_folder_case(), boot_case(), gpt_lost_case(), fat_case(), bigger_ssd_case(),
+    cases += [hidden_folder_case(), boot_case(), gpt_lost_case(), fat_case(), fat_loop_case(), bigger_ssd_case(),
               wrong_disk_case(), earlier_attempt_case(), no_exfat_case(), leftover_case()]
     for c in cases:
         c.compare = True  # every hand-made disk; the random ones: every fifth (below)

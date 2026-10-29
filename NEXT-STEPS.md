@@ -708,7 +708,85 @@ The PC as it stands (read 28 Oct, 22:30): the program was opened at 21:25
 folders chosen yet; no note of the setting for new disks, and the setting is
 normal (Start sets it before it asks for the SSD).
 
+## 28 Oct 2026 (late): damaged test disks, Start over, the folders
+
+The user (22:41): "You might as well try to fix more bugs." A fuzzer
+(scratchpad fuzz/fuzz.py: the self-test disk damaged in 19 ways - zeroed and
+garbage directory sectors, entry bytes, stream lengths/clusters/flags, FAT
+loops and garbage, boot fields, the partition table - optionally with the
+record checksums made right, so damaged records are believed; map-check and
+rescue on each, with the build that checks for overflow) ran 2,000 disks.
+Found and fixed (each with a test):
+
+- **A loop in the FAT** (a cluster naming one already in its chain): the
+  root's records were read over and over - a 96-file disk gave 3,148 files
+  and 18,321 folders, each copied again as "name (2)", "(3)"... - and a
+  file repeated a piece of itself. exfat::Volume::chain stops at a cluster
+  met before ("the cluster chain loops back on itself"); test_mapcheck's
+  oracle does the same, and its new fat-loop case (FAT[root] = root, a file
+  looping back) fails on the old build (81,704 hidden files listed).
+- **A boot sector whose sizes do not fit** (a cluster count of 4 billion)
+  was believed: the map check and the copy went over billions of clusters
+  (timed out at 120 s). Now checked against the exFAT rules (1 or 2 FATs,
+  the FAT after the boot region, big enough, before the clusters, the
+  clusters inside the volume); find_volume then uses the backup boot sector.
+- **A record claiming more than the whole volume** (1 TB on a 16 MB disk,
+  its checksum right): the copy was made that big - zeros hashed for ages, a
+  full drive, or the copying refused for want of room. rescue::claims_too_much:
+  only what its clusters hold is copied, and its line says why.
+- What damaged records can make the program read into memory is capped: a
+  folder at 256 MB (the exFAT limit; said as a problem), the bitmap at a bit
+  a cluster, the up-case table at 128 KB.
+- **Start over after a put-back** (found by reading): the copying ran into
+  WORK again and put the damaged originals back over the repaired versions
+  (same size), or a damaged copy beside them as "name (2)" (another size);
+  the check of the copies then stopped Start every time ("Something changed
+  or deleted them"). The copying now leaves a repaired version put back
+  (repair-returns.csv, same size and SHA-256), and everything inside a
+  document put back whole, as it is; the list keeps its earlier lines.
+  auto_check runs Start over after Bring back and Finalise: the old build
+  fails it ("the photo brought back is still in WORK").
+- **The folders could be changed under a running job**, and WORK after
+  Start had copied into it (the stages after the copying then found
+  nothing). "set" refuses the mapfile and the three folders while a job
+  runs, and WORK once the copy stage has begun, unless the new folder holds
+  the copies' list (WORK moved) - Start over first to copy elsewhere. The
+  page locks the fields while something runs and shows a refusal.
+- **A name that already reads like a number** ("Draft [R2].docx"): its copy
+  in REPAIR got two, and neither put-back nor Bring back took it. untag
+  makes it "(R2)" first. **A very long name** could not be copied out for
+  repair (the number made it too long): the stem is shortened to keep the
+  name within 240 UTF-16 units.
+- Folder paths not written from the drive ("E:WORK", "WORK") are refused
+  (check_folders). WORK, or the second copy, on a FAT32 drive is refused at
+  Start / Finalise (no file of 4 GB or more; dates kept to 2 s).
+- A correction to the earlier pass: names ending in a space or a dot never
+  reach WORK (rescue::safe_name turns the last character into "_"), so
+  walk::literal matters only for the twin search's other folders.
+- Lengths a damaged record claims (up to 2^64 - 1) are added up saturating
+  (the map check's bytes, the list's totals, the check of the copies, the
+  page's counts): the build that checks for overflow panicked on them.
+- One file the automatic repair cannot cope with (a parser's mistake on
+  something no test had) is now left for the hand-off instead of stopping
+  the repair stage - and Start - on it every time (catch_unwind per file).
+- The file checks themselves (probe.rs) were fuzzed too (fuzz/probefuzz.py:
+  11,600 damaged JPEG, MOV, CR2, MP3, FLAC, PDF and Word files, with the
+  build that checks for overflow): no hang, no crash, no internal error.
+- Version 2026-10-28 (2); the 2026-10-28 (1) checklist text is known
+  (16515098709846070443).
+
+Looked at and left: the real mapfile (staged from the PC) has 167 unread
+places, all between 781 GB and 918 GB - none in the volume's first 2 GB,
+so the FAT and boot region were read. (A FAT entry never read but holding
+leftovers would send a fragmented file's chain anywhere unnoticed: an idea
+below.)
+
 ## Not done / ideas for later
+
+- A FAT-chained file whose chain passes through a FAT entry ddrescue never
+  read (and that place holds leftovers, not zeros) is not known from there
+  on: mark it damaged from that cluster (mapcheck claim + test_mapcheck's
+  oracle). Not needed for this drive: its FAT was read.
 
 - Two damaged copies of the same file whose lost places differ could be
   merged into one whole file (autorepair.rs twin logic, v2).

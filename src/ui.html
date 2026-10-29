@@ -2650,6 +2650,9 @@ function renderAuto() {
   const folderProblem = (PLACES && PLACES.problem) || "";
   const foldersOk = (imageMade || !!setting("auto_image_dir")) && !!setting("auto_work") && !folderProblem;
   h = noteHtml("folders");
+  // (Not changed under a job that works with them.)
+  for (const id of ["af-image", "af-work", "af-copy2"]) { $(id).readOnly = running; $("b-" + id).disabled = running; }
+  if (running) h += `<p class="small soft">The folders cannot be changed while something runs.</p>`;
   if (folderProblem) h += msg("err", esc(folderProblem));
   if (READY && !setting("auto_work") && !READY.suggest_work) h += `<p class="small soft">No drive called SPARE is plugged in now: type the folder (such as E:\\WORK), or plug SPARE in and click Check this PC.</p>`;
   put($("ar-folders"), h);
@@ -3202,14 +3205,24 @@ $("ar-rehearse").addEventListener("click", async (e) => {
   await refresh(); loadDisks(); loadReady();
 });
 const FOLDERS = [["af-image", "auto_image_dir", "IMAGE"], ["af-work", "auto_work", "WORK"], ["af-copy2", "auto_copy2", "COPY 2"]];
+// A folder saved - or, refused (a job runs, or Start has copied into WORK
+// already), put back as it was, with why.
+async function saveFolder(el, key, value) {
+  note("folders", "", "");
+  try { await save({ [key]: value }); } catch (e) {
+    el.value = setting(key); delete el.dataset.touched;
+    note("folders", "err", e.message);
+  }
+  loadPlaces();
+}
 for (const [id, key, sub] of FOLDERS) {
   const el = $(id);
   el.addEventListener("input", () => { el.dataset.touched = "1"; });
-  el.addEventListener("change", () => save({ [key]: el.value.trim() }).then(loadPlaces));
+  el.addEventListener("change", () => saveFolder(el, key, el.value.trim()));
   $("b-" + id).onclick = () => openPicker("Choose the folder", el.value || "", false, (p) => {
     // A whole drive chosen: the folder goes on it.
     if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\" + sub;
-    el.value = p; el.dataset.touched = "1"; save({ [key]: p }).then(loadPlaces);
+    el.value = p; el.dataset.touched = "1"; saveFolder(el, key, p);
   });
 }
 $("af-search").addEventListener("input", () => { $("af-search").dataset.touched = "1"; });
@@ -3220,8 +3233,10 @@ $("b-auto-start").onclick = async () => {
   // Folders typed but not yet saved.
   const f = {};
   for (const [id, key] of FOLDERS) if ($(id).value.trim() !== setting(key)) f[key] = $(id).value.trim();
-  if (Object.keys(f).length) await save(f);
-  try { await act({ action: "auto-start" }); } catch (err) { note("start", "err", err.message); }
+  try {
+    if (Object.keys(f).length) await save(f);
+    await act({ action: "auto-start" });
+  } catch (err) { note("start", "err", err.message); }
   await refresh();
 };
 let overArmed = 0;

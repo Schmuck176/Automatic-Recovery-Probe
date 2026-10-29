@@ -111,6 +111,9 @@ impl ClusterList {
     }
 }
 
+/// The most a folder can hold, by the exFAT rules.
+const MAX_FOLDER: u64 = 256 << 20;
+
 const FAT_BLOCK_ENTRIES: u64 = 1 << 18; // 1 MiB of FAT per cache block
 /// FAT blocks kept: 128 MB, the whole FAT of a 1 TB volume with clusters of
 /// 32 KB or more (one with 128 KB clusters, as Windows makes them, has a FAT
@@ -175,6 +178,24 @@ impl<'a> Volume<'a> {
         if v.cluster_count == 0 || !v.valid_cluster(v.root_cluster) {
             return Err("the exFAT boot sector's cluster count or root folder is out of range".to_string());
         }
+        // Its sizes must fit together (the exFAT rules): the FAT between the
+        // boot region and the clusters, big enough for every cluster, and the
+        // clusters inside the volume. A boot sector that says otherwise is
+        // damaged - believed, it could have the program go over billions of
+        // clusters that are not there.
+        let heap_bytes = v.cluster_count as u64 * cluster_size;
+        if !(1..=2).contains(&number_of_fats)
+            || v.fat_offset < 24 * bps
+            || v.fat_offset + number_of_fats * v.fat_length > v.heap_offset
+            || v.fat_length < (v.cluster_count as u64 + 2) * 4
+            || (v.volume_length > 0 && v.heap_offset + heap_bytes > v.volume_length)
+        {
+            return Err(format!(
+                "the exFAT boot sector's sizes do not fit together (FAT at {} for {} bytes, {} clusters of {} bytes from {}, in \
+                 a volume of {} bytes)",
+                v.fat_offset, v.fat_length, v.cluster_count, cluster_size, v.heap_offset, v.volume_length
+            ));
+        }
         // Boot checksum: sectors 0-10, compared with sector 11.
         if let Ok(region) = src.read_at(offset + boot_at, (12 * bps) as usize) {
             if region.len() as u64 == 12 * bps {
@@ -188,7 +209,9 @@ impl<'a> Volume<'a> {
         for slot in root.chunks_exact(32) {
             match slot[0] {
                 0x81 if slot[1] & 1 == 0 && v.bitmap_clusters.runs.is_empty() => {
-                    let len = u64le(slot, 24);
+                    // (One bit a cluster: never more, whatever a damaged
+                    // record says - read whole, it is held in memory.)
+                    let len = u64le(slot, 24).min((v.cluster_count as u64).div_ceil(8));
                     v.bitmap_clusters = v.chain(u32le(slot, 20), Some(len));
                     if let Ok(mut bm) = v.read_clusters(&v.bitmap_clusters) {
                         bm.truncate(len as usize);
@@ -196,7 +219,8 @@ impl<'a> Volume<'a> {
                     }
                 }
                 0x82 if v.upcase_clusters.runs.is_empty() => {
-                    v.upcase_clusters = v.chain(u32le(slot, 20), Some(u64le(slot, 24)));
+                    // (At most 65,536 two-byte letters.)
+                    v.upcase_clusters = v.chain(u32le(slot, 20), Some(u64le(slot, 24).min(128 << 10)));
                 }
                 0x83 => {
                     let n = (slot[1] as usize).min(11);
@@ -278,9 +302,17 @@ impl<'a> Volume<'a> {
         let limit = want.unwrap_or((256 << 20) / self.cluster_size + 1).min(self.cluster_count as u64);
         let mut c = first;
         let mut seen: u64 = 0;
+        // (A cluster met again: the chain loops. Followed on, a folder would
+        // list its files over and over - each copied again, as "name (2)",
+        // "name (3)"... - and a file would repeat a piece of itself.)
+        let mut met: std::collections::HashSet<u32> = std::collections::HashSet::new();
         loop {
             if !self.valid_cluster(c) {
                 out.problem = Some(format!("the cluster chain points outside the volume (cluster {c})"));
+                break;
+            }
+            if !met.insert(c) {
+                out.problem = Some(format!("the cluster chain loops back on itself (to cluster {c})"));
                 break;
             }
             out.push(c);
@@ -1073,10 +1105,21 @@ fn walk_stack(
                 why_hidden: String::new(),
                 hidden_by_blank: Vec::new(),
             };
-            let clist = if stream[1] & 1 != 0 {
-                vol.clusters_of(entry.first_cluster, entry.no_fat_chain, entry.data_length)
-            } else {
+            let clist = if stream[1] & 1 == 0 {
                 ClusterList::default()
+            } else if entry.is_dir && entry.data_length > MAX_FOLDER {
+                // A folder holds at most 256 MB of records (the exFAT rules):
+                // a record that says more is damaged, and all it claims, read
+                // into memory, could be more than the PC has.
+                let mut l = vol.clusters_of(entry.first_cluster, entry.no_fat_chain, MAX_FOLDER);
+                l.problem = Some(format!(
+                    "its record says the folder holds {} bytes of records, more than a folder can (256 MB): only the \
+                     first 256 MB are read",
+                    entry.data_length
+                ));
+                l
+            } else {
+                vol.clusters_of(entry.first_cluster, entry.no_fat_chain, entry.data_length)
             };
             found.push((i, entry, clist));
             i += sc + 1;
@@ -1217,6 +1260,85 @@ mod tests {
         let (t2, _) = timestamp_to_unix(ts, 0, 0x80 | (128 - 20) as u8).unwrap();
         assert_eq!(t2, days_from_civil(2023, 7, 14) * 86_400 + 15 * 3600 + 30 * 60);
         assert_eq!(timestamp_to_unix(0, 0, 0x80), None);
+    }
+
+    /// Damage the self-test disk's volume and count what is found.
+    fn found_on(patch: impl Fn(&mut Vec<u8>, usize)) -> (u64, u64, bool, Vec<String>) {
+        let mut d = crate::selftest::disk_image().unwrap();
+        let part = 2095 * 512;
+        patch(&mut d, part);
+        let src = crate::disk::Memory::new(d);
+        let table = crate::gpt::read(&src, &[]);
+        let (vol, backup) = crate::mapcheck::find_volume(&src, &table).unwrap();
+        let (mut folders, mut files) = (0u64, 0u64);
+        let issues = walk_until(
+            &vol,
+            &mut |e: &Entry, _| {
+                if e.is_dir {
+                    folders += 1
+                } else {
+                    files += 1
+                }
+            },
+            &|| false,
+            &mut |_| {},
+        );
+        (folders, files, backup, issues.iter().map(|i| i.what.clone()).collect())
+    }
+
+    #[test]
+    fn a_loop_in_the_fat_is_read_once_and_said() {
+        let (folders, files, _, before) = found_on(|_, _| {});
+        assert!(!before.iter().any(|i| i.contains("loops")), "{before:?}");
+        // The root folder's cluster (4) named as its own next: before, its
+        // records were read over and over - every file and folder listed
+        // thousands of times, each copied again as "name (2)", "name (3)"...
+        let fat = |d: &mut Vec<u8>, part: usize, c: usize, v: u32| {
+            let o = part + 128 * 512 + 4 * c;
+            d[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        };
+        let (f2, n2, _, issues) = found_on(|d, part| fat(d, part, 4, 4));
+        assert_eq!((f2, n2), (folders, files));
+        assert!(issues.iter().any(|i| i.contains("loops back on itself")), "{issues:?}");
+    }
+
+    #[test]
+    fn a_boot_sector_whose_sizes_do_not_fit_is_passed_over_for_its_backup() {
+        let (folders, files, backup, _) = found_on(|_, _| {});
+        assert!(!backup);
+        // The cluster count made 4 billion: believed, the program went over
+        // billions of clusters that are not there (it seemed to hang).
+        for (at, v) in [(92usize, u32::MAX), (92, 0x7FFF_FFFF), (84, 1), (80, 3)] {
+            let (f2, n2, backup, _) = found_on(|d, part| d[part + at..part + at + 4].copy_from_slice(&v.to_le_bytes()));
+            assert!(backup, "byte {at} = {v:#x}: the backup boot sector is used");
+            assert_eq!((f2, n2), (folders, files), "byte {at} = {v:#x}");
+        }
+    }
+
+    #[test]
+    fn a_folder_record_claiming_more_than_a_folder_can_hold_is_read_only_so_far() {
+        // A folder's record in the root (cluster 4) says it holds 1 GB of
+        // records, with its checksum made right: read whole, a bigger claim
+        // on a big volume could take more memory than the PC has.
+        let (_, _, _, issues) = found_on(|d, part| {
+            let root = part + 152 * 512 + (4 - 2) * 4096;
+            let mut i = 0;
+            while i < 4096 / 32 {
+                let o = root + 32 * i;
+                let sc = d[o + 1] as usize;
+                if d[o] == 0x85 && u16le(&d[o..o + 32], 4) & 0x10 != 0 && d[o + 32] == 0xC0 {
+                    let big = (1u64 << 30).to_le_bytes();
+                    d[o + 32 + 24..o + 32 + 32].copy_from_slice(&big);
+                    d[o + 32 + 8..o + 32 + 16].copy_from_slice(&big);
+                    let c = entry_set_checksum(&d[o..o + 32 * (sc + 1)]);
+                    d[o + 2..o + 4].copy_from_slice(&c.to_le_bytes());
+                    break;
+                }
+                i += 1;
+            }
+            assert!(i < 4096 / 32, "a folder record in the root");
+        });
+        assert!(issues.iter().any(|i| i.contains("more than a folder can")), "{issues:?}");
     }
 
     #[test]

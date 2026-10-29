@@ -69,10 +69,10 @@ impl ListTotals {
             "copied" | "partly copied" | "skipped" => {
                 if file {
                     self.files += 1;
-                    self.file_bytes += bytes;
+                    self.file_bytes = self.file_bytes.saturating_add(bytes);
                 } else {
                     self.pieces += 1;
-                    self.piece_bytes += bytes;
+                    self.piece_bytes = self.piece_bytes.saturating_add(bytes);
                 }
                 true
             }
@@ -262,7 +262,8 @@ pub fn run_checked(
         }
     }
     r.listed = wants.len() as u64 + packages.len() as u64;
-    let total: u64 = wants.iter().map(|w| w.size).sum();
+    // (Saturating, here and below: a damaged record can claim any length.)
+    let total: u64 = wants.iter().fold(0u64, |t, w| t.saturating_add(w.size));
     progress(&format!("{} copies to check ({}), against {}", commas(r.listed), size(total), log.display()));
     let base = crate::rescue::verbatim(folder);
     let mut done = 0u64;
@@ -287,16 +288,16 @@ pub fn run_checked(
         match crate::sha256::file_hex(&p, stop) {
             Ok(Some(got)) if got == w.sha => {
                 r.ok += 1;
-                r.bytes += w.size;
+                r.bytes = r.bytes.saturating_add(w.size);
                 if w.repaired {
                     r.repaired += 1;
                 }
                 if w.piece {
                     r.here_pieces += 1;
-                    r.here_piece_bytes += w.size;
+                    r.here_piece_bytes = r.here_piece_bytes.saturating_add(w.size);
                 } else {
                     r.here_files += 1;
-                    r.here_file_bytes += w.size;
+                    r.here_file_bytes = r.here_file_bytes.saturating_add(w.size);
                     if w.repaired {
                         r.here_repaired += 1;
                     }
@@ -311,7 +312,7 @@ pub fn run_checked(
             Err(_) => r.unreadable.push(w.rel.clone()),
         }
         crate::live::done(&w.rel, w.size);
-        done += w.size;
+        done = done.saturating_add(w.size);
         if last.elapsed().as_millis() > 300 {
             amount(done, total);
             progress(&format!("Checked {} of {} copies", commas(r.ok + r.bad() as u64), commas(r.listed)));
@@ -332,9 +333,9 @@ pub fn run_checked(
             Ok(Some((bytes, got))) if got == pk.sha => {
                 r.ok += 1;
                 r.repaired += 1;
-                r.bytes += bytes;
+                r.bytes = r.bytes.saturating_add(bytes);
                 r.here_files += members[i];
-                r.here_file_bytes += bytes;
+                r.here_file_bytes = r.here_file_bytes.saturating_add(bytes);
                 r.here_repaired += members[i];
             }
             Ok(Some(_)) => r.changed.push(pk.path.clone()),
@@ -958,6 +959,24 @@ mod tests {
         let s = super::safety(&r);
         assert!(!s.fine && s.verdict.iter().any(|l| l.starts_with("1 copy could not be read")), "{:?}", s.verdict);
         assert!(s.verdict.iter().all(|l| !l.contains("Something changed")), "{:?}", s.verdict);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_record_claiming_any_length_does_not_overflow_the_totals() {
+        let dir = std::env::temp_dir().join(format!("rp-verify-max-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.bin"), b"").unwrap();
+        std::fs::write(dir.join("b.txt"), b"hello").unwrap();
+        let mut log = String::from("\u{FEFF}kind,path,size_bytes,result,copied_as,note,sha256\r\n");
+        log.push_str(&format!("FILE,a.bin,{},partly copied,,its record says it holds too much,{}\r\n", u64::MAX, h(b"")));
+        log.push_str(&format!("FILE,b.txt,5,copied,,,{}\r\n", h(b"hello")));
+        std::fs::write(dir.join("rescue-log.csv"), log).unwrap();
+        let t = super::ListTotals::read(&dir).unwrap();
+        assert_eq!((t.files, t.file_bytes), (2, u64::MAX));
+        let r = super::run(&dir, None, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!((r.ok, r.bytes), (2, u64::MAX));
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -188,6 +188,15 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     check_destination(app, &plan.work)?;
     if !plan.copy2.trim().is_empty() {
         check_destination(app, &plan.copy2)?;
+        // FAT32 holds no file of 4 GB or more (a video, a Photos library's),
+        // and keeps a file's time only to 2 seconds: no second copy there.
+        if let Some(d) = drive_of(&plan.copy2).filter(|d| d.fs.eq_ignore_ascii_case("FAT32") || d.fs.eq_ignore_ascii_case("FAT")) {
+            return Err(format!(
+                "{} is formatted {}, which cannot hold a file of 4 GB or more, nor keep the files' dates exactly: the second \
+                 copy needs a drive formatted NTFS (or exFAT). Choose another drive for it (3. The folders).",
+                d.letter, d.fs
+            ));
+        }
     }
     let work = PathBuf::from(&plan.work);
     if !work.join(crate::rescue::LOG_NAME).is_file() {

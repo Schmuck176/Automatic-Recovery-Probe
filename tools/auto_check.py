@@ -382,10 +382,22 @@ def main():
         check(not prog.get("api/places").get("problem"), "chosen again beside it: nothing to say")
         r = prog.do(action="auto-start")
         check(r.get("ok"), "Start begins: %s" % r.get("error", ""))
+        # The folders are not changed under it.
+        r = prog.do(action="set", auto_work=os.path.join(work, "ELSEWHERE"))
+        check(not r.get("ok") and "is running" in (r.get("error") or "") and prog.get("api/state")["settings"]["auto_work"] == w,
+              "WORK cannot be changed while Start runs: %s" % r.get("error"))
         s = prog.wait()
         j = s["job"]
         print("\n".join(j.get("summary") or []))
         check(j["state"] == "done", "Start ran to the end (%s: %s)" % (j["state"], j.get("error", "")))
+        # Nor, once Start has copied into it, to a folder without the copies.
+        os.makedirs(os.path.join(work, "ELSEWHERE"), exist_ok=True)
+        r = prog.do(action="set", auto_work=os.path.join(work, "ELSEWHERE"))
+        check(not r.get("ok") and "already copied" in (r.get("error") or ""),
+              "WORK cannot be changed to an empty folder once the copies are in it: %s" % r.get("error"))
+        r = prog.do(action="set", auto_work=w + os.sep)
+        check(r.get("ok"), "the same folder written another way is fine: %s" % r.get("error"))
+        prog.do(action="set", auto_work=w)
         stages = {x["key"]: x for x in s["auto"]["stages"]}
         for k, x in stages.items():
             print("  %-9s %-8s %s" % (k, x["state"], (x["summary"] or [""])[0][:150]))
@@ -592,6 +604,18 @@ def main():
         s = prog.wait()
         check(s["job"]["state"] == "done" and "already" in " ".join(s["job"]["summary"]),
               "Start again says it is all done")
+        # Start over (a person may click it): every stage again - and the
+        # repaired versions put back stay as they are (the copying runs into
+        # WORK again), so the checks after it pass.
+        r = prog.do(action="auto-start-over")
+        check(r.get("ok"), "Start over: %s" % r.get("error"))
+        r = prog.do(action="auto-start")
+        s = prog.wait()
+        check(s["job"]["state"] == "done", "Start over runs to the end again (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
+        check(open(os.path.join(w, "DCIM", "IMG_0007.JPG"), "rb").read() == media["IMG_0007.JPG"],
+              "the photo brought back is still in WORK after Start over")
+        check(not any(n.startswith("IMG_0007 (") for n in os.listdir(os.path.join(w, "DCIM"))),
+              "and no damaged copy of it was put beside it")
     finally:
         prog.close()
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))

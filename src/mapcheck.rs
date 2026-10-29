@@ -640,7 +640,20 @@ fn find_volume_in<'a>(src: &'a dyn Source, table: &Table, scan: bool) -> Result<
     starts.push(0);
     for &s in &starts {
         if crate::exfat::is_exfat_at(src, s) {
-            return Volume::open(src, s).map(|v| (v, false));
+            match Volume::open(src, s) {
+                Ok(v) => return Ok((v, false)),
+                // A damaged main boot sector: its backup, 12 sectors on.
+                Err(e) => {
+                    for bps in [512u64, 4096] {
+                        if crate::exfat::is_exfat_at(src, s + 12 * bps) {
+                            if let Ok(v) = Volume::open_backup(src, s, bps) {
+                                return Ok((v, true));
+                            }
+                        }
+                    }
+                    return Err(e);
+                }
+            }
         }
     }
     // The main boot sector may be among the unread sectors: exFAT keeps a
@@ -993,7 +1006,8 @@ pub fn analyse_with(
                 seen.0 += 1;
             } else {
                 seen.1 += 1;
-                bytes_seen += e.data_length;
+                // (Saturating: a damaged record can claim any length.)
+                bytes_seen = bytes_seen.saturating_add(e.data_length);
             }
             if last_report.elapsed().as_millis() > 500 {
                 (*say.borrow_mut())(&format!(
@@ -1524,7 +1538,7 @@ pub fn summary(r: &Report) -> Vec<String> {
         size(r.cluster_size),
         commas(r.vol_offset),
         if r.used_backup_boot {
-            " (its main boot sector is unreadable; the backup copy was used)"
+            " (its main boot sector is unreadable or damaged; the backup copy was used)"
         } else if !r.boot_checksum_ok {
             " (its boot checksum is wrong)"
         } else {
@@ -2244,7 +2258,7 @@ fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
 pub fn found_words(r: &Report) -> String {
     let losing: Vec<&Item> =
         r.files().filter(|i| !i.only_past_valid_data() && i.damaged_bytes() > 0).chain(r.lost_items.iter()).collect();
-    let bytes: u64 = losing.iter().map(|i| i.size).sum();
+    let bytes: u64 = losing.iter().fold(0u64, |t, i| t.saturating_add(i.size));
     let hidden = r.hidden.iter().filter(|(e, _)| !e.is_dir && !r.leftover(e)).count() as u64;
     let n = losing.len() as u64;
     let mut t = if n == 0 {
@@ -2372,7 +2386,7 @@ pub fn page_json(r: &Report) -> String {
         None => "null".to_string(),
     };
     // What those files take in all: the room their copies need in REPAIR.
-    let losing_bytes: u64 = losing.iter().map(|i| i.size).sum();
+    let losing_bytes: u64 = losing.iter().fold(0u64, |t, i| t.saturating_add(i.size));
     format!(
         "{{\"bad_bytes\":{},\"bad_areas\":{},\"files_touched\":{},\"files_losing_data\":{},\"losing_bytes\":{},\"folders_affected\":{},\
          \"hidden_files\":{},\"hidden_folders\":{},\"hidden_by_path\":{},\"lost_bytes\":{},\"folder_problems\":{},\

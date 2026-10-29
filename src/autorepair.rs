@@ -2042,7 +2042,19 @@ pub fn run(
             a.next = Next::Paid;
         } else {
             let whole_only = only_by_tools(&env, item);
-            match try_item(&env, item, &src, &tmp) {
+            // (One file the repairs cannot cope with - a parser's mistake on
+            // something no test had - is left for the hand-off, not the end
+            // of every repair after it: the stage would stop there each time.)
+            let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| try_item(&env, item, &src, &tmp)))
+                .unwrap_or_else(|p| {
+                    let why = p
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    no(format!("the repair hit an internal error on this file ({why}): left for the hand-off"), Next::Paid)
+                });
+            match tried {
                 Try::Made { file, how, tool, salvage, note } if whole_only && !salvage => {
                     // Exactly as it was on the old drive: it stays in WORK.
                     let rel = format!("{}\\{AUTO_DIR}\\{}", repair::SALVAGED, salvage_name(&copy_name, &file));

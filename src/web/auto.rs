@@ -264,6 +264,29 @@ fn within(inner: &str, outer: &str) -> bool {
     !i.is_empty() && !o.is_empty() && (i == o || i.starts_with(&format!("{o}\\")))
 }
 
+/// WORK may be changed until Start has begun copying into it; after that,
+/// only to a folder that holds those copies (WORK moved, say) - the stages
+/// after the copying go on in WORK, and a new folder would hold nothing.
+pub(super) fn work_change_ok(app: &Arc<Mutex<App>>, new: &str) -> Result<(), String> {
+    let (old, copying_began) = {
+        let a = lock(app);
+        (a.setting("auto_work"), a.auto.stages.iter().any(|s| s.key == "copy" && s.state != "pending"))
+    };
+    if !copying_began || old.trim().is_empty() || folder_key(new) == folder_key(&old) {
+        return Ok(());
+    }
+    let n = Path::new(new.trim());
+    if n.join(crate::rescue::LOG_NAME).is_file() || n.join(crate::rescue::UNFINISHED_LOG_NAME).is_file() {
+        return Ok(());
+    }
+    Err(format!(
+        "Start has already copied the files into {}: that is WORK now, and every stage after the copying works there. \
+         Leave it as it is. (If you moved that folder, choose the folder it is in now; to copy everything again into \
+         another folder, click Start over first.)",
+        old.trim()
+    ))
+}
+
 /// The physical disk a folder is on (or, not known, its drive letter);
 /// None for a path with no drive letter.
 fn disk_key(folder: &str) -> Option<String> {
@@ -281,6 +304,19 @@ fn disk_key(folder: &str) -> Option<String> {
 /// (`one_drive_ok`: the page's tests, which have only one).
 pub(super) fn check_folders(image_dir: &str, work: &str, copy2: &str, one_drive_ok: bool) -> Result<(), String> {
     let (image_dir, work, copy2) = (image_dir.trim(), work.trim(), copy2.trim());
+    // A whole path, from its drive ("E:WORK" or "WORK" would be taken from
+    // wherever Windows happens to be on that drive).
+    let whole = |p: &str| {
+        let b = p.as_bytes();
+        p.starts_with(['/', '\\']) || (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/'))
+    };
+    for (what, f) in [("The image's folder", image_dir), ("WORK", work), ("The second copy's folder", copy2)] {
+        if !f.is_empty() && !whole(f) {
+            return Err(format!(
+                "{what} ({f}) is not written out from its drive: write it in full, such as E:\\WORK (3. The folders)."
+            ));
+        }
+    }
     // (By the text, the same on every system: WORK's folder, and REPAIR and
     // RECORDS beside it.)
     let base = work.trim_end_matches(['\\', '/']).rsplit_once(['\\', '/']).map(|(b, _)| b.to_string()).unwrap_or_default();
@@ -318,6 +354,15 @@ pub(super) fn check_folders(image_dir: &str, work: &str, copy2: &str, one_drive_
 pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     let plan = plan_of(app)?;
     check_folders(&plan.image_dir, &plan.work, &plan.copy2, !lock(app).test_disks.is_empty())?;
+    // FAT32 holds no file of 4 GB or more: a video or a Photos library's
+    // database would fail to copy, hours in.
+    if let Some(d) = drive_of(&plan.work).filter(|d| d.fs.eq_ignore_ascii_case("FAT32") || d.fs.eq_ignore_ascii_case("FAT")) {
+        return Err(format!(
+            "{} (where WORK is) is formatted {}, which cannot hold a file of 4 GB or more: WORK needs a drive formatted \
+             NTFS, such as SPARE (3. The folders).",
+            d.letter, d.fs
+        ));
+    }
     {
         // The rehearsal first, before the recovered SSD is plugged in (not
         // needed once the image is made, or for the page's test disks).
@@ -1813,6 +1858,12 @@ mod tests {
         // No drive letters (the tests on Linux): only the nesting is checked.
         assert!(ok("/t/IMAGE", "/t/SPARE/WORK", "/t/COPY 2").is_ok());
         assert!(ok("/t/IMAGE", "/t/SPARE/WORK", "/t/SPARE/WORK/COPY 2").is_err());
+        // Not written out from the drive: refused, whichever folder it is.
+        for (img, work, copy2) in [(r"C:IMAGE", r"E:\WORK", ""), (r"C:\IMAGE", r"E:WORK", ""), (r"C:\IMAGE", r"E:\WORK", r"COPY 2")] {
+            let e = ok(img, work, copy2).unwrap_err();
+            assert!(e.contains("not written out from its drive"), "{e}");
+        }
+        assert!(ok(r"C:\IMAGE", r"\\server\share\WORK", "").is_ok(), "a network folder is written out in full");
     }
 
     #[test]

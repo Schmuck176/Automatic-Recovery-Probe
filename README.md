@@ -158,6 +158,15 @@ same results folder, so Recovery Probe can carry on from anything this one did.
 - Nothing set aside is ever lost: a version that makes way (put back, Undo,
   Bring back) goes into `REPAIR\replaced` under a name of its own, never
   over one set aside before in the same minute.
+- Start over never undoes a repair: the copying, run into WORK again, leaves
+  every repaired version put back as it is.
+- A damaged volume cannot run the program away: a cluster chain that loops
+  is read once (and said), a boot sector whose sizes do not fit gives way to
+  its backup, a record claiming more than the whole volume is not believed,
+  and what a record can have read into memory is capped. (Fuzzed with
+  thousands of damaged disks and files.)
+- The folders are not changed under a running job, nor WORK once Start has
+  copied into it.
 - Windows does not go to sleep while any job runs, a step run by itself too.
 - Every file keeps its dates (created and modified), for sorting by date:
   the copies get the old drive's; a repaired file put back gets its

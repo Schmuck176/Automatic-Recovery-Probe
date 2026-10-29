@@ -28,7 +28,8 @@ pub struct Count {
 impl Count {
     fn add(&mut self, bytes: u64) {
         self.files += 1;
-        self.bytes += bytes;
+        // (Saturating: a damaged record can claim any length.)
+        self.bytes = self.bytes.saturating_add(bytes);
     }
 }
 
@@ -63,7 +64,7 @@ impl Board {
         }
     }
     pub fn sum(c: &[Count; 6]) -> Count {
-        c.iter().fold(Count::default(), |a, b| Count { files: a.files + b.files, bytes: a.bytes + b.bytes })
+        c.iter().fold(Count::default(), |a, b| Count { files: a.files + b.files, bytes: a.bytes.saturating_add(b.bytes) })
     }
     pub fn is_empty(&self) -> bool {
         Board::sum(&self.total).files == 0 && Board::sum(&self.done).files == 0
@@ -349,7 +350,7 @@ fn tell_copied(done: &[(String, [Count; 6])]) {
             for (_, k) in done {
                 for i in 0..6 {
                     all[i].files += k[i].files;
-                    all[i].bytes += k[i].bytes;
+                    all[i].bytes = all[i].bytes.saturating_add(k[i].bytes);
                 }
             }
             let big = done.iter().max_by_key(|(_, k)| Board::sum(k).bytes).map(|(d, _)| shown(d)).unwrap_or_default();

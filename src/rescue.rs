@@ -224,6 +224,22 @@ impl CopyError {
 /// name beside it). Returns a note when something could not be copied (the
 /// missing parts are left as zeros) and the copy's SHA-256, or None for
 /// "stopped".
+/// A record that says its file holds more than the whole volume can: it is
+/// damaged (a sound one never does), and believed it would have the copy
+/// made that big - filling the drive with zeros, or refused for want of room.
+fn claims_too_much(vol: &Volume, e: &Entry) -> bool {
+    e.data_length > vol.cluster_count as u64 * vol.cluster_size
+}
+
+/// The bytes a copy of the file holds, as far as can be known beforehand.
+fn copy_length(vol: &Volume, e: &Entry) -> u64 {
+    if claims_too_much(vol, e) {
+        0
+    } else {
+        e.data_length
+    }
+}
+
 fn copy_file(
     vol: &Volume,
     e: &Entry,
@@ -264,10 +280,18 @@ fn copy_data(
     stop: &dyn Fn() -> bool,
     copied: &mut dyn FnMut(u64),
 ) -> Result<Option<(Option<String>, [u8; 32])>, CopyError> {
+    let too_much = claims_too_much(vol, e);
     let want = e.data_length;
     let vdl = e.valid_data_length.min(want);
     let mut written = 0u64;
     let mut note = list.problem.clone();
+    if too_much {
+        note = Some(format!(
+            "its record says it holds {} bytes, more than the whole volume can: the record is damaged, and only what \
+             its clusters hold was copied",
+            crate::fmt::commas(e.data_length)
+        ));
+    }
     // The SHA-256 of exactly what the copy holds, from the bytes as they
     // were read off the disk.
     let mut sha = Sha256::new();
@@ -298,8 +322,9 @@ fn copy_data(
         note = Some("part of the file's data could not be found".to_string());
     }
     // Past the valid data a file reads as zeros by definition; anything that
-    // could not be found is left as zeros too (and noted).
-    if written < want {
+    // could not be found is left as zeros too (and noted) - but for a record
+    // that claims too much.
+    if written < want && !too_much {
         f.set_len(want).map_err(|err| CopyError::Write(format!("could not write the copy: {err}")))?;
         sha.update_zeros(want - written);
     }
@@ -446,6 +471,9 @@ pub const LOG_HEADER: [&str; 7] = ["kind", "path", "size_bytes", "result", "copi
 /// The end of the note a run that stopped before the end leaves in the list
 /// (dropped again by a later run that gets to the end).
 pub const RUN_AGAIN: &str = "run it again to copy the rest";
+/// In the list, for a repaired version put back that a run into the folder
+/// again left as it is.
+pub const PUT_BACK_LEFT: &str = "a repaired version put back (step 8): left as it is";
 
 /// The lists earlier runs into the same folder wrote, read back: one line
 /// per file, folder and piece of lost data (the latest wins, except that a
@@ -726,13 +754,14 @@ pub fn rescue(
         &mut |e: &Entry, _: &ClusterList| {
             if picked(e) && !e.is_dir {
                 total_files += 1;
-                total_bytes += e.valid_data_length.min(e.data_length);
-                crate::live::to_do(&e.path, e.valid_data_length.min(e.data_length));
-                let there = resuming
-                    && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == e.data_length);
+                let len = copy_length(&vol, e);
+                total_bytes += e.valid_data_length.min(len);
+                crate::live::to_do(&e.path, e.valid_data_length.min(len));
+                let there =
+                    resuming && std::fs::metadata(dest_path(&base, &e.path)).is_ok_and(|m| m.is_file() && m.len() == len);
                 if !there {
                     need_files += 1;
-                    need_bytes += e.data_length;
+                    need_bytes += len;
                 }
             }
         },
@@ -810,6 +839,12 @@ pub fn rescue(
     let mut errors_seen = 0u64;
     let mut failures_in_a_row = 0u32;
     let mut copied_this_run = 0u64;
+    // Repaired versions put back into this folder (step 8; repair.rs): a run
+    // into it again (Start over) leaves each as it is - not copied over with
+    // the damaged original, nor given a copy beside it under another name.
+    let put_back: HashMap<String, crate::repair::Now> =
+        crate::repair::returned_now(&out).into_iter().filter(|(_, n)| n.repaired).collect();
+    let packages_back: Vec<String> = put_back.values().filter(|n| n.package).map(|n| n.path.to_lowercase()).collect();
     // (Both the copying and the search for lost folders report as they go.)
     let say = std::cell::RefCell::new(&mut *progress);
     let mut visit = |e: &Entry, list: &ClusterList| {
@@ -846,12 +881,30 @@ pub fn rescue(
         }
         let kind = if e.is_dir { "FOLDER" } else { "FILE" };
         let size_text = if e.is_dir { String::new() } else { e.data_length.to_string() };
+        if !e.is_dir && !put_back.is_empty() {
+            let rel = shown_inside(&base, &dest);
+            let low = rel.to_lowercase();
+            let in_package = packages_back.iter().any(|p| low.starts_with(&format!("{p}\\")));
+            let back = put_back.get(&low).filter(|n| !n.package).is_some_and(|n| {
+                std::fs::symlink_metadata(&dest).is_ok_and(|m| m.is_file() && m.len() == n.size)
+                    && crate::sha256::file_hex(&dest, &stop).ok().flatten().is_some_and(|h| h == n.sha)
+            });
+            if in_package || back {
+                let copied_as = if rel == e.path { String::new() } else { rel };
+                let sha = hashes.get(&log_key(kind, &e.path, &copied_as)).map(|d| crate::sha256::hex(d)).unwrap_or_default();
+                o.already_there += 1;
+                done_bytes += e.valid_data_length.min(copy_length(&vol, e));
+                crate::live::done(&e.path, e.valid_data_length.min(copy_length(&vol, e)));
+                runlog.add(&[kind, &e.path, &size_text, "skipped", &copied_as, PUT_BACK_LEFT, &sha]);
+                return;
+            }
+        }
         let mut renamed_note = String::new();
         // Something else already has this name there: keep it, and give the
         // copy a name of its own.
         let clash = |p: &Path| match std::fs::symlink_metadata(p) {
             Ok(m) if e.is_dir => !m.is_dir(),
-            Ok(m) => !(m.is_file() && m.len() == e.data_length),
+            Ok(m) => !(m.is_file() && (m.len() == e.data_length || claims_too_much(&vol, e))),
             Err(_) => false,
         };
         if clash(&dest) {
@@ -920,8 +973,8 @@ pub fn rescue(
                 // what was copied before (its SHA-256 in the earlier list).
                 Ok(true) if hashes.get(&key).is_some_and(whole) => {
                     o.already_there += 1;
-                    done_bytes += e.valid_data_length.min(e.data_length);
-                    crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
+                    done_bytes += e.valid_data_length.min(copy_length(&vol, e));
+                    crate::live::done(&e.path, e.valid_data_length.min(copy_length(&vol, e)));
                     if let Some(note) = earlier.notes.get(&key) {
                         o.partial.push((e.path.clone(), note.clone()));
                     }
@@ -953,14 +1006,14 @@ pub fn rescue(
         match copy_file(&vol, e, list, &dest, &stop, &mut copied) {
             Ok(None) => o.stopped = true,
             Ok(Some((note, sha))) => {
-                crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
+                crate::live::done(&e.path, e.valid_data_length.min(copy_length(&vol, e)));
                 // ("What just happened": folder by folder.)
-                crate::live::copied(&e.path, e.data_length);
+                crate::live::copied(&e.path, copy_length(&vol, e));
                 let sha = crate::sha256::hex(&sha);
                 failures_in_a_row = 0;
                 copied_this_run += 1;
                 o.files += 1;
-                o.bytes += e.data_length;
+                o.bytes += copy_length(&vol, e);
                 let (result, n) = match &note {
                     Some(n) => {
                         o.partial.push((e.path.clone(), n.clone()));
@@ -1005,7 +1058,7 @@ pub fn rescue(
                 }
                 o.failed.push((e.path.clone(), err.text().to_string()));
                 // (Done with, though not copied: the page counts it through.)
-                crate::live::done(&e.path, e.valid_data_length.min(e.data_length));
+                crate::live::done(&e.path, e.valid_data_length.min(copy_length(&vol, e)));
                 if o.failed.len() <= 10 {
                     crate::live::event("bad", &format!("Could not copy {}: {}", e.path, err.text()));
                 }
@@ -1330,6 +1383,103 @@ mod tests {
         let gone = Unplugged { inner: &disk, reads_left: AtomicI64::new(3) };
         let e = rescue(&gone, &opts(&dir.join("gone"), None), &mut |_| {}, &mut |_, _| {});
         assert!(e.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A file's record (its checksum right) says it holds 1 TB, on a disk of
+    /// 16 MB: the copy is not made 1 TB of zeros (or refused for want of
+    /// room) - only what its clusters hold is copied, and that is said.
+    #[test]
+    fn a_record_claiming_more_than_the_volume_holds_is_not_believed() {
+        let mut d = crate::selftest::disk_image().unwrap();
+        let root = 2095 * 512 + 152 * 512 + (4 - 2) * 4096;
+        let mut patched = None;
+        for i in 0..4096 / 32 {
+            let o = root + 32 * i;
+            let sc = d[o + 1] as usize;
+            let attrs = u16::from_le_bytes([d[o + 4], d[o + 5]]);
+            let len = u64::from_le_bytes(d[o + 32 + 24..o + 32 + 32].try_into().unwrap());
+            if d[o] == 0x85 && attrs & 0x10 == 0 && d[o + 32] == 0xC0 && len > 0 {
+                d[o + 32 + 24..o + 32 + 32].copy_from_slice(&(1u64 << 40).to_le_bytes());
+                let c = crate::exfat::entry_set_checksum(&d[o..o + 32 * (sc + 1)]);
+                d[o + 2..o + 4].copy_from_slice(&c.to_le_bytes());
+                patched = Some(len);
+                break;
+            }
+        }
+        assert!(patched.is_some(), "a file record in the root");
+        let disk = Memory::new(d);
+        let dir = scratch("too-much");
+        let o = rescue(&disk, &opts(&dir, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o.stopped && o.failed.is_empty(), "{o:?}");
+        assert!(o.bytes < 64 << 20, "{} bytes counted", o.bytes);
+        let biggest = tree(&dir).values().map(|v| v.len()).max().unwrap();
+        assert!(biggest < 16 << 20, "no copy bigger than the disk: {biggest}");
+        assert!(o.partial.iter().any(|(_, n)| n.contains("more than the whole volume can")), "{:?}", o.partial);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Start over after repaired versions were put back: the copying runs
+    /// into WORK again and leaves them as they are - not copied over with the
+    /// damaged original (same size), nor given a copy beside them under
+    /// another name (another size) - and the check of the copies passes.
+    #[test]
+    fn copying_again_leaves_the_repaired_versions_put_back() {
+        let disk = Memory::new(crate::selftest::disk_image().unwrap());
+        let dir = scratch("putback");
+        let work = dir.join("WORK");
+        rescue(&disk, &opts(&work, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        let rows = log_rows(&work);
+        let copied = |prefix: &str| {
+            rows.iter()
+                .find(|r| r[0] == "FILE" && r[3] == "copied" && r[4].is_empty() && r[2] != "0" && r[1].starts_with(prefix))
+                .map(|r| r[1].clone())
+                .unwrap()
+        };
+        let on_disk = |rel: &str| rel.split('\\').fold(work.clone(), |p, c| p.join(c));
+        let sha = |b: &[u8]| {
+            let mut h = crate::sha256::Sha256::new();
+            h.update(b);
+            h.finish_hex()
+        };
+        // A photo repaired to another size, and one to the same size.
+        let photo = copied("Photos\\");
+        let original = std::fs::read(on_disk(&photo)).unwrap();
+        let repaired = b"the repaired version, put back".to_vec();
+        std::fs::write(on_disk(&photo), &repaired).unwrap();
+        let other = rows
+            .iter()
+            .find(|r| r[0] == "FILE" && r[3] == "copied" && r[4].is_empty() && r[2] != "0" && r[1] != photo && !r[1].starts_with("Music\\"))
+            .map(|r| r[1].clone())
+            .unwrap();
+        let mut same_size = std::fs::read(on_disk(&other)).unwrap();
+        same_size[0] ^= 0xFF;
+        std::fs::write(on_disk(&other), &same_size).unwrap();
+        // A document kept as a folder, put back whole (Music, standing in
+        // for one): a file inside it changed.
+        let member = copied("Music\\");
+        std::fs::write(on_disk(&member), b"repaired inside the document").unwrap();
+        let (_, package_sha) = crate::repair::hash_of(&work.join("Music"), &|| false).unwrap().unwrap();
+        let row = |id: &str, path: &str, kind: &str, size: usize, after: &str| {
+            format!("RETURNED,{id},\"{path}\",{kind},1,x,{size},{after},2026-10-28 23:00,repaired\\auto\\x\r\n")
+        };
+        let returns = format!(
+            "\u{FEFF}action,id,path_in_work,kind,size_before,sha256_before,size_after,sha256_after,when,from\r\n{}{}{}",
+            row("R0001", &photo, "file", repaired.len(), &sha(&repaired)),
+            row("R0002", &other, "file", same_size.len(), &sha(&same_size)),
+            row("R0003", "Music", "package", 0, &package_sha)
+        );
+        std::fs::write(work.join(crate::repair::RETURNS_NAME), returns).unwrap();
+        let before = tree(&work);
+        let o = rescue(&disk, &opts(&work, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o.stopped && o.failed.is_empty(), "{o:?}");
+        assert_eq!(tree(&work), before, "nothing copied over a repaired version, nothing added beside one");
+        assert_ne!(std::fs::read(on_disk(&photo)).unwrap(), original);
+        // The list still says how each was copied off the disk (the check of
+        // the copies goes by repair-returns.csv for what was put back).
+        assert_eq!(log_rows(&work), rows, "the list is as it was");
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(r.bad() == 0 && r.extra.is_empty() && r.repaired >= 3, "the check of the copies passes: {r:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -335,11 +335,59 @@ pub fn plan_for(rel: &str, around: Option<&(String, Kind, &'static str)>, only_u
 
 /// "IMG_0003.JPG" + "R0012" -> "IMG_0003 [R0012].JPG" (the tag goes before
 /// the extension, so the file or package is still what it was).
-pub fn tagged(name: &str, id: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => format!("{stem} [{id}].{ext}"),
-        _ => format!("{name} [{id}]"),
+/// A name with anything in it that reads as one of the program's numbers
+/// ("[R0005]", in a name the person gave a file) made plain ("(R0005)"), so
+/// that a copy carries exactly one number: its own. (A name with two is
+/// taken by none - not put back, not brought back.)
+pub fn untag(name: &str) -> String {
+    let b = name.as_bytes();
+    let mut out = String::with_capacity(name.len() + 2);
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'[' && i + 1 < b.len() && (b[i + 1] == b'R' || b[i + 1] == b'r') {
+            let mut j = i + 2;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 2 && j < b.len() && b[j] == b']' {
+                out.push('(');
+                out.push_str(&name[i + 1..j]);
+                out.push(')');
+                i = j + 1;
+                continue;
+            }
+        }
+        let ch = name[i..].chars().next().unwrap_or('_');
+        out.push(ch);
+        i += ch.len_utf8();
     }
+    out
+}
+
+pub fn tagged(name: &str, id: &str) -> String {
+    // A name may have 255 UTF-16 code units (Windows, exFAT): a long name
+    // gets its number all the same - its stem cut short, with room left for
+    // what the Mac or a tool adds (" (as JPEG)", " (2)").
+    const MOST: usize = 240;
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext)),
+        _ => (name, None),
+    };
+    let tail = match ext {
+        Some(e) => format!(" [{id}].{e}"),
+        None => format!(" [{id}]"),
+    };
+    let room = MOST.saturating_sub(tail.encode_utf16().count());
+    let mut kept = String::new();
+    let mut used = 0;
+    for ch in stem.chars() {
+        if used + ch.len_utf16() > room {
+            break;
+        }
+        kept.push(ch);
+        used += ch.len_utf16();
+    }
+    format!("{kept}{tail}")
 }
 
 /// The tag in a name, as "R0012": exactly one "[R...]" of digits.
@@ -1122,7 +1170,7 @@ pub fn isolate(
         }
         let id = id_of(next);
         let name = unit.rsplit('\\').next().unwrap_or(&unit);
-        let copied_as = format!("{TO_REPAIR}\\{group}\\{}", tagged(name, &id));
+        let copied_as = format!("{TO_REPAIR}\\{group}\\{}", tagged(&untag(name), &id));
         let dest = under(&repair, &copied_as);
         if let Some(p) = dest.parent() {
             let _ = std::fs::create_dir_all(p);
@@ -2082,6 +2130,27 @@ mod tests {
     #[test]
     fn tags() {
         assert_eq!(tagged("IMG_0003.JPG", "R0012"), "IMG_0003 [R0012].JPG");
+        // A name of the person's that already reads as a number: made plain,
+        // so the copy carries exactly one - its own.
+        for (name, plain) in [
+            ("song [R0005].mp3", "song (R0005).mp3"),
+            ("Draft [r2] [R10].docx", "Draft (r2) (R10).docx"),
+            ("x [R99999999999999999999999].jpg", "x (R99999999999999999999999).jpg"),
+            ("Café [R1]é.jpg", "Café (R1)é.jpg"),
+            ("[R]a[R1", "[R]a[R1"),
+            ("plain.jpg", "plain.jpg"),
+        ] {
+            assert_eq!(untag(name), plain);
+            assert_eq!(tag_in(&tagged(&untag(name), "R0012")).as_deref(), Some("R0012"), "{name}");
+        }
+        assert_eq!(tag_in(&tagged("song [R0005].mp3", "R0012")), None, "two numbers: taken by none");
+        // A long name: within what Windows allows, with its number and its kind.
+        for long in ["x".repeat(254) + ".jpg", "日".repeat(250), format!("{}.jpeg", "é".repeat(251))] {
+            let t = tagged(&long, "R0012");
+            assert!(t.encode_utf16().count() <= 240, "{} long", t.encode_utf16().count());
+            assert_eq!(tag_in(&t).as_deref(), Some("R0012"));
+            assert_eq!(t.rsplit_once('.').map(|x| x.1), long.rsplit_once('.').map(|x| x.1));
+        }
         assert_eq!(tagged("Report.pages", "R0002"), "Report [R0002].pages");
         assert_eq!(tagged("README", "R0001"), "README [R0001]");
         assert_eq!(tag_in("IMG_0003 [R0012]_repaired.jpg"), Some("R0012".to_string()));

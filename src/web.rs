@@ -1301,7 +1301,23 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         g(k).trim_start_matches(r"\\.\PhysicalDrive").parse().map_err(|_| "which disk?".to_string())
     };
     let r: Result<String, String> = match g("action").as_str() {
-        "set" => {
+        "set" => (|| -> Result<String, String> {
+            // What a running job works with is not changed under it (the
+            // folders, the mapfile); WORK not once Start has copied into it.
+            let running = lock(app).job.as_ref().filter(|j| j.state == "running").map(|j| j.title.clone());
+            if let Some(title) = running {
+                for k in ["mapfile", "auto_image_dir", "auto_work", "auto_copy2"] {
+                    if f.get(k).is_some_and(|v| v.trim() != lock(app).setting(k).trim()) {
+                        return Err(format!(
+                            "\"{title}\" is running and works with this: wait for it to finish (or stop it) before \
+                             changing it."
+                        ));
+                    }
+                }
+            }
+            if let Some(w) = f.get("auto_work") {
+                auto::work_change_ok(app, w)?;
+            }
             let mut a = lock(app);
             for (k, v) in f {
                 if k != "action" {
@@ -1316,7 +1332,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 crate::notify::set_on(v != "off");
             }
             Ok(String::new())
-        }
+        })(),
         "alarm-read" => {
             ALARM.lock().unwrap_or_else(|e| e.into_inner()).clear();
             Ok(String::new())
