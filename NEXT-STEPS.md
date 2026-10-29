@@ -774,6 +774,20 @@ Found and fixed (each with a test):
   build that checks for overflow): no hang, no crash, no internal error.
 - Version 2026-10-28 (2); the 2026-10-28 (1) checklist text is known
   (16515098709846070443).
+- Tests here: unit tests 149 (with overflow checks), auto_check 95/95 (Start
+  over after Bring back and Finalise; the folders under a running job),
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts, test_mapcheck
+  94/94 (the new fat-loop case).
+- CI run 40829880720 (0ad87d8), green on both systems. Windows: unit tests
+  152, map check tests 44/44, disk protection 21/21, unplugged 42/42, page
+  68/68, automatic 104/104, Automatic tab 34/34, resume 17/17; Linux: map
+  check tests 94/94 (every disk also checked by fsck.exfat and dissect.fat).
+- Delivered 29 Oct 2026, about 06:55 GMT: version 2026-10-28 (2),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,959,680 bytes, SHA-256
+  d1300e0445821b52327671d49d6adc1602ac4d550148bc49a80278bef3a0385d (staged
+  back and compared). main moved to it; the 2026-10-28 (1) main is kept as
+  branch version-2026-10-28-1. The PC as before: nothing run since 26 Oct,
+  no folders chosen.
 
 Looked at and left: the real mapfile (staged from the PC) has 167 unread
 places, all between 781 GB and 918 GB - none in the volume's first 2 GB,
