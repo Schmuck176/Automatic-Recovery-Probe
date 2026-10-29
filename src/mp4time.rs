@@ -171,9 +171,16 @@ pub fn made(p: &Path) -> Option<i64> {
     f.seek(SeekFrom::Start(at)).ok()?;
     f.read_exact(&mut b).ok()?;
     let (at, width) = *moment_fields(&b).first()?;
-    match read_field(&b, at, width) {
+    moment_of(read_field(&b, at, width))
+}
+
+/// A moment as the index holds it (seconds since 1904), as seconds since
+/// 1970: None when it is not set (0), or past any real one (a damaged
+/// 64-bit field, its top bit set).
+fn moment_of(v: u64) -> Option<i64> {
+    match v {
         0 => None,
-        v => Some(v as i64 - QT_EPOCH),
+        v => i64::try_from(v).ok().map(|v| v - QT_EPOCH),
     }
 }
 
@@ -190,14 +197,13 @@ pub fn shift(p: &Path, by: i64) -> Result<usize, String> {
     f.seek(SeekFrom::Start(at)).and_then(|_| f.read_exact(&mut b)).map_err(|e| format!("could not read its index: {e}"))?;
     let fields = moment_fields(&b);
     let Some(&(m_at, m_width)) = fields.first() else { return Ok(0) };
-    let made = read_field(&b, m_at, m_width) as i64 - QT_EPOCH;
+    let made = moment_of(read_field(&b, m_at, m_width));
     let mut moved = 0;
     for (pos, width) in fields {
-        let v = read_field(&b, pos, width);
-        if v == 0 {
+        // (Unset, or past any real moment: left as it is.)
+        let Some(n) = i64::try_from(read_field(&b, pos, width)).ok().filter(|&v| v != 0).and_then(|v| v.checked_add(by)) else {
             continue;
-        }
-        let n = v as i64 + by;
+        };
         if n <= 0 || (width == 4 && n > u32::MAX as i64) {
             continue;
         }
@@ -212,7 +218,7 @@ pub fn shift(p: &Path, by: i64) -> Result<usize, String> {
         let mut i = start;
         while i + 19 <= end {
             match text_moment(&b, i) {
-                Some(t) if (t - made).abs() <= TEXT_NEAR => {
+                Some(t) if made.and_then(|m| t.checked_sub(m)).is_some_and(|d| d.unsigned_abs() <= TEXT_NEAR as u64) => {
                     let (y, mo, d, hh, mm, ss) = crate::fmt::civil(t + by);
                     let text = format!("{y:04}-{mo:02}-{d:02}{}{hh:02}:{mm:02}:{ss:02}", b[i + 10] as char);
                     if text.len() == 19 {
@@ -312,6 +318,39 @@ mod tests {
         std::fs::write(&q, bx(b"mdat", &[1u8; 100])).unwrap();
         assert_eq!(made(&q), None);
         assert!(shift(&q, 60).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_moment_past_any_real_one_is_left_alone() {
+        // A damaged 64-bit field (its top bit set): not a moment, nothing to
+        // work out from it (before: a sum past what the number can hold).
+        let dir = std::env::temp_dir().join(format!("mp4time-big-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |v: u64| {
+            let mut moov = header_v1(b"mvhd", v, v, 88);
+            moov.extend(bx(b"meta", b"2019-07-14T15:20:05"));
+            let mut file = bx(b"ftyp", b"qt  \0\0\0\0qt  ");
+            file.extend(bx(b"moov", &moov));
+            let p = dir.join("v.mov");
+            std::fs::write(&p, &file).unwrap();
+            (p, file)
+        };
+        for v in [u64::MAX, 1 << 63, (1 << 63) + 5] {
+            let (p, file) = write(v);
+            assert_eq!(made(&p), None, "{v}");
+            for by in [i64::MAX, i64::MIN, 3600, -3600] {
+                assert_eq!(shift(&p, by).unwrap(), 0, "{v} {by}");
+            }
+            assert_eq!(std::fs::read(&p).unwrap(), file);
+        }
+        // The largest moment there can be: moved only where the result can be held.
+        let (p, file) = write(i64::MAX as u64);
+        assert_eq!(made(&p), Some(i64::MAX - QT_EPOCH));
+        assert_eq!(shift(&p, i64::MAX).unwrap(), 0);
+        assert_eq!(std::fs::read(&p).unwrap(), file);
+        assert_eq!(shift(&p, -3600).unwrap(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1372,6 +1372,16 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         "windows-back" | "guard-restore" => back::put_back(app).map(|m| format!("\"message\":{}", json_str(&m))),
         "show-windows" => crate::showme::open(&g("what")).map(|m| format!("\"message\":{}", json_str(&m))),
         "guard-protect" => need_admin(app).and_then(|_| disk_number("disk")).and_then(|n| {
+            // Made read-only under a job writing to it (SPARE, with WORK and
+            // the image on it), the job would be cut short.
+            if lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
+                if let Some(f) = folder_on_disk(app, n) {
+                    return Err(format!(
+                        "Something is running, and disk {n} holds {f}, which the program writes to: leave it as it is \
+                         until that has finished."
+                    ));
+                }
+            }
             crate::guard::protect(n, on("online")).map(|s| {
                 format!(
                     "\"message\":{}",
@@ -1496,6 +1506,16 @@ fn holds_a_copy(app: &Arc<Mutex<App>>, n: u32) -> bool {
     let Ok(src) = crate::disk::open_source(&format!(r"\\.\PhysicalDrive{n}")) else { return false };
     let table = crate::gpt::read(&*src, &[]);
     crate::mapcheck::is_the_copy(&*src, &table, e - s)
+}
+
+/// One of the folders the program writes to (WORK, the image's folder,
+/// COPY 2, the image) that is on disk `n` now.
+fn folder_on_disk(app: &Arc<Mutex<App>>, n: u32) -> Option<String> {
+    let folders: Vec<String> = {
+        let a = lock(app);
+        ["auto_work", "auto_image_dir", "auto_copy2", "image"].iter().map(|k| a.setting(k)).collect()
+    };
+    folders.into_iter().map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).find(|f| drive_of(f).and_then(|d| d.disk) == Some(n))
 }
 
 /// A folder about to be written to: never on a disk that holds a copy of the
@@ -2871,6 +2891,28 @@ fn pause(secs: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (Windows' own drives: the disk under a folder the program writes to
+    /// is found, so it is not made read-only under a running job.)
+    #[cfg(windows)]
+    #[test]
+    fn the_disk_under_a_folder_the_program_writes_to_is_found() {
+        let temp = std::env::temp_dir().join("WORK").display().to_string();
+        let n = drive_of(&temp).and_then(|d| d.disk).expect("the temporary folder's disk");
+        let app = Arc::new(Mutex::new(App {
+            elevated: true,
+            home: std::env::temp_dir(),
+            results: std::env::temp_dir(),
+            settings: HashMap::from([("auto_work".to_string(), temp.clone()), ("auto_copy2".to_string(), String::new())]),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        assert_eq!(folder_on_disk(&app, n).as_deref(), Some(temp.as_str()));
+        assert_eq!(folder_on_disk(&app, n + 1000), None);
+    }
 
     #[test]
     fn forms_decode() {

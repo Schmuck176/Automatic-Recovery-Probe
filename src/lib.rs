@@ -37,6 +37,8 @@ pub mod mapcheck;
 pub mod mapfile;
 pub mod mp4time;
 pub mod probe;
+#[cfg(test)]
+mod proptests;
 pub mod repair;
 pub mod report;
 pub mod rescue;
@@ -55,4 +57,4 @@ pub mod winset;
 
 pub const APP: &str = "Automatic Recovery Probe";
 /// Shown in the window and console, so you can always tell which copy is running.
-pub const VERSION: &str = "2026-10-28 (2)";
+pub const VERSION: &str = "2026-10-29 (1)";

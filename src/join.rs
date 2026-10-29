@@ -127,20 +127,23 @@ pub fn parse_ranges(s: &str) -> Vec<(u64, u64)> {
 
 /// The map check's line for a copy in WORK (its path from WORK's top, and
 /// its size): a file that lost data, with the same name (as the copying gave
-/// it) and size, and the most folders in common.
+/// it) and size, and the most folders in common - the very same path first
+/// (DCIM\IMG_0001.JPG's line, not Backup\DCIM\IMG_0001.JPG's).
 pub fn item_for_copy<'a>(items: &'a [MapItem], rel: &str, size: u64) -> Option<&'a MapItem> {
     let want = components(rel);
     let name = want.last()?.clone();
     let plain = without_number(&name);
-    let mut best: Option<(usize, &MapItem)> = None;
+    let mut best: Option<((usize, bool), &MapItem)> = None;
     for it in items.iter().filter(|i| i.kind == "DAMAGED" && i.size == size) {
         let k = it.name_key();
         if k != name && plain.as_deref() != Some(k.as_str()) {
             continue;
         }
-        let tail = common_tail(&components(&it.path), &want);
-        if best.is_none_or(|(b, _)| tail > b) {
-            best = Some((tail, it));
+        let theirs = components(&it.path);
+        let tail = common_tail(&theirs, &want);
+        let score = (tail, tail == want.len() && tail == theirs.len());
+        if best.is_none_or(|(b, _)| score > b) {
+            best = Some((score, it));
         }
     }
     best.map(|b| b.1)
@@ -270,8 +273,16 @@ pub fn find(items: &[MapItem], c: &Collector) -> Outcome {
             .map(|v| v.iter().filter(|s| s.size == it.size || s.repaired).collect())
             .unwrap_or_default();
         let best = same.iter().map(|s| common_tail(&components(&s.path), &want)).max().unwrap_or(0);
-        let picks: Vec<Seen> =
+        let mut picks: Vec<Seen> =
             same.iter().filter(|s| common_tail(&components(&s.path), &want) == best).map(|s| (*s).clone()).collect();
+        // Its whole path on the recovered disk matched: a copy further down
+        // the folders with the same name, size and folders (Backup\DCIM\...
+        // for DCIM\...) is the copy of another file, as the copies keep the
+        // disk's folders as they are - not one to mark as well.
+        if picks.len() > 1 && best == want.len() {
+            let fewest = picks.iter().map(|s| components(&s.path).len()).min().unwrap_or(0);
+            picks.retain(|s| components(&s.path).len() == fewest);
+        }
         match (it.kind.as_str(), picks.len()) {
             ("HIDDEN", 0) => o.hidden_missing.push(it.clone()),
             ("HIDDEN", _) => o.hidden_found += 1,
@@ -486,6 +497,48 @@ mod tests {
         assert_eq!(v[r"E:\WORK\Photos\2020\IMG_0001.JPG"], VERDICT);
         assert!(rows.iter().any(|r| r.path.ends_with("other.pdf") && r.detail.contains("not on any place")));
         assert!(lines[0].contains("3 files lost data"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_copy_further_down_the_folders_is_the_copy_of_another_file() {
+        // The disk held DCIM\100APPLE\IMG_0001.JPG, which lost data, and an
+        // intact copy of it in Backup: the same name, size and folders.
+        let items = vec![item("DAMAGED", r"DCIM\100APPLE\IMG_0001.JPG", 300_000, 4096)];
+        let copies = [r"E:\WORK\Backup\DCIM\100APPLE\IMG_0001.JPG", r"E:\WORK\DCIM\100APPLE\IMG_0001.JPG"];
+        let mut c = Collector::new(&items);
+        for p in copies {
+            c.saw(&row("OK", p, 300_000));
+        }
+        let o = find(&items, &c);
+        assert!(o.ambiguous.is_empty(), "{o:?}");
+        assert_eq!(o.matched.len(), 1);
+        assert_eq!(o.matched[0].1.path, copies[1], "the intact one in Backup is left alone");
+        // Both lost data: each copy gets its own file's line.
+        let both = vec![
+            item("DAMAGED", r"Backup\DCIM\100APPLE\IMG_0001.JPG", 300_000, 512),
+            item("DAMAGED", r"DCIM\100APPLE\IMG_0001.JPG", 300_000, 4096),
+        ];
+        let mut c = Collector::new(&both);
+        for p in copies {
+            c.saw(&row("OK", p, 300_000));
+        }
+        let o = find(&both, &c);
+        assert!(o.ambiguous.is_empty(), "{o:?}");
+        let mut got: Vec<(&str, &str)> = o.matched.iter().map(|(i, s)| (i.path.as_str(), s.path.as_str())).collect();
+        got.sort();
+        assert_eq!(got, vec![(both[0].path.as_str(), copies[0]), (both[1].path.as_str(), copies[1])]);
+        for (rel, want) in [(r"DCIM\100APPLE\IMG_0001.JPG", 1), (r"Backup\DCIM\100APPLE\IMG_0001.JPG", 0)] {
+            assert_eq!(item_for_copy(&both, rel, 300_000).map(|i| i.path.as_str()), Some(both[want].path.as_str()), "{rel}");
+        }
+        // Copies the folders do not tell apart (renamed): each one is marked.
+        let items = vec![item("DAMAGED", r"Photos\2019\IMG_0002.JPG", 1000, 512)];
+        let mut c = Collector::new(&items);
+        for p in [r"E:\WORK\A\2019\IMG_0002.JPG", r"E:\WORK\B\2019\IMG_0002.JPG"] {
+            c.saw(&row("OK", p, 1000));
+        }
+        let o = find(&items, &c);
+        assert_eq!(o.ambiguous.len(), 1, "{o:?}");
+        assert_eq!(o.ambiguous[0].1.len(), 2);
     }
 
     #[test]

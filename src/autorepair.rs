@@ -193,54 +193,109 @@ pub enum JpegLayout {
     Complete(usize),
     /// The compressed picture data runs to the end of the file: its end was lost.
     CutShort,
+    /// The picture data starts, then something that makes no sense follows it
+    /// (a marker that is not one, a length past the end) while its end marker
+    /// is still there further on: damaged in the middle, not cut short.
+    Garbled,
     /// Not a JPEG, or broken before the picture data.
     Broken,
 }
 
 /// Where a JPEG's parts are (the same walk as checks::jpeg_image_end, on bytes).
 pub fn jpeg_layout(d: &[u8]) -> JpegLayout {
+    let mut unlimited = u64::MAX;
+    layout_within(d, &mut unlimited, true).unwrap_or(JpegLayout::Broken)
+}
+
+/// Take `n` from what the walk may still look at; None once it is spent.
+fn spend(budget: &mut u64, n: usize) -> Option<()> {
+    *budget = budget.checked_sub(n as u64)?;
+    Some(())
+}
+
+/// The walk, looking at no more of the file than `budget` (bytes and
+/// markers; None once it is spent, before it could tell). `why`: tell a
+/// photo cut short from one damaged in the middle (that looks at the rest of
+/// the file); without it, either is CutShort.
+fn layout_within(d: &[u8], budget: &mut u64, why: bool) -> Option<JpegLayout> {
     let n = d.len();
     if n < 4 || d[0] != 0xFF || d[1] != 0xD8 {
-        return JpegLayout::Broken;
+        return Some(JpegLayout::Broken);
     }
+    // Where the walk loses its way once the picture data has started: cut
+    // short when nothing of the photo is left from there on (the end, or only
+    // zeros: never read), damaged in the middle when its end marker is still
+    // there after it (putting one more on its end would mend nothing).
+    let lost_way = |at: usize, budget: &mut u64| -> Option<JpegLayout> {
+        if !why {
+            return Some(JpegLayout::CutShort);
+        }
+        let rest = &d[at.min(n)..];
+        let zeros = rest.iter().take_while(|&&b| b == 0).count();
+        if zeros == rest.len() {
+            spend(budget, zeros)?;
+            return Some(JpegLayout::CutShort);
+        }
+        match rest.windows(2).position(|w| w == [0xFF, 0xD9]) {
+            Some(i) => {
+                spend(budget, i + 2)?;
+                Some(JpegLayout::Garbled)
+            }
+            None => {
+                spend(budget, rest.len())?;
+                Some(JpegLayout::CutShort)
+            }
+        }
+    };
     let mut pos = 2usize;
     let mut in_scan = false;
     for _ in 0..1_000_000 {
+        spend(budget, 1)?;
         if pos >= n {
-            return if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken };
+            return Some(if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken });
         }
         if d[pos] != 0xFF {
-            return if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken };
+            return if in_scan { lost_way(pos, budget) } else { Some(JpegLayout::Broken) };
         }
-        while pos < n && d[pos] == 0xFF {
-            pos += 1;
-        }
+        let fill = d[pos..].iter().take_while(|&&b| b == 0xFF).count();
+        spend(budget, fill)?;
+        pos += fill;
         if pos >= n {
-            return if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken };
+            return Some(if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken });
         }
         let marker = d[pos];
         pos += 1;
         if marker == 0xD9 {
-            return JpegLayout::Complete(pos);
+            return Some(JpegLayout::Complete(pos));
+        }
+        // (Looking for whole JPEGs inside a file: a JPEG's start further on
+        // is another one's, looked at on its own - not walked through again
+        // from each before it.)
+        if marker == 0xD8 && !why {
+            return Some(JpegLayout::Broken);
         }
         if (0xD0..=0xD8).contains(&marker) || marker == 0x01 {
             continue;
         }
         if pos + 2 > n {
-            return if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken };
+            return Some(if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken });
         }
         let seg = ((d[pos] as usize) << 8) | d[pos + 1] as usize;
         if seg < 2 || pos + seg > n {
-            return if in_scan { JpegLayout::CutShort } else { JpegLayout::Broken };
+            return if in_scan { lost_way(pos, budget) } else { Some(JpegLayout::Broken) };
         }
         pos += seg;
         if marker == 0xDA {
             in_scan = true;
             loop {
-                let Some(i) = d[pos.min(n)..].iter().position(|&c| c == 0xFF) else { return JpegLayout::CutShort };
+                let Some(i) = d[pos.min(n)..].iter().position(|&c| c == 0xFF) else {
+                    spend(budget, n - pos.min(n))?;
+                    return Some(JpegLayout::CutShort);
+                };
+                spend(budget, i + 1)?;
                 let k = pos + i;
                 if k + 1 >= n {
-                    return JpegLayout::CutShort;
+                    return Some(JpegLayout::CutShort);
                 }
                 let nxt = d[k + 1];
                 if nxt == 0x00 || (0xD0..=0xD7).contains(&nxt) {
@@ -254,7 +309,7 @@ pub fn jpeg_layout(d: &[u8]) -> JpegLayout {
             }
         }
     }
-    JpegLayout::Broken
+    Some(JpegLayout::Broken)
 }
 
 /// A JPEG whose end was lost, with its end marker put back (and the zeros
@@ -282,15 +337,19 @@ pub fn jpeg_with_end(d: &[u8]) -> Option<Vec<u8>> {
 pub fn embedded_jpegs(d: &[u8]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut i = 0usize;
+    // (A file made of what only looks like the starts of JPEGs - FF D8 over
+    // and over - would have each one walked to its end, and the next, for
+    // ever: no more is looked at than a few times the file.)
+    let mut budget = 8 * d.len() as u64 + (1 << 20);
     while i + 3 < d.len() {
         let Some(k) = d[i..].windows(3).position(|w| w == [0xFF, 0xD8, 0xFF]) else { break };
         let start = i + k;
-        if let JpegLayout::Complete(len) = jpeg_layout(&d[start..]) {
-            if len >= 2048 {
-                out.push((start, start + len));
-                i = start + len;
-                continue;
-            }
+        match layout_within(&d[start..], &mut budget, false) {
+            None => break,
+            // (And inside it too: a photo's own small preview is in its
+            // first part, the camera's notes.)
+            Some(JpegLayout::Complete(len)) if len >= 2048 => out.push((start, start + len)),
+            Some(_) => {}
         }
         i = start + 3;
     }
@@ -469,6 +528,13 @@ fn plays(env: &Env, p: &Path) -> Option<(bool, Vec<String>)> {
             "-nostdin".into(),
             "-v".into(),
             "error".into(),
+            // One thread: decoding a damaged video on several, FFmpeg finds
+            // one more error or one fewer from one time to the next, and the
+            // errors are what a repaired version is judged by (fewer than the
+            // damaged copy's) - so the same file came out repaired one time
+            // and not the next.
+            "-threads".into(),
+            "1".into(),
             "-i".into(),
             p.as_os_str().to_os_string(),
             "-map".into(),
@@ -522,15 +588,19 @@ fn probe_ok(p: &Path) -> Result<(), String> {
 }
 
 /// A version checks out: its structure is right, and FFmpeg plays it
-/// through (when FFmpeg is there) with fewer errors than the damaged copy.
-fn media_checks_out(env: &Env, made: &Path, before: Option<&(bool, Vec<String>)>) -> Result<String, String> {
+/// through (when FFmpeg is there) with fewer errors than the damaged copy
+/// (`before`: how that played) - or as few, where the damaged copy's
+/// structure was broken and this one's is right (a container rebuilt round
+/// the same streams: the errors where data was lost stay, the file opens).
+fn media_checks_out(env: &Env, made: &Path, before: Option<&(bool, Vec<String>)>, damaged: Option<&Path>) -> Result<String, String> {
     probe_ok(made)?;
     let Some((ok, errs)) = plays(env, made) else { return Ok(String::new()) };
     if !ok {
         return Err(format!("FFmpeg cannot play it: {}", errs.first().cloned().unwrap_or_default()));
     }
     if let Some((was_ok, was)) = before {
-        if *was_ok && errs.len() >= was.len() && !was.is_empty() {
+        let mended_structure = || damaged.is_some_and(|d| probe_ok(d).is_err());
+        if *was_ok && !was.is_empty() && (errs.len() > was.len() || (errs.len() == was.len() && !mended_structure())) {
             return Err("it plays no better than the damaged copy".to_string());
         }
     }
@@ -552,11 +622,19 @@ fn fix_jpeg(env: &Env, src: &Path, tmp: &Path, read_whole: bool) -> Try {
     match jpeg_layout(&d) {
         JpegLayout::CutShort => {
             let Some(out) = jpeg_with_end(&d) else { return no("its end could not be found", Next::Paid) };
+            // (The end put back must make it whole: every part in place.)
+            if jpeg_layout(&out) != JpegLayout::Complete(out.len()) {
+                return no(
+                    "it was cut short, and its picture data is damaged before that too: an end marker put back does not \
+                     make it whole",
+                    Next::Paid,
+                );
+            }
             let file = tmp.join(format!("repaired.{}", ext_lower(&src.to_string_lossy())));
             if std::fs::write(&file, &out).is_err() {
                 return no("the repaired version could not be written", Next::Paid);
             }
-            match media_checks_out(env, &file, None) {
+            match media_checks_out(env, &file, None, None) {
                 Ok(note) => Try::Made {
                     file,
                     how: "the photo was cut short (its end was never read): its end marker was put back, so it opens; the \
@@ -578,6 +656,17 @@ fn fix_jpeg(env: &Env, src: &Path, tmp: &Path, read_whole: bool) -> Try {
             "every part of the photo is in place, but some of its picture data was never read: it opens, with part of the \
              picture grey or garbled from that point; no tool can bring that part back (a photo repair tool's free preview \
              shows whether it does better)",
+            Next::Paid,
+        ),
+        JpegLayout::Garbled if read_whole => no(
+            "its picture data has a mistake in it partway through, but every byte of it was read from the old drive: it \
+             is exactly as it was there",
+            Next::Nothing,
+        ),
+        JpegLayout::Garbled => no(
+            "its picture data is damaged partway through, but its end is there (it was not cut short, so putting its end \
+             marker back would mend nothing): it opens, with the picture grey or garbled from that point; no tool can \
+             bring that part back (a photo repair tool's free preview shows whether it does better)",
             Next::Paid,
         ),
         JpegLayout::Broken => no("its structure is broken before the picture data starts", Next::Paid),
@@ -754,7 +843,7 @@ fn fix_isobmff(env: &Env, item: &Item, src: &Path, tmp: &Path, damage: &str) -> 
         if std::fs::rename(&made, &named).is_err() {
             continue;
         }
-        match media_checks_out(env, &named, before.as_ref()) {
+        match media_checks_out(env, &named, before.as_ref(), Some(src)) {
             Ok(note) => {
                 let secs = duration_of(env, &named);
                 let note = format!("{note}{}", own_moments(&under(env.work, &item.path), &pattern, &named));
@@ -864,7 +953,7 @@ fn remux(env: &Env, src: &Path, tmp: &Path, before: Option<&(bool, Vec<String>)>
     if r.code != Some(0) || !out.is_file() {
         return None;
     }
-    let note = media_checks_out(env, &out, before).ok()?;
+    let note = media_checks_out(env, &out, before, Some(src)).ok()?;
     Some(Try::Made {
         file: out,
         how: "its container was rebuilt by FFmpeg: every stream copied as it is into a new file, the index made again and \
@@ -915,7 +1004,7 @@ fn fix_mp3(env: &Env, src: &Path, tmp: &Path) -> Try {
             Next::Nothing,
         );
     }
-    match media_checks_out(env, &work, before.as_ref()) {
+    match media_checks_out(env, &work, before.as_ref(), Some(src)) {
         Ok(note) => Try::Made {
             file: work,
             how: "its frames and header were rebuilt by MP3val (the length it claims now matches the sound it holds)".to_string(),
@@ -970,7 +1059,7 @@ fn fix_reencode_flac(env: &Env, src: &Path, tmp: &Path) -> Try {
     if !r.is_some_and(|r| r.code == Some(0)) || !out.is_file() {
         return no("FFmpeg could not re-encode it", Next::Nothing);
     }
-    match media_checks_out(env, &out, before.as_ref()) {
+    match media_checks_out(env, &out, before.as_ref(), Some(src)) {
         Ok(note) => Try::Made {
             file: out,
             how: "re-encoded losslessly by FFmpeg: every frame that could be decoded is exactly as it was, the damaged ones \
@@ -1005,7 +1094,7 @@ fn fix_wav(env: &Env, src: &Path, tmp: &Path) -> Try {
             if std::fs::write(&file, out).is_err() {
                 return no("the repaired version could not be written", Next::Nothing);
             }
-            match media_checks_out(env, &file, None) {
+            match media_checks_out(env, &file, None, None) {
                 Ok(note) => Try::Made {
                     file,
                     how: "its header said a different length than the sound it holds: set right".to_string(),
@@ -1126,7 +1215,7 @@ pub fn pdf_with_trailer(d: &[u8]) -> Option<Vec<u8>> {
     let info = info.map(|n| format!(" /Info {n} 0 R")).unwrap_or_default();
     let mut out = d.to_vec();
     out.extend_from_slice(
-        format!("\ntrailer\n<< /Size {} /Root {catalog} 0 R{info} >>\nstartxref\n0\n%%EOF\n", max_obj + 1).as_bytes(),
+        format!("\ntrailer\n<< /Size {} /Root {catalog} 0 R{info} >>\nstartxref\n0\n%%EOF\n", max_obj.saturating_add(1)).as_bytes(),
     );
     Some(out)
 }
@@ -1611,12 +1700,12 @@ fn fix_png(env: &Env, src: &Path, tmp: &Path) -> Try {
     if let (Ok(o), Ok(m)) = (std::fs::read(src), std::fs::read(&out)) {
         if let Some(with) = png_keep_chunks(&o, &m) {
             let p = tmp.join("repaired-with-its-details.png");
-            if std::fs::write(&p, with).is_ok() && media_checks_out(env, &p, None).is_ok() {
+            if std::fs::write(&p, with).is_ok() && media_checks_out(env, &p, None, None).is_ok() {
                 let _ = std::fs::rename(&p, &out);
             }
         }
     }
-    match media_checks_out(env, &out, None) {
+    match media_checks_out(env, &out, None, None) {
         Ok(note) => Try::Made {
             file: out,
             how: "what FFmpeg could decode of it was saved again as a PNG (lossless), so it opens; the part that was lost \
@@ -2246,6 +2335,123 @@ mod tests {
         assert!(jpeg_with_end(&d).is_none());
     }
 
+    /// The tiny JPEG with two bytes of its picture data changed into a
+    /// marker that is not one (FF C4, a length that lands mid-data), as a
+    /// bad read or a flipped bit leaves it; its end still there.
+    fn garbled_jpeg() -> Vec<u8> {
+        let mut d = tiny_jpeg();
+        let scan = d.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap() + 10;
+        d.splice(scan..scan + 2, [0xFF, 0xC4, 0x00, 0x03]);
+        d
+    }
+
+    fn bare_env<'a>(work: &'a Path, stop: &'a (dyn Fn() -> bool + Sync)) -> Env<'a> {
+        Env {
+            home: work,
+            work,
+            map_items: Vec::new(),
+            map_known: false,
+            damaged: HashSet::new(),
+            by_size: HashMap::new(),
+            videos: std::cell::RefCell::new(None),
+            ffmpeg: None,
+            ffprobe: None,
+            sevenzip: None,
+            mp3val: None,
+            untrunc: None,
+            qpdf: None,
+            stop,
+        }
+    }
+
+    /// A stand-in for FFmpeg: as many errors for a file as the ".errors"
+    /// file beside it says, and it plays.
+    #[cfg(unix)]
+    fn fake_ffmpeg(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let ff = dir.join("ffmpeg");
+        std::fs::write(
+            &ff,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = -i ]; then f=\"$2\"; fi; shift; done\n\
+             n=$(cat \"$f.errors\" 2>/dev/null || echo 0)\ni=0\n\
+             while [ $i -lt $n ]; do echo \"[mpeg4 @ 0x1] error $i in the picture data\" >&2; i=$((i+1)); done\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&ff, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ff
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_container_rebuilt_round_the_same_errors_counts_only_where_the_old_one_was_broken() {
+        let dir = std::env::temp_dir().join(format!("rp-ar-same-errors-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let stop = || false;
+        let mut env = bare_env(&dir, &stop);
+        env.ffmpeg = Some(fake_ffmpeg(&dir));
+        let (made, broken, whole) = (dir.join("made.jpg"), dir.join("broken.jpg"), dir.join("whole.jpg"));
+        let d = tiny_jpeg();
+        std::fs::write(&made, &d).unwrap();
+        std::fs::write(&whole, &d).unwrap();
+        std::fs::write(&broken, &d[..d.len() - 2]).unwrap();
+        assert!(probe_ok(&made).is_ok() && probe_ok(&broken).is_err());
+        let errors = |p: &Path, n: usize| std::fs::write(format!("{}.errors", p.display()), n.to_string()).unwrap();
+        for p in [&made, &broken, &whole] {
+            errors(p, 3);
+        }
+        let was_broken = plays(&env, &broken).unwrap();
+        let was_whole = plays(&env, &whole).unwrap();
+        assert_eq!((was_broken.0, was_broken.1.len()), (true, 3));
+        // As many errors, where the damaged copy's structure was broken and
+        // this one's is right: it counts.
+        assert!(media_checks_out(&env, &made, Some(&was_broken), Some(&broken)).is_ok());
+        // ...and not where the damaged copy's was right too: nothing gained.
+        assert!(media_checks_out(&env, &made, Some(&was_whole), Some(&whole)).is_err());
+        assert!(media_checks_out(&env, &made, Some(&was_broken), None).is_err());
+        // More errors than the damaged copy: never; fewer: always.
+        errors(&made, 4);
+        assert!(media_checks_out(&env, &made, Some(&was_broken), Some(&broken)).is_err());
+        errors(&made, 2);
+        assert!(media_checks_out(&env, &made, Some(&was_whole), Some(&whole)).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_photo_damaged_in_the_middle_is_not_taken_for_one_cut_short() {
+        let d = garbled_jpeg();
+        assert_eq!(jpeg_layout(&d), JpegLayout::Garbled);
+        assert!(jpeg_with_end(&d).is_none(), "its end is there: nothing to put back");
+        // Its end lost as well: cut short, but an end put back does not make it whole.
+        let cut = &d[..d.len() - 2];
+        assert_eq!(jpeg_layout(cut), JpegLayout::CutShort);
+        let fixed = jpeg_with_end(cut).unwrap();
+        assert_ne!(jpeg_layout(&fixed), JpegLayout::Complete(fixed.len()));
+        // The not-a-marker followed by zeros (never read) to the end: cut short.
+        let mut zeros = d[..d.len() - 4].to_vec();
+        zeros.extend(std::iter::repeat(0).take(4096));
+        assert_eq!(jpeg_layout(&zeros), JpegLayout::CutShort);
+        // What the repair says of each.
+        let dir = std::env::temp_dir().join(format!("rp-ar-garbled-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let stop = || false;
+        let env = bare_env(&dir, &stop);
+        for (bytes, read_whole, want) in [
+            (d.clone(), false, "damaged partway through, but its end is there"),
+            (d.clone(), true, "every byte of it was read from the old drive"),
+            (cut.to_vec(), false, "an end marker put back does not make it whole"),
+        ] {
+            let src = dir.join("input.jpg");
+            std::fs::write(&src, &bytes).unwrap();
+            match fix_jpeg(&env, &src, &dir, read_whole) {
+                Try::No { why, .. } => assert!(why.contains(want), "{why}"),
+                Try::Made { how, .. } => panic!("taken as repaired: {how}"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn previews_inside_a_file_are_found() {
         let mut big = tiny_jpeg();
@@ -2259,6 +2465,60 @@ mod tests {
         raw.extend(std::iter::repeat(9).take(100));
         let found = embedded_jpegs(&raw);
         assert_eq!(found, vec![(start, start + big.len())]);
+    }
+
+    #[test]
+    fn a_photos_own_small_preview_is_found_inside_it() {
+        // The camera's notes (APP1, EXIF) hold a small JPEG of the photo; the
+        // photo itself is whole.
+        let mut thumb = tiny_jpeg();
+        let at = thumb.len() - 2;
+        thumb.splice(at..at, std::iter::repeat(0x22).take(5000));
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend_from_slice(&thumb);
+        let mut photo = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        photo.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+        photo.extend_from_slice(&app1);
+        let mut own = tiny_jpeg();
+        let at = own.len() - 2;
+        own.splice(at..at, std::iter::repeat(0x33).take(20_000));
+        photo.extend_from_slice(&own[2..]);
+        assert_eq!(jpeg_layout(&photo), JpegLayout::Complete(photo.len()));
+        assert_eq!(embedded_jpegs(&photo), vec![(0, photo.len()), (12, 12 + thumb.len())]);
+        // What is salvaged of it is that preview, not the photo itself.
+        let dir = std::env::temp_dir().join(format!("rp-ar-thumb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("input.jpg");
+        std::fs::write(&src, &photo).unwrap();
+        match salvage_preview(&src, &dir, 4096, "the small preview the camera saved inside it") {
+            Some(Try::Made { file, salvage, .. }) => {
+                assert!(salvage);
+                assert_eq!(std::fs::read(file).unwrap(), thumb);
+            }
+            _ => panic!("no preview taken out"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_of_what_only_looks_like_jpeg_starts_is_not_searched_for_ever() {
+        // FF D8 over and over: each one looks like a JPEG's start, and the
+        // walk from it goes on to the end of them all (before: 4 MB took hours).
+        let mut d = [0xFF, 0xD8].repeat(2 << 20);
+        let t = std::time::Instant::now();
+        assert!(embedded_jpegs(&d).is_empty());
+        assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+        // A real preview in a real file is still found (previews_inside_a_file_are_found),
+        // and one after a run that is short enough too.
+        let mut big = tiny_jpeg();
+        let at = big.len() - 2;
+        big.splice(at..at, std::iter::repeat(0x11).take(3000));
+        d.truncate(20_000);
+        let start = d.len() + 7;
+        d.extend_from_slice(b"padding");
+        d.extend_from_slice(&big);
+        assert_eq!(embedded_jpegs(&d), vec![(start, start + big.len())]);
     }
 
     #[test]
@@ -2324,6 +2584,10 @@ mod tests {
         assert_eq!(find_bytes(b"abcabd", b"abd"), Some(3));
         assert_eq!(find_bytes(b"ab", b"abc"), None);
         assert_eq!(find_bytes(b"xx", b""), None);
+        // An object number as big as can be (a damaged one): no sum past it.
+        let big = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n18446744073709551615 0 obj\n<< >>\nendobj\n";
+        let out = String::from_utf8(pdf_with_trailer(big).unwrap()).unwrap();
+        assert!(out.contains("/Size 18446744073709551615 /Root 1 0 R"), "{out}");
     }
 
     #[test]

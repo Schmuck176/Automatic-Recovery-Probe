@@ -795,6 +795,87 @@ so the FAT and boot region were read. (A FAT entry never read but holding
 leftovers would send a fragmented file's chain anywhere unnoticed: an idea
 below.)
 
+## 29 Oct 2026: the repairs given damaged files; the join and the mapfile again
+
+The user (29 Oct, 22:29): "keep looking for bugs and fixing them, we are
+going to keep doing bug hunting rounds until we don't find any more. Make
+sure bug fixes don't break other things."
+
+- Round trips of the building blocks (src/proptests.rs, fixed seeds, kept as
+  tests): the lists (CSV with a byte-order mark and every odd character,
+  read a few bytes at a time), the checksum's saved state, the mapfile, the
+  [R....] numbers, names made safe for Windows. Nothing found.
+- The automatic repairs were given damaged files (a harness kept in the
+  scratchpad, not in the repository: autorepair's own parsers on 30,000
+  damaged files, with oracles - the zip walk against each zip's own index,
+  the twin rule, a video's dates moved - and 1,000 whole runs of isolate and
+  repair, twice each, on a WORK of 6-20 damaged photos, videos, music, PDFs
+  and zips, with FFmpeg, FFprobe and qpdf here: WORK never changed, nothing
+  written outside REPAIR, the copies in to-repair unchanged, every REPAIRED
+  version checks out, a twin found where there is one, nothing repaired
+  again the second time). 7-Zip, MP3val and untrunc are not here (7-Zip's
+  source could not be built in this workspace): CI runs those on both
+  systems. Found and fixed, each with a test:
+  - **A photo damaged in the middle was "repaired" as if cut short.** Two
+    bytes of its picture data reading as a marker made the walk lose its
+    way, which it took for the end being lost: an end marker was added after
+    the one already there, and the log said "the photo was cut short (its
+    end was never read)" - REPAIRED, put back, not handed off. jpeg_layout
+    now tells them apart (Garbled: the end marker is still there after the
+    place it went wrong): NOT REPAIRED, "damaged partway through", handed
+    off (or "exactly as it was there" when every byte was read). An end put
+    back must also make the photo whole, or it is not taken.
+  - **The same damaged video came out repaired one time and not the next.**
+    FFmpeg decoding on several threads finds one error more or fewer from one
+    time to the next (1 time in 7 here), and a rebuilt version counts only
+    with fewer errors than the damaged copy. plays() decodes on one thread
+    now: the same answer every time (slower on big videos).
+  - **A container rebuilt round the same streams did not count**: a video
+    whose header was destroyed (MISMATCH) or that was cut short, rebuilt by
+    FFmpeg with a right header and the same errors where data was lost, was
+    "no better than the damaged copy". It counts now where the damaged
+    copy's structure was broken and the new one's is right; more errors
+    never count, and as many do not where the structure was right already.
+  - **A photo's own small preview was never found when the photo is whole**:
+    the search for previews jumped past every whole JPEG it found, and a
+    camera keeps that preview inside the photo (in its EXIF notes). It looks
+    inside now: SALVAGED, "the small preview the camera saved inside it".
+  - **A file of what only looks like JPEG starts (FF D8 over and over) took
+    hours**: each was walked to the end of them all (4 MB: hours). A JPEG
+    start inside another is now another one's, looked at on its own, and no
+    more than eight times the file is looked at.
+  - A video date field with its top bit set (a damaged 64-bit field) made
+    mp4time's sums go past what the number holds (the build that checks
+    for overflow panicked; the PC's would have moved dates by nonsense): it
+    is no moment, and is left alone. The same for a PDF object numbered
+    2^64 - 1 (its new trailer's /Size).
+- The join with the map check, re-read: **an intact copy further down the
+  folders was marked damaged too.** DCIM\100APPLE\IMG_0001.JPG lost data and
+  Backup\DCIM\100APPLE\IMG_0001.JPG (an intact copy: the same name, size
+  and folders) matched it as well, "found by name and size only": both were
+  marked NEVER_READ, the intact one copied out for repair and handed off,
+  and never used to restore the other. Where the whole path on the
+  recovered disk matches, the copy with nothing in front of it is the one
+  (the copies keep the disk's folders); copies the folders cannot tell apart
+  are still each marked. The repairs' look-up of a copy's never-read places
+  (join::item_for_copy) takes the very same path first in the same way.
+- The mapfile: ddrescue's sizes as its manual writes them (500GB, 2KiB,
+  4Kis, 1_234_567kB) - with a "B", underscores, or "s" after a multiplier -
+  were not read, so the copied range came from the blocks instead. (The old
+  test said "1TB" is not a size; it is.)
+- The page's actions while a job runs: **Protect** (marking a disk
+  read-only) under a running job that writes to that disk would cut the job
+  short. Refused now when the disk holds WORK, the image's folder, the image
+  or the second copy (Windows only; a Windows unit test finds the disk under
+  a folder). The page offers Protect only for a disk that could be the
+  recovered SSD, so this is for mistakes.
+- Version 2026-10-29 (1); the 2026-10-28 (2) checklist text is known
+  (6922598995721939184).
+- Tests here: unit tests 161 (with overflow checks), test_mapcheck 94/94,
+  auto_check 96/96, auto_ui_check 34/34 and ui_check 67/67 with both fonts.
+- CI_RESULTS
+- DELIVERY
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

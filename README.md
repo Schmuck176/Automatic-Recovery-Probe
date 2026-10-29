@@ -214,6 +214,9 @@ Linux's own exFAT drivers, the disk protection, the page), plus:
   built for Linux (untrunc from its own source).
 - Unit tests of every repair, the twin rule, the tools' outputs, AIM's answer,
   the hand-off and bring back.
+- Round trips of the building blocks over thousands of random inputs, the
+  same every run (`src/proptests.rs`): the lists, the checksum's saved
+  state, the mapfile, the [R0012] numbers, names made safe for Windows.
 
 ```
 cargo build --release

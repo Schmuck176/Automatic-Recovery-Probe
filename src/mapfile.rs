@@ -67,26 +67,43 @@ fn parse_num(s: &str) -> Option<u64> {
     }
 }
 
-/// A ddrescue size argument: plain number, or with s (sectors) / k M G T
-/// (powers of 1000) / Ki Mi Gi Ti (powers of 1024).
+/// A ddrescue size argument, as its manual has them: a number (decimal,
+/// 0x hexadecimal or 0 octal, with "_" between groups of digits allowed),
+/// then a multiplier (k M G T P E Z Y R Q, powers of 1000; Ki Mi ... Qi,
+/// powers of 1024; or none), then "s" for sectors, then "B" for bytes, each
+/// of the three left out as wanted: 500GB, 4Kis, 1_234_567kB, 0x200, 10s.
 fn parse_size(s: &str, sector: u64) -> Option<u64> {
     let s = s.trim();
-    let digits_end = s.find(|c: char| !(c.is_ascii_hexdigit() || c == 'x' || c == 'X')).unwrap_or(s.len());
-    let (num, suffix) = if s.starts_with("0x") || s.starts_with("0X") { (s, "") } else { s.split_at(digits_end) };
-    let n = parse_num(num)?;
-    let mult: u64 = match suffix {
-        "" => 1,
-        "s" => sector,
-        "k" | "K" => 1000,
-        "M" => 1_000_000,
-        "G" => 1_000_000_000,
-        "T" => 1_000_000_000_000,
-        "Ki" => 1 << 10,
-        "Mi" => 1 << 20,
-        "Gi" => 1 << 30,
-        "Ti" => 1 << 40,
-        _ => return None,
-    };
+    let hex = s.starts_with("0x") || s.starts_with("0X");
+    let body = if hex { &s[2..] } else { s };
+    // (A hexadecimal number's digits run on through B, C, D, E and F, as in C++.)
+    let end = body.find(|c: char| !(c == '_' || if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() })).unwrap_or(body.len());
+    let (digits, mut suffix) = body.split_at(end);
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return None;
+    }
+    let digits = digits.replace('_', "");
+    let n = if hex { u64::from_str_radix(&digits, 16).ok()? } else { parse_num(&digits)? };
+    const SI: &str = "kMGTPEZYRQ";
+    let mut mult: u64 = 1;
+    if let Some(c) = suffix.chars().next().filter(|c| SI.contains(*c) || *c == 'K') {
+        let power = if c == 'K' { 1 } else { SI.find(c)? as u32 + 1 };
+        suffix = &suffix[1..];
+        let base: u64 = if let Some(rest) = suffix.strip_prefix('i') {
+            suffix = rest;
+            1024
+        } else {
+            1000
+        };
+        mult = base.checked_pow(power)?;
+    }
+    if let Some(rest) = suffix.strip_prefix('s') {
+        suffix = rest;
+        mult = mult.checked_mul(sector)?;
+    }
+    if !(suffix.is_empty() || suffix == "B") {
+        return None;
+    }
     n.checked_mul(mult)
 }
 
@@ -327,9 +344,40 @@ mod tests {
 
     #[test]
     fn sizes_with_suffixes() {
-        assert_eq!(parse_size("1TB", 512), None);
         assert_eq!(parse_size("2Ki", 512), Some(2048));
         assert_eq!(parse_size("10s", 512), Some(5120));
         assert_eq!(parse_size("0x200", 512), Some(512));
+        // As ddrescue's manual has them: an optional B, underscores between
+        // digits, and s after any multiplier.
+        assert_eq!(parse_size("1TB", 512), Some(1_000_000_000_000));
+        assert_eq!(parse_size("500GB", 512), Some(500_000_000_000));
+        assert_eq!(parse_size("2KiB", 512), Some(2048));
+        assert_eq!(parse_size("100B", 512), Some(100));
+        assert_eq!(parse_size("1_234_567kB", 512), Some(1_234_567_000));
+        assert_eq!(parse_size("4Kis", 512), Some(4 * 1024 * 512));
+        assert_eq!(parse_size("1ks", 4096), Some(1000 * 4096));
+        assert_eq!(parse_size("0x1234_5678", 512), Some(0x1234_5678));
+        assert_eq!(parse_size("07_777_777", 512), Some(0o7_777_777));
+        assert_eq!(parse_size("0x1E", 512), Some(30), "E is a hexadecimal digit there");
+        assert_eq!(parse_size("1000204886016", 512), Some(1_000_204_886_016));
+        assert_eq!(parse_size("3Ei", 512), Some(3 << 60));
+        // Not sizes: refused (the copied range is then taken from the map).
+        for bad in ["", "B", "k", "1X", "1TBs", "1Bk", "1_", "_1", "1__0", "0x", "1Q", "1Qi", "99999999999999999999", "16Ei"] {
+            assert_eq!(parse_size(bad, 512), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_copied_range_is_read_from_the_command_line() {
+        let with = |cmd: &str| parse(&SAMPLE.replace("-s 1000204886016 -r 2 -c 32 -b 512", cmd)).unwrap();
+        let m = with("-s 1TB");
+        assert_eq!((m.domain_start, m.domain_end), (0, 1_000_000_000_000));
+        let m = with("--input-position=100GiB --size=0x100000");
+        assert_eq!((m.domain_start, m.domain_end), (100 << 30, (100 << 30) + 0x10_0000));
+        let m = with("-i 1_000s -s 8s -b 4096");
+        assert_eq!((m.domain_start, m.domain_end), (1000 * 4096, 1008 * 4096));
+        // -o: where the copy was written instead.
+        let m = with("-o 1MiB");
+        assert_eq!(m.output_shift, 1 << 20);
     }
 }
