@@ -1,0 +1,50 @@
+DCIM/IMG_0002.MOV
+  R0001 | REPAIRED
+  its index was rebuilt by untrunc, using DCIM\IMG_0001.MOV (a good video from the same camera) as the pattern
+  tool: version 'v1-9d86ec9' using ffmpeg '6.1.1-3ubuntu5' Lavc60.31.102 | next: done | note: FFmpeg plays it through; 2 errors where data was lost ([h264 @ 0x558fcc6bc100] Invalid level prefix); the date inside it set to its own (2023-07-16 11:00:00), not the pattern's (2023-07-15 09:00:00); 4.9 seconds long
+
+DCIM/IMG_0005.JPG
+  R0002 | REPAIRED
+  the photo was cut short (its end was never read): its end marker was put back, so it opens; the part that was lost shows grey
+  tool: Automatic Recovery Probe | next: done | note: FFmpeg plays it through; 1 error where data was lost ([mjpeg @ 0x55ef981c9040] overread 8)
+
+DCIM/IMG_0006.JPG
+  R0003 | REPAIRED
+  an intact copy of the same file was found at WORK\Backup\Phone\IMG_0006.JPG: identical in every byte the old drive did give up, and holding the 4,096 bytes it never did. This is the file as it was
+  tool: Automatic Recovery Probe | next: done | note: 
+
+DCIM/IMG_0007.JPG
+  R0004 | NOT REPAIRED
+  every part of the photo is in place, but some of its picture data was never read: it opens, with part of the picture grey or garbled from that point; no tool can bring that part back (a photo repair tool's free preview shows whether it does better)
+  tool:  | next: paid | note: 
+
+Documents/report.docx
+  R0005 | REPAIRED
+  rebuilt by 7-Zip from every part inside it: all 34 read back right, and what was lost was only the zip's own index (the list of its parts, at its end)
+  tool: 7-Zip 23.01 (x64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20 | next: done | note: 34 parts
+
+Documents/report.pdf
+  R0006 | REPAIRED
+  rebuilt by qpdf: its end (the trailer and the table of where everything is) was lost, so a new trailer was written pointing at its catalogue, and qpdf made the table again from what is in the file; anything that was in the lost part (often the last page's text) is missing
+  tool: qpdf version 11.9.0 | next: done | note: qpdf --check finds no errors
+
+Music/old-glitch.mp3
+  R0007 | SALVAGED
+  its frames and header were rebuilt by MP3val (the length it claims now matches the sound it holds). Every byte of it was read from the old drive, so it stays in WORK exactly as it was there, and this version is kept beside it in REPAIR
+  tool: Version 0.1.8. | next: nothing | note: FFmpeg plays it through without an error
+
+Music/song.mp3
+  R0008 | REPAIRED
+  an intact copy of the same file was found at WORK\Music\Café Ünïcödé 日本.mp3: identical in every byte the old drive did give up, and holding the 4,096 bytes it never did. This is the file as it was
+  tool: Automatic Recovery Probe | next: done | note: 
+
+Music/track.flac
+  R0009 | REPAIRED
+  re-encoded losslessly by FFmpeg: every frame that could be decoded is exactly as it was, the damaged ones left out
+  tool: ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers | next: done | note: FFmpeg plays it through without an error
+
+RAW/IMG_0100.CR2
+  R0010 | SALVAGED
+  the largest preview the camera saved inside it (126 KB) was taken out of it, as a JPEG of its own
+  tool: Automatic Recovery Probe | next: mac | note: the full picture: on the Mac, Preview can export what it decodes as a TIFF (the hand-off does this)
+

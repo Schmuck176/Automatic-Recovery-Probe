@@ -1,0 +1,5 @@
+7-Zip 23.01 (x64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+Version 0.1.8.
+qpdf version 11.9.0
+version 'v1-9d86ec9' using ffmpeg '6.1.1-3ubuntu5' Lavc60.31.102

@@ -1,0 +1,160 @@
+tools here: 7z yes, mp3val yes, untrunc yes, qpdf yes
+ok   the page sees the older Recovery Probe open
+ok   and nothing starts while it is: Recovery Probe - the older program, recovery-probe.exe - is open as well. The tw
+ok   closed again: the page says nothing more
+ok   Start refuses a second copy inside WORK: The second copy's folder (/home/runner/work/_temp/ac/SPARE/WORK/COPY 2) and WORK (/home/runner/work/_temp/ac/SPARE/WORK) are one inside the other: the second copy needs a folder of its own, on another drive (3. The folders).
+ok   and the folders part says so
+ok   chosen again beside it: nothing to say
+ok   Start begins: 
+ok   WORK cannot be changed while Start runs: "Start: the whole recovery" is running and works with this: wait for it to finish (or stop it) before changing it.
+Start is done: every stage ran.
+Tried 10 damaged files: 7 repaired, 2 with something salvaged, 1 not repaired.
+2 of them were restored exactly, from an intact copy of the same file found elsewhere.
+1 were read whole from the old drive, so they are exactly as they were on it: what a checking tool found in them was so already. They stay as they are in WORK (anything a tool made of them is kept in REPAIR\salvaged).
+Left for the hand-off: 1 for the Mac, 1 for a paid repair tool, 0 for their own program's repair.
+2 files are ready in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off for whoever can do better:
+  1 For the Mac: 1 (with "Repair on the Mac.command" to double-click on the Mac)
+  2 For a paid repair tool: 1 (look at a tool's free preview before paying)
+1 more are exactly as they were on the old drive (every byte was read): what a checking tool found in them was so already, so they are not handed off.
+Everything about the repairs is in /home/runner/work/_temp/ac/SPARE/REPAIR.
+ok   Start ran to the end (done: )
+ok   WORK cannot be changed to an empty folder once the copies are in it: Start has already copied the files into /home/runner/work/_temp/ac/SPARE/WORK: that is WORK now, and every stage after the copying works there. Leave it as it is. (If you moved that folder, choose the folder it is in now; to copy everything again into another folder, click Start over first.)
+ok   the same folder written another way is fine: None
+  ready     done     The mapfile: /home/runner/work/_temp/ac/1TB test disk.log (48 MB drive).
+  image     done     Made the image /home/runner/work/_temp/ac/IMAGE/recovered-ssd.img (50,331,648 bytes), and it reads back exactly as it was written.
+  open      skipped  (Only on Windows, with the image made.)
+  mapcheck  done     MAP CHECK - Automatic Recovery Probe version 2026-10-30 (1)
+  copy      done     Copied 16 files (1 MB) and 11 folders into /home/runner/work/_temp/ac/SPARE/WORK.
+  verify    done     All 16 copies are exactly what was copied off the disk (1 MB).
+  scan      done     17 files checked (1 MB).
+  extra     done     The extra checks found 8 damaged files (listed in REPAIR\damaged-lists, so they are copied out to repair).
+  isolate   done     Copied 10 damaged files out into /home/runner/work/_temp/ac/SPARE/REPAIR/to-repair, each with its number ([R…]) in its name; repair-list.csv says wher
+  repair    done     Tried 10 damaged files: 7 repaired, 2 with something salvaged, 1 not repaired.
+  putback   done     Put back 7 repaired files, each exactly where its original was in WORK, with the original's dates. The originals are in /home/runner/work/_temp/ac/SPA
+  verify2   done     All 16 copies are exactly what was copied off the disk (1 MB) - or, for 7 of them, exactly the repaired version put back in its place (step 8).
+  scan2     done     18 files checked (1 MB).
+  evaluate  done     10 damaged files: 7 repaired and put back, 2 still to repair, 1 not repaired here (evaluation.csv says why for each).
+  handoff   done     2 files are ready in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off for whoever can do better:
+ok   stage ready done
+ok   stage image done
+ok   stage mapcheck done
+ok   stage copy done
+ok   stage verify done
+ok   stage scan done
+ok   stage extra done
+ok   stage isolate done
+ok   stage repair done
+ok   stage putback done
+ok   stage verify2 done
+ok   stage scan2 done
+ok   stage evaluate done
+ok   stage handoff done
+ok   stage open skipped off Windows
+ok   the steps tab shows image (done)
+ok   the steps tab shows mapcheck (done)
+ok   the steps tab shows rescue (done)
+ok   the steps tab shows verify (done)
+ok   the steps tab shows scan (done)
+ok   the steps tab shows isolate (done)
+ok   the steps tab shows put-back (done)
+ok   the steps tab shows evaluate (done)
+ok   the steps tab shows autorepair (done)
+ok   the steps tab shows extra (done)
+ok   the steps tab shows handoff (done)
+  DCIM/IMG_0002.MOV          REPAIRED      its index was rebuilt by untrunc, using DCIM\IMG_0001.MOV (a good video from the same camera) as the pattern
+  DCIM/IMG_0005.JPG          REPAIRED      the photo was cut short (its end was never read): its end marker was put back, so it opens; the part that was 
+  DCIM/IMG_0006.JPG          REPAIRED      an intact copy of the same file was found at WORK\Backup\Phone\IMG_0006.JPG: identical in every byte the old d
+  DCIM/IMG_0007.JPG          NOT REPAIRED  every part of the photo is in place, but some of its picture data was never read: it opens, with part of the p
+  Documents/report.docx      REPAIRED      rebuilt by 7-Zip from every part inside it: all 34 read back right, and what was lost was only the zip's own i
+  Documents/report.pdf       REPAIRED      rebuilt by qpdf: its end (the trailer and the table of where everything is) was lost, so a new trailer was wri
+  Music/old-glitch.mp3       SALVAGED      its frames and header were rebuilt by MP3val (the length it claims now matches the sound it holds). Every byte
+  Music/song.mp3             REPAIRED      an intact copy of the same file was found at WORK\Music\Café Ünïcödé 日本.mp3: identical in every byte the old d
+  Music/track.flac           REPAIRED      re-encoded losslessly by FFmpeg: every frame that could be decoded is exactly as it was, the damaged ones left
+  RAW/IMG_0100.CR2           SALVAGED      the largest preview the camera saved inside it (126 KB) was taken out of it, as a JPEG of its own
+ok   the photo with an intact twin is restored from it
+ok   the photo cut short gets its end back
+ok   the photo with a hole in the middle is not called repaired (NOT REPAIRED)
+ok   the RAW's preview is salvaged
+ok   the FLAC with a lost cluster is re-encoded by FFmpeg (REPAIRED)
+ok   the PDF is rebuilt by qpdf
+ok   the docx is rebuilt by 7-Zip
+ok   the video is rebuilt by untrunc
+ok   the MP3 is tried by MP3val
+ok   intact files with letters outside ASCII or a long path are not called damaged ([])
+ok   the MP3 broken before the drive failed is left as it was (SALVAGED, next nothing)
+ok   and WORK still holds it exactly as it was on the old drive
+ok   every repaired file was put back (7)
+ok   DCIM/IMG_0002.MOV put back keeps the dates of the damaged original
+ok   DCIM/IMG_0005.JPG put back keeps the dates of the damaged original
+ok   DCIM/IMG_0006.JPG put back keeps the dates of the damaged original
+ok   Documents/report.docx put back keeps the dates of the damaged original
+ok   Documents/report.pdf put back keeps the dates of the damaged original
+ok   Music/song.mp3 put back keeps the dates of the damaged original
+ok   Music/track.flac put back keeps the dates of the damaged original
+ok   the folder DCIM keeps its date after the put-back
+ok   the folder Documents keeps its date after the put-back
+ok   the folder Music keeps its date after the put-back
+ok   what was salvaged of Music/old-glitch.mp3 has its dates
+ok   what was salvaged of RAW/IMG_0100.CR2 has its dates
+ok   the rebuilt video says it was made when it was (2023-07-16T11:00:00.000000Z), not when its pattern was
+ok   the restored photo in WORK is exactly the original
+ok   its damaged original is kept
+ok   the hand-off folder is there
+ok   with the Mac script
+ok   the hand-off holds the 2 files it says are ready (2 there)
+ok   what just happened ends with Start done (['Start is done: every stage ran'])
+ok   what just happened is kept in the results folder
+ok   what just happened says what was copied, folder by folder
+ok   what just happened names the damaged files found
+ok   what just happened says what was repaired
+ok   what just happened says what the map check found
+ok   the page has the latest repairs, with what each made
+ok   the photo cut short, before its repair
+ok   the photo cut short, after its repair
+ok   no picture for a number not in the list
+ok   no picture for a path
+ok   no picture for neither before nor after
+ok   no picture for a RAW, which a browser can't show
+ok   Bring back refuses /home/runner/work/_temp/ac/SPARE/WORK: /home/runner/work/_temp/ac/SPARE/WORK is WORK, where the copies are: choose the USB stick, or the folder, that holds what came back from the Mac or a paid tool - or leave the folder as it is, for what was saved in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off.
+ok   Bring back refuses /home/runner/work/_temp/ac/SPARE/WORK/DCIM: /home/runner/work/_temp/ac/SPARE/WORK/DCIM is inside WORK (/home/runner/work/_temp/ac/SPARE/WORK), where the copies are: choose the USB stick, or the folder, that holds what came back from the Mac or a paid tool - or leave the folder as it is, for what was saved in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off.
+ok   Bring back refuses /home/runner/work/_temp/ac/SPARE: /home/runner/work/_temp/ac/SPARE holds WORK (/home/runner/work/_temp/ac/SPARE/WORK), where the copies are: choose the USB stick, or the folder, that holds what came back from the Mac or a paid tool - or leave the folder as it is, for what was saved in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off.
+ok   Bring back refuses to-repair: /home/runner/work/_temp/ac/SPARE/REPAIR/to-repair is one of REPAIR's own folders, which hold the program's copies: choose the USB stick, or the folder, that holds what came back from the Mac or a paid tool - or leave the folder as it is, for what was saved in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off.
+ok   Bring back begins: 
+Brought back 1 repaired files (they go back into WORK next) and 0 salvaged ones (kept in REPAIR\salvaged).
+2 files were the damaged originals or already brought back, so they were left.
+Put back 1 repaired files, each exactly where its original was in WORK, with the original's dates. The originals are in /home/runner/work/_temp/ac/SPARE/REPAIR/originals; repair-returns.csv in WORK lists every one.
+7 repaired files were already back.
+2 files copied out are not repaired yet (nothing for them in "repaired").
+All 16 copies are exactly what was copied off the disk (1 MB) - or, for 8 of them, exactly the repaired version put back in its place (step 8).
+10 damaged files: 8 repaired and put back, 1 still to repair, 1 not repaired here (evaluation.csv says why for each).
+No packages (libraries, apps, documents kept as folders) in WORK.
+Everything is in /home/runner/work/_temp/ac/SPARE/REPAIR/evaluation.csv.
+1 files are ready in /home/runner/work/_temp/ac/SPARE/REPAIR/hand-off for whoever can do better:
+  1 For the Mac: 1 (with "Repair on the Mac.command" to double-click on the Mac)
+1 more are exactly as they were on the old drive (every byte was read): what a checking tool found in them was so already, so they are not handed off.
+ok   Bring back finishes (done: )
+ok   the brought-back photo is in WORK
+ok   Finalise begins: 
+Finalised: both copies hold every file exactly as copied (or as repaired and put back), and the image is as it was made.
+RECORDS is up to date: /home/runner/work/_temp/ac/SPARE/RECORDS
+/home/runner/work/_temp/ac/SPARE/WORK: All 16 copies are exactly what was copied off the disk (1 MB) - or, for 8 of them, exactly the repaired version put back in its place (step 8).
+The second copy is in /home/runner/work/_temp/ac/COPY 2: 79 files (4 MB) copied this time, the rest were there already.
+/home/runner/work/_temp/ac/COPY 2/WORK: All 16 copies are exactly what was copied off the disk (1 MB) - or, for 8 of them, exactly the repaired version put back in its place (step 8).
+The image /home/runner/work/_temp/ac/IMAGE/recovered-ssd.img (48 MB) is exactly as it was made: its SHA-256 matches the one saved when it was made.
+Now: keep SPARE somewhere else (a relative's, work), and twice a year plug it in and click Finalise again: it checks both copies and the image, and names any file that has changed.
+ok   Finalise finishes (done: )
+ok   Finalise leaves Windows' settings as they are (they go back separately)
+ok   nothing is plugged in that must be unplugged first ([])
+ok   with nothing changed, Put Windows back says so: Nothing to put back: Windows is as it was.
+ok   the second copy holds the files
+ok   with their dates, and their folders'
+ok   the photo brought back keeps the dates of the damaged original
+ok   RECORDS is beside WORK
+ok   every check is in safety-checks.csv (7)
+ok   Start again says it is all done
+ok   Start over: None
+ok   Start over runs to the end again (done: )
+ok   the photo brought back is still in WORK after Start over
+ok   and no damaged copy of it was put beside it
+
+103 of 103 checks passed
