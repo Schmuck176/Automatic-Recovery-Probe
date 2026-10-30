@@ -1,0 +1,59 @@
+Policy at the start: OnlineAll
+  folder 0 of 300
+  folder 200 of 300
+D:\a\_temp\dc\big.img: 300 folders, 90000 files, 0.4 GB
+ok   one straight copy of the image file
+     89995 files in the straight copy
+A. Plugged in after 'Get Windows ready', protected, copying:
+ok   Get Windows ready: {'ok': True, 'message': 'Before: new disks are switched on as soon as they are plugged in. Now: new disks stay switched off until something switches them on.'}
+ok   the disk arrives switched off ({'offline': True, 'read_only': True, 'reason': 'Policy'})
+ok   the page recognises it as the copy ddrescue made
+ok   Protect: {'ok': True, 'message': 'Disk 2 is read-only and switched off.'}
+ok   Windows stays set to leave new disks switched off after Protect
+ok   putting the setting back is refused while the SSD is plugged in: Still plugged in: A copy of the old drive: the recovered SSD or the 4 TB SSD (disk 2). Switch it off and unplug it first. Windows is put back as it was only once every drive is unplugged, so the recovered SSD can never arrive switched on.
+ok   the setting is still to leave new disks switched off
+ok   copying starts: {'ok': True, 'job': 1}
+ok   while it copies, Windows leaves new disks switched off (OfflineAll)
+B. Unplugged part-way:
+     detached (no message)
+     the page says: The recovered SSD stopped answering (Windows said: A device which does not exist was specified. (os error 433)), so the copying stopped. Nothing is lost: what was copied is kept. Check its cable is in firmly. If it came out, plug it back in: it arrives switched off, as Windows is still set to leave new disks switched off. Then choose it again in step 3, click Protect, and start the copying again: 
+ok   the copy stopped (stopped)
+ok   it says the SSD stopped answering
+ok   nothing is listed as failed (0)
+ok   Windows still leaves new disks switched off
+ok   the list so far is there
+C. Plugged in again, protected, copying again:
+ok   it arrives switched off ({'offline': True, 'read_only': True, 'reason': 'Policy'})
+ok   Protect: {'ok': True, 'message': 'Disk 2 is read-only and switched off.'}
+ok   copying starts again: {'ok': True, 'job': 2}
+     the page says: Copied 60,110 files (8 MB) and 300 folders into D:\a\_temp\dc\copies. 29,884 files were already there from an earlier run and were left as they were. Saved 1 piece of data that no folder record names any more (24 KB) in "lost data (no name)". The full list is in D:\a\_temp\dc\copies\rescue-log.csv
+ok   the copy finished (done)
+ok   nothing failed; what was copied before was kept ({'files': 60110, 'folders': 300, 'bytes': 8716079, 'already_there': 29884, 'partial': 0, 'failed': 0, 'lost_pieces': 1, 'lost_bytes': 24576, 'renamed': 0, 'recopied': 0, 'why_stopped': '', 'stopped': False, 'out': 'D:\\a\\_temp\\dc\\copies', 'safety': {'fine': True, 'stages': [{'name': 'On the SSD (step 5)', 'files': None, 'bytes': None, 'words': "not known: step 5's results were not found", 'ok': None}, {'name': 'Copied (step 6)', 'files': 89994, 'bytes': 13049259, 'words': 'and 1 piece of data no folder names (24 KB)', 'ok': True}], 'verdict': ['The copying got to the end, and every file it found is in the list of copies.', "(Step 5's results were not found, so the SSD itself was not compared: run step 5, then this again.)"]}, 'history': {'count': 2, 'file': 'D:\\a\\_temp\\dc\\home\\results\\safety-checks.csv', 'items': [{'when': '2026-10-30 07:32:15', 'step': 'Copied (step 6)', 'folder': 'D:\\a\\_temp\\dc\\copies', 'files': 29884, 'bytes': 4333180, 'ok': False, 'result': 'NOT OK: The copying did not get to the end. Start step 6 again, into the same folder: it carries on where it stopped, and copies only what is missing.'}, {'when': '2026-10-30 07:32:56', 'step': 'Copied (step 6)', 'folder': 'D:\\a\\_temp\\dc\\copies', 'files': 89994, 'bytes': 13049259, 'ok': True, 'result': 'OK'}]}})
+ok   with the SSD still plugged in, Windows still leaves new disks switched off
+ok   the copies are exactly those of one straight run (89995 / 89995 files)
+ok   the list is exactly that of one straight run (89997 / 89997 lines)
+D. A drive exactly as big as the old one but not the recovered SSD (SPARE), plugged in while new disks are left switched off:
+ok   Get Windows ready again
+     SPARE arrived: {'offline': True, 'read_only': True, 'reason': 'Policy'}
+     the page sees SPARE as: {'scheme': 'GPT', 'table_disk_size': 399507456, 'partitions': [{'name': 'Microsoft reserved partition', 'kind': 'Microsoft reserved', 'start': 17408, 'end': 16777216}, {'name': 'Basic data partition', 'kind': 'basic data (exFAT, FAT or NTFS)', 'start': 16777216, 'end': 399441920}], 'volume': None, 'matches_mapfile': False}
+ok   SPARE's own partition table is made for the same size as the copy's
+ok   the page does not take SPARE for the copy ddrescue made
+ok   the copy is still recognised
+ok   the page switches it on, writable: {'ok': True, 'message': 'Disk 3 is switched on, and can be written to.'}
+ok   Windows agrees ({'offline': False, 'read_only': False, 'reason': ''})
+ok   a file can be written to it (R:)
+ok   it refuses to do that to the recovered SSD: Disk 2 could be the recovered SSD, so it stays as it is.
+ok   the recovered SSD is still read-only ({'offline': True, 'read_only': True, 'reason': 'Policy'})
+ok   with the SSD still plugged in, the setting is not put back: Still plugged in: A copy of the old drive: the recovered SSD or the 4 TB SSD (disk 2) and SPARE (disk 3, R:). Switch them off and unplug them first. Windows is put back as it was only once every drive is unplugged, so the recovered SSD can never arrive switched on.
+ok   Put Windows back lists the setting for new disks
+ok   Put Windows back names what is still plugged in: ['A copy of the old drive: the recovered SSD or the 4 TB SSD (disk 2)', 'SPARE (disk 3, R:)']
+ok   with the SSD unplugged but SPARE still plugged in, it is not put back either: Still plugged in: SPARE (disk 3, R:). Switch it off and unplug it first. Windows is put back as it was only once every drive is unplugged, so the recovered SSD can never arrive switched on.
+ok   Windows still leaves new disks switched off
+ok   with every drive unplugged, Windows is put back as it was: {'ok': True, 'message': 'New disks: Put back: new disks are switched on as soon as they are plugged in.'}
+ok   Windows' setting is back (OnlineAll)
+E. The copy plugged in switched on, with the page open:
+     it arrived: {'offline': True, 'read_only': True, 'reason': 'Policy'}
+ok   the page marked it read-only and switched it off by itself ({'offline': True, 'read_only': True, 'reason': 'Policy'})
+ok   and says so at the top of the page: A copy of the old drive - the recovered SSD or the 4 TB SSD - arrived as disk 2 switched on, where Windows cou
+ok   until it has been read
+Unplugged mid-copy checks: 42 of 42 passed

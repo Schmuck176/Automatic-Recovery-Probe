@@ -1,0 +1,42 @@
+stopped during ready
+stopped during copy
+stopped during extra
+killed during extra
+killed during repair
+killed during repair
+(not running when due: target putback, job done, resume at 15)
+3 stops, 3 kills
+  ready     done     The mapfile: D:\a\_temp/rc\broken-up\1TB test disk.log (48 MB drive).
+  image     done     Made the image D:\a\_temp/rc\broken-up\IMAGE\recovered-ssd.img (50,331,648 bytes), and it reads back exactly as it was written.
+  open      skipped  AIM Toolkit is not installed, so this time the map check cannot check itself against Windows' own reading of the volume. Everything else is 
+  mapcheck  done     MAP CHECK - Automatic Recovery Probe version 2026-10-30 (1)
+  copy      done     Copied 16 files (1 MB) and 11 folders into D:\a\_temp/rc\broken-up\SPARE\WORK.
+  verify    done     All 16 copies are exactly what was copied off the disk (1 MB).
+  scan      done     17 files checked (1 MB).
+  extra     done     The extra checks found 8 damaged files (listed in REPAIR\damaged-lists, so they are copied out to repair).
+  isolate   done     Copied 10 damaged files out into D:\a\_temp\rc\broken-up\SPARE\REPAIR\to-repair, each with its number ([R…]) in its name; repair-list.csv sa
+  repair    done     Tried 10 damaged files: 7 repaired, 2 with something salvaged, 1 not repaired.
+  putback   done     Put back 7 repaired files, each exactly where its original was in WORK, with the original's dates. The originals are in D:\a\_temp\rc\broken
+  verify2   done     All 16 copies are exactly what was copied off the disk (1 MB) - or, for 7 of them, exactly the repaired version put back in its place (step 
+  scan2     done     18 files checked (1 MB).
+  evaluate  done     10 damaged files: 7 repaired and put back, 2 still to repair, 1 not repaired here (evaluation.csv says why for each).
+  handoff   done     2 files are ready in D:\a\_temp\rc\broken-up\SPARE\REPAIR\hand-off for whoever can do better:
+ok   every stage is done or skipped in the end
+ok   the copies were checked again after the put-back
+ok   DCIM\IMG_0002.MOV: REPAIRED, as in one run without a break (REPAIRED)
+ok   DCIM\IMG_0005.JPG: REPAIRED, as in one run without a break (REPAIRED)
+ok   DCIM\IMG_0006.JPG: REPAIRED, as in one run without a break (REPAIRED)
+ok   DCIM\IMG_0007.JPG: NOT REPAIRED, as in one run without a break (NOT REPAIRED)
+ok   Documents\report.docx: REPAIRED, as in one run without a break (REPAIRED)
+ok   Documents\report.pdf: REPAIRED, as in one run without a break (REPAIRED)
+ok   Music\old-glitch.mp3: SALVAGED, as in one run without a break (SALVAGED)
+ok   Music\song.mp3: REPAIRED, as in one run without a break (REPAIRED)
+ok   Music\track.flac: REPAIRED, as in one run without a break (REPAIRED)
+ok   RAW\IMG_0100.CR2: SALVAGED, as in one run without a break (SALVAGED)
+ok   no repair left half-done in REPAIR
+ok   every repaired file was put back once (7)
+ok   one repaired version per file in REPAIR\repaired\auto
+ok   the photo with an intact twin is exactly the original in WORK
+ok   a fresh check of WORK passes: All 16 copies are exactly what was copied off the disk (1 MB) - or, for 7 of them, exactly the repaired version put back in its place (step 8).
+
+17 of 17 checks passed

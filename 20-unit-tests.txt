@@ -1,0 +1,197 @@
+   Compiling automatic-recovery-probe v2.0.0 (D:\a\Automatic-Recovery-Probe\Automatic-Recovery-Probe)
+    Finished `release` profile [optimized] target(s) in 57.31s
+     Running unittests src\lib.rs (target\release\deps\automatic_recovery_probe-2f26722e20ef8efd.exe)
+
+running 177 tests
+test aim::tests::aim_clis_answer_is_read ... ok
+test autorepair::tests::a_lost_pdf_trailer_is_written_again ... ok
+test autorepair::tests::a_photo_damaged_in_the_middle_is_not_taken_for_one_cut_short ... ok
+test autorepair::tests::a_rebuilt_png_keeps_what_the_png_said_about_itself ... ok
+test autorepair::tests::a_photos_own_small_preview_is_found_inside_it ... ok
+test autorepair::tests::a_file_of_what_only_looks_like_jpeg_starts_is_not_searched_for_ever ... ok
+test autorepair::tests::a_zips_parts_are_walked_without_its_index ... ok
+test autorepair::tests::an_intact_twin_is_told_from_a_copy_of_the_damage ... ok
+test autorepair::tests::a_video_rebuilt_from_a_pattern_gets_its_own_date_inside ... ok
+test autorepair::tests::camera_name_starts_are_compared ... ok
+test autorepair::tests::jpeg_parts_are_found ... ok
+test autorepair::tests::previews_inside_a_file_are_found ... ok
+test autorepair::tests::qpdfs_answers_are_read ... ok
+test autorepair::tests::sevenzips_errors_about_parts_are_told_from_its_errors_about_the_zip ... ok
+test autorepair::tests::wav_headers_are_set_right ... ok
+test checklist::tests::boxes_phases_and_checkpoints_are_found ... ok
+test checklist::tests::checkpoints_follow_the_checks ... ok
+test checklist::tests::a_first_copy_goes_beside_recovery_probes_own ... ok
+test checklist::tests::checkpoints_hold_when_the_clocks_go_back ... ok
+test checklist::tests::html_blocks ... ok
+test checklist::tests::copies_we_wrote_are_known_and_edited_ones_are_left_alone ... ok
+test checklist::tests::inline_markdown ... ok
+test checklist::tests::next_is_after_the_last_ticked ... ok
+test checklist::tests::the_copy_round_trip ... ok
+test checklist::tests::the_final_check_needs_both_copies ... ok
+test checklist::tests::the_real_checklist_parses ... ok
+test checklist::tests::the_copy_is_found_in_a_folder_inside ... ok
+test autorepair::tests::a_file_being_tried_when_stop_is_clicked_is_tried_again_next_time ... ok
+test cooling::tests::never_stuck_paused ... ok
+test cooling::tests::pauses_when_hot_and_carries_on_when_cool ... ok
+test cooling::tests::where_it_pauses ... ok
+test checklist::tests::ticks_are_kept_and_follow_renamed_lines ... ok
+test disk::tests::aligned_reads_return_exact_bytes ... ok
+test autorepair::tests::a_whole_photo_read_whole_is_handed_off_as_it_was ... ok
+test exfat::tests::a_folder_record_claiming_more_than_a_folder_can_hold_is_read_only_so_far ... ok
+test exfat::tests::checksums_match_the_spec_examples ... ok
+test exfat::tests::dates_and_offsets ... ok
+test exfat::tests::a_loop_in_the_fat_is_read_once_and_said ... ok
+test extra::tests::a_tool_that_flags_too_many_of_a_kind_is_not_believed ... ok
+test extra::tests::ffmpeg_errors_are_told_from_chatter ... ok
+test extra::tests::library_previews_are_not_checked ... ok
+test extra::tests::mp3val_warnings_are_read ... ok
+test extra::tests::qpdf_results_are_read ... ok
+test extra::tests::sevenzip_results_are_read ... ok
+test extra::tests::sound_is_played_through_on_one_thread ... ok
+test extra::tests::which_checks_a_file_gets ... ok
+test extra::tests::with_the_map_check_only_files_read_whole_are_weighed ... ok
+test fmt::tests::commas_like_python ... ok
+test exfat::tests::a_boot_sector_whose_sizes_do_not_fit_is_passed_over_for_its_backup ... ok
+test fmt::tests::csv_quoting_like_python ... ok
+test fmt::tests::csv_reads_back ... ok
+test extra::tests::what_was_checked_is_remembered ... ok
+test fmt::tests::moments_are_put_in_order_across_the_clocks_going_back ... ok
+test fmt::tests::sizes_like_python ... ok
+test fmt::tests::utc_moments_are_written_for_ffmpeg ... ok
+test formats::tests::sniff_basics ... ok
+test formats::tests::splitext_matches_python ... ok
+test gpt::tests::crc32_matches_zlib ... ok
+test guard::tests::reads_what_diskpart_says ... ok
+test handoff::tests::a_path_is_the_same_with_or_without_the_long_path_prefix ... ok
+test handoff::tests::a_try_brought_back_as_salvaged_then_renamed_comes_back_as_repaired ... ok
+test handoff::tests::a_repair_made_in_place_in_the_hand_off_is_kept_once_it_leaves ... ok
+test handoff::tests::an_earlier_version_brought_back_by_itself_again_is_taken ... ok
+test handoff::tests::bring_back_from_above_repair_skips_its_own_folders_only ... ok
+test handoff::tests::the_mac_script_only_uses_what_macos_has ... ok
+test handoff::tests::the_hand_off_never_deletes_what_the_person_saved_in_it ... ok
+test handoff::tests::where_unrepaired_files_go ... ok
+test handoff::tests::bring_back_takes_repaired_files_by_number ... ok
+test handoff::tests::two_versions_of_one_number_are_brought_back_once ... ok
+test holes::tests::agrees_with_slow_reference_on_random_files ... ok
+test image::tests::a_long_weak_stretch_is_stepped_over_not_worn_down ... ok
+test image::tests::a_place_that_resets_the_case_is_got_past ... ok
+test image::tests::a_place_the_ssd_cannot_read_is_zeros_and_recorded ... ok
+test image::tests::a_hot_ssd_is_left_to_cool ... ok
+test image::tests::a_stopped_image_is_still_checked_against_the_ssd_bytes ... ok
+test cli::tests::whether_new_disks_are_held_off_is_windows_own_answer ... ok
+test image::tests::an_image_is_exact_checked_and_carries_on_after_a_stop ... ok
+test image::tests::only_the_copy_is_imaged ... ok
+test join::tests::a_copy_further_down_the_folders_is_the_copy_of_another_file ... ok
+test join::tests::a_repaired_copy_put_back_is_checked_as_it_is ... ok
+test join::tests::copies_are_found_by_name_size_and_folders ... ok
+test join::tests::copies_whose_names_were_changed_are_found_too ... ok
+test join::tests::tsv_round_trip ... ok
+test live::tests::kinds_by_name ... ok
+test live::tests::kinds_in_words ... ok
+test live::tests::nothing_is_kept_unless_the_page_watches ... ok
+test live::tests::the_board_adds_up ... ok
+test live::tests::the_drive_strip_and_its_speed ... ok
+test live::tests::what_happened_is_kept ... ok
+test mapcheck::tests::a_drive_as_big_as_the_old_one_is_not_taken_for_the_copy ... ok
+test image::tests::the_checksum_and_the_list_are_there_before_the_image_is ... ok
+test mapcheck::tests::an_image_of_the_copy_is_the_copy_by_its_exfat_volume ... ok
+test mapfile::tests::reads_the_real_layout ... ok
+test mapfile::tests::sizes_with_suffixes ... ok
+test mapfile::tests::the_copied_range_is_read_from_the_command_line ... ok
+test mp4time::tests::a_moment_past_any_real_one_is_left_alone ... ok
+test mapcheck::tests::what_windows_lists_is_compared_name_by_name ... ok
+test mp4time::tests::text_dates_are_read_only_when_whole ... ok
+test notify::tests::the_words_go_in_safely ... ok
+test mp4time::tests::a_videos_moments_are_read_and_moved_in_place ... ok
+test proptests::a_checksum_carried_on_from_its_saved_state_is_the_same ... ok
+test proptests::a_mapfile_reads_back_as_ddrescue_wrote_it ... ok
+test proptests::a_name_made_safe_for_windows_is_safe_and_stays_so ... ok
+test proptests::every_copy_name_carries_exactly_its_own_number ... ok
+test proptests::every_list_reads_back_as_it_was_written ... ok
+test repair::tests::a_files_place_in_its_package_is_found_by_folders ... ok
+test repair::tests::a_path_inside_work_is_found_letter_by_letter ... ok
+test repair::tests::a_put_back_the_pc_never_finished_is_finished ... ok
+test image::tests::stop_works_at_once_while_a_weak_piece_is_read_slowly ... ok
+test repair::tests::a_put_back_the_pc_stopped_before_listing_is_listed ... ok
+test repair::tests::listed_paths ... ok
+test repair::tests::listed_paths_with_letters_longer_or_shorter_in_lower_case ... ok
+test repair::tests::plans ... ok
+test repair::tests::tags ... ok
+test repair::tests::the_programs_own_repairs_not_going_back_is_a_problem_for_start ... ok
+test image::tests::after_a_crash_it_carries_on_only_from_the_safe_point ... ok
+test repair::tests::what_is_set_aside_never_goes_over_what_was_set_aside_before ... ok
+test repair::tests::what_a_mac_adds_on_a_usb_stick_is_left_alone ... ok
+test repair::tests::isolate_repair_put_back_undo_evaluate ... ok
+test rescue::tests::a_record_claiming_more_than_the_volume_holds_is_not_believed ... ok
+test rescue::tests::copies_the_power_cut_left_as_zeros_are_copied_again ... ok
+test rescue::tests::names_for_lost_data ... ok
+test rescue::tests::names_windows_can_use ... ok
+test rescue::tests::copying_again_leaves_the_repaired_versions_put_back ... ok
+test selftest::tests::the_built_in_disk_unpacks ... ok
+test sha256::tests::a_digest_carried_on_from_its_saved_state_is_the_same ... ok
+test sha256::tests::a_file_read_from_the_drive_gives_the_same_digest ... ok
+test sha256::tests::pieces_and_zeros_give_the_same_digest ... ok
+test sha256::tests::processor_instructions_agree_with_the_plain_version ... ok
+test sha256::tests::the_standards_examples ... ok
+test showme::tests::only_what_is_listed_opens ... ok
+test rescue::tests::a_disk_that_stops_answering_stops_the_copy_and_nothing_is_lost ... ok
+test showme::tests::the_answers_only_ask ... ok
+test sys::tests::a_file_written_safely_replaces_the_old_one_whole ... ok
+test taskbar::tests::it_calls_you_once_when_it_needs_you ... ok
+test taskbar::tests::the_bar_in_words_for_windows_terminal ... ok
+test taskbar::tests::the_page_is_told_by_its_title ... ok
+test taskbar::tests::windows_takes_the_bars ... ok
+test tools::tests::a_tool_is_run_with_a_time_limit_and_can_be_stopped ... ok
+test tools::tests::ffmpeg_versions_are_read ... ok
+test tools::tests::tools_are_found_in_the_programs_own_folder_first ... ok
+test tools::tests::version_lines_are_picked ... ok
+test verify::tests::a_changed_or_missing_copy_is_found ... ok
+test verify::tests::a_record_claiming_any_length_does_not_overflow_the_totals ... ok
+test verify::tests::every_check_is_recorded_in_order ... ok
+test verify::tests::the_map_check_totals_are_read ... ok
+test verify::tests::the_safety_check_says_where_something_went_missing ... ok
+test rescue::tests::stopping_and_starting_again_gives_the_same_copies_and_list ... ok
+test walk::tests::a_name_ending_in_a_space_or_dot_is_opened_literally_on_windows ... ok
+test walk::tests::library_by_name_and_by_shape ... ok
+test web::auto::tests::drive_names_are_told_from_adapter_names ... ok
+test web::auto::tests::folders_inside_each_other_or_on_one_drive_are_refused ... ok
+test web::auto::tests::spare_is_not_switched_off_under_a_running_job ... ok
+test web::auto::tests::stages_survive_being_kept ... ok
+test web::auto::tests::what_a_stage_said_over_several_lines_is_kept_whole ... ok
+test web::back::tests::drives_are_named_in_a_list ... ok
+test walk::tests::a_folder_that_goes_away_stops_the_check ... ok
+test web::finalise::tests::a_changed_work_never_spreads_over_the_second_copy ... ok
+test web::places::tests::defender_never_gets_told_to_skip_windows_or_a_whole_drive ... ok
+test web::finalise::tests::the_second_copy_carries_on_and_keeps_dates ... ok
+test web::tests::a_saved_state_with_a_byte_that_is_not_utf8_is_still_read ... ok
+test web::tests::damage_is_named_from_the_folder ... ok
+test web::tests::forms_decode ... ok
+test web::tests::keys_are_random ... ok
+test web::tests::photos_come_only_from_inside_repair ... ok
+test web::tests::state_lines_round_trip ... ok
+test web::tests::the_disk_under_a_folder_the_program_writes_to_is_found ... ok
+test web::tests::the_pace_is_the_recent_one ... ok
+test win::tests::arguments_survive_windows_quoting ... ok
+test win::tests::edge_is_found ... ok
+test win::tests::temperatures_are_read ... ok
+test win::tests::windows_own_programs_by_their_full_path ... ok
+test winset::tests::exclusions_cover_folders_below_them ... ok
+test web::tests::a_checklist_copy_that_is_not_utf8_is_left_as_it_is ... ok
+test showme::tests::the_answers_are_good_powershell ... ok
+test winset::tests::powershell_reads_the_quoted_words_back ... ok
+test notify::tests::windows_takes_it ... ok
+
+test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.78s
+
+     Running unittests src\main.rs (target\release\deps\automatic_recovery_probe-cb51fda79248c872.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests automatic_recovery_probe
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

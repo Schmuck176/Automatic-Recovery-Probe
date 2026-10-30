@@ -1,0 +1,2 @@
+   Compiling automatic-recovery-probe v2.0.0 (D:\a\Automatic-Recovery-Probe\Automatic-Recovery-Probe)
+    Finished `release` profile [optimized] target(s) in 1m 24s

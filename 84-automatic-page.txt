@@ -1,0 +1,40 @@
+ok   the page opens on the Automatic tab
+ok   the steps are in their own tab
+ok   Get ready finds the mapfile
+ok   Get ready lists the tools
+ok   the self-test passes and Get ready says Ready
+ok   the folders are chosen
+ok   the folders say what they need, from the mapfile (Needs 16 MB · the whole SSD, in one file
+D: Temp · 218 GB fr | Needs up to 16 MB · the old drive's size, until the map chec)
+ok   Start runs
+ok   while Start runs, the window's title says how it gets on (Checking everything is ready · Automatic Recovery Probe)
+ok   Start finishes: Start is done: every stage ran.
+ok   Now says what just happened, newest first, each with its time (07:36 Start is done: every stage ran | 07:36 Stage 15 done: Getting the rest ready for the Mac or a paid tool (0 s): 36 files are ready in D:\a\_temp\aui\SPARE\REPAIR\hand-off for whoever can do better)
+ok   the window's title says Start is done (Start is done · Automatic Recovery Probe)
+ok   every stage is done or skipped (14 done, 1 skipped)
+ok   WORK says what it holds, and the picture shows the sizes (Holds 533 KB · 96 files
+D: Temp · 218 GB free of 220 GB
+REPAIR beside )
+ok   the live numbers: GB and files done, by kind, each kind with its ring, and the file being worked on (5.0 GB of 20 GB copied1,234 of 5,000 filesPhotos1,000 of 4,000 · 4.0 GB of 15 GBVideos234 of 1,000 · 1.0 GB of 5.0 GBNow)
+ok   sizes are rounded to MB or GB (300 MB, 4.3 GB, 932 GB, 1,863 GB)
+ok   the time left and the percentage read naturally (less than a minute left; about 10 min left; about 2 h 10 min left; about 4 h left)
+ok   when it will be done reads as a time on the clock, and what happened by day (done around 07:45; done around 09:35 tomorrow)
+ok   the SSD's strip says what was read, slowly or not at all, its speed sagging and its temperature, and fits a narrow window (start373 GB of 932 GB readend (932 GB)readread slowly: 1 placecould not be read: 4 KB in 1)
+ok   and says when reading is paused while it cools down
+ok   Windows notifications are on to begin with
+ok   Windows notifications are turned off and on by their box
+ok   the steps tab shows the map check and the copying done
+ok   What is left shows the repairs
+ok   Finalise finishes
+ok   the list on the left names the seven parts
+ok   7. Put Windows back as it was says Windows is as it was (Windows is as it was: the program has changed nothing that needs putting back.
+S)
+ok   Finalise no longer says it puts Windows' settings back
+ok   every icon has words beside it
+ok   at 2560 px: where you are, the guide and Now side by side
+ok   at half the screen: Now under where you are, the guide beside them
+ok   at 900 px: where you are on top, and nothing running in the way
+ok   nothing sticks out of a narrow window (-15 px)
+ok   no errors in the page
+
+34 of 34 checks passed

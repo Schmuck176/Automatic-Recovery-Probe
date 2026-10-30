@@ -1,0 +1,11 @@
+ok   the download starts ({'ok': True, 'job': 1})
+Downloading qpdf 12.3.2 from https://github.com/qpdf/qpdf/releases/download/v12.3.2/qpdf-12.3.2-msvc64.zip...
+Downloaded and checked: 24,555,583 bytes, SHA-256 8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202. Unpacking...
+qpdf is ready: D:\a\_temp/dl\home\tools\qpdf-12.3.2\qpdf-12.3.2-msvc64\bin\qpdf.exe
+ok   the download finishes (done )
+ok   qpdf is found in the program's own tools folder (D:\a\_temp/dl\home\tools\qpdf-12.3.2\qpdf-12.3.2-msvc64\bin\qpdf.exe)
+ok   it is version 12.3.2 (qpdf version 12.3.2)
+ok   the checked download is kept beside it
+ok   nothing half-done is left (['qpdf-12.3.2', 'qpdf-12.3.2.zip'])
+
+6 of 6 checks passed

@@ -1,0 +1,47 @@
+Before:
+     SAN policy: OnlineAll (new disks are switched on as soon as they are plugged in)
+     SAN policy in the registry: Some(1)
+     Held off now: false
+     disk 0: offline false, read-only false, writable Some(true)
+     disk 1: offline false, read-only false, writable Some(true)
+A. A disk Windows is simply given:
+     attached as disk 2, drive E:; {'offline': False, 'read_only': False, 'reason': ''}
+     its top folder now holds: ['Big folder', 'Fragmented folder', 'Hidden after damage', 'Music', 'Photos', 'Videos', 'empty file.txt', 'notes.txt']
+     after 20 seconds attached: not one byte changed
+B. The same kind of disk, protected the way the front end does it:
+ok   prepare: Before: new disks are switched on as soon as they are plugged in. Now: new disks stay switched off until something switches them on.
+ok   the disk arrives switched off (Windows says {'offline': True, 'read_only': True, 'reason': 'Policy'})
+ok   it has no drive letter
+     the program sees: ['disk 2: offline true, read-only true, writable Some(false)']
+ok   diskpart says new disks stay switched off (['SAN policy in the registry: Some(1)', 'Held off now: true'])
+ok   the map check reads the disk while it is switched off
+ok   protect --online: disk 2: read-only true, offline false, writable Some(false)
+ok   Windows now says the disk is read-only and switched on ({'offline': False, 'read_only': True, 'reason': ''})
+ok   Windows mounts it (drive E:)
+ok   writing a file to it fails ([Errno 13] Permission denied: 'E:\\written-by-the-test.txt')
+ok   its files can be read: ['Big folder', 'Fragmented folder', 'Hidden after damage', 'Music', 'Photos', 'Videos']
+ok   a file reads back exactly
+     after all that: not one byte changed
+ok   the protected disk came back unchanged
+ok   restore: Put back: new disks are switched on as soon as they are plugged in.
+ok   Windows' setting is back as it was (['SAN policy: OnlineAll (new disks are switched on as soon as they are plugged in)'])
+C. The protected disk attached again, with Windows' setting back to normal:
+     Windows does not remember it read-only ({'offline': False, 'read_only': False, 'reason': ''})
+D. A disk plugged in before Windows was ready, protected after:
+     attached as disk 2, drive E:; {'offline': False, 'read_only': False, 'reason': ''}
+ok   protect: disk 2: read-only true, offline false, writable Some(false)
+ok   switched off and on again: disk switched off / disk switched on
+ok   writing a file to it fails ([Errno 13] Permission denied: 'E:\\written-by-the-test.txt')
+     in all: not one byte changed
+E. Windows' own disk is never touched:
+ok   disk-guard protect 0 on Windows' own disk is refused: disk 0 holds Windows itself: the program never switches it off or marks it read-only
+ok   disk-guard offline 0 on Windows' own disk is refused: disk 0 holds Windows itself: the program never switches it off or marks it read-only
+ok   disk-guard protect 0 --online on Windows' own disk is refused: disk 0 holds Windows itself: the program never switches it off or marks it read-only
+ok   Windows' own disk is as it was ({'offline': False, 'read_only': False, 'reason': ''})
+After:
+     SAN policy: OnlineAll (new disks are switched on as soon as they are plugged in)
+     SAN policy in the registry: Some(1)
+     Held off now: false
+     disk 0: offline false, read-only false, writable Some(true)
+     disk 1: offline false, read-only false, writable Some(true)
+Disk protection checks: 21 of 21 passed

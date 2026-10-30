@@ -1,0 +1,61 @@
+Chocolatey v2.7.4
+Installing the following packages:
+ffmpeg;qpdf
+By installing, you accept licenses for the packages.
+Downloading package from source 'https://community.chocolatey.org/api/v2/'
+
+ffmpeg v9.0.2 [Approved]
+ffmpeg package files install completed. Performing other installation steps.
+Extracting 64-bit C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg-release-essentials.7z to C:\ProgramData\chocolatey\lib\ffmpeg\tools...
+C:\ProgramData\chocolatey\lib\ffmpeg\tools
+Removing extracted archive.
+Sleeping for 2 seconds to allow anti-viruses to finish scanning...
+Renaming ffmpeg directory to common name (Try 1 / 3)
+Successfully renamed directory.
+ ShimGen has successfully created a shim for ffmpeg.exe
+ ShimGen has successfully created a shim for ffplay.exe
+ ShimGen has successfully created a shim for ffprobe.exe
+ The install of ffmpeg was successful.
+  Deployed to 'C:\ProgramData\chocolatey\lib\ffmpeg\tools'
+Downloading package from source 'https://community.chocolatey.org/api/v2/'
+
+qpdf v12.4.2 [Approved]
+qpdf package files install completed. Performing other installation steps.
+Extracting 64-bit C:\ProgramData\chocolatey\lib\qpdf\tools\qpdf-12.4.2-mingw64_x64.zip to C:\ProgramData\chocolatey\lib\qpdf\tools...
+C:\ProgramData\chocolatey\lib\qpdf\tools
+ ShimGen has successfully created a shim for fix-qdf.exe
+ ShimGen has successfully created a shim for qpdf.exe
+ ShimGen has successfully created a shim for zlib-flate.exe
+ The install of qpdf was successful.
+  Deployed to 'C:\ProgramData\chocolatey\lib\qpdf\tools'
+
+Chocolatey installed 2/2 packages. 
+ See the log for details (C:\ProgramData\chocolatey\logs\chocolatey.log).
+
+Enjoy using Chocolatey? Explore more amazing features to take your
+experience to the next level at
+ https://chocolatey.org/compare
+D:\a\_temp/tools-dl:
+mp3val
+mp3val.zip
+untrunc
+
+D:\a\_temp/tools-dl/mp3val:
+changelog.txt
+manual.html
+mp3val.exe
+
+D:\a\_temp/tools-dl/untrunc:
+untrunc_x64
+untrunc_x64.zip
+
+D:\a\_temp/tools-dl/untrunc/untrunc_x64:
+AVCODEC-57.DLL
+AVFORMAT-57.DLL
+AVUTIL-55.DLL
+LIBGCC_S_SEH-1.DLL
+LIBSTDC++-6.DLL
+LIBWINPTHREAD-1.DLL
+SWRESAMPLE-2.DLL
+untrunc-gui.exe
+untrunc.exe
