@@ -521,34 +521,7 @@ fn run_tool(exe: &Path, args: Vec<OsString>, dir: Option<&Path>, secs: u64, stop
 fn plays(env: &Env, p: &Path) -> Option<(bool, Vec<String>)> {
     let ff = env.ffmpeg.as_ref()?;
     let size_mb = std::fs::metadata(p).map(|m| m.len() >> 20).unwrap_or(0);
-    let r = run_tool(
-        ff,
-        vec![
-            "-hide_banner".into(),
-            "-nostdin".into(),
-            "-v".into(),
-            "error".into(),
-            // One thread: decoding a damaged video on several, FFmpeg finds
-            // one more error or one fewer from one time to the next, and the
-            // errors are what a repaired version is judged by (fewer than the
-            // damaged copy's) - so the same file came out repaired one time
-            // and not the next.
-            "-threads".into(),
-            "1".into(),
-            "-i".into(),
-            p.as_os_str().to_os_string(),
-            "-map".into(),
-            "0:v?".into(),
-            "-map".into(),
-            "0:a?".into(),
-            "-f".into(),
-            "null".into(),
-            "-".into(),
-        ],
-        None,
-        900 + size_mb,
-        env.stop,
-    )?;
+    let r = run_tool(ff, crate::extra::play_through_args(p), None, 900 + size_mb, env.stop)?;
     if r.stopped || r.timed_out {
         return None;
     }
@@ -589,18 +562,34 @@ fn probe_ok(p: &Path) -> Result<(), String> {
 
 /// A version checks out: its structure is right, and FFmpeg plays it
 /// through (when FFmpeg is there) with fewer errors than the damaged copy
-/// (`before`: how that played) - or as few, where the damaged copy's
+/// (`before`: how that played) - or about as many, where the damaged copy's
 /// structure was broken and this one's is right (a container rebuilt round
 /// the same streams: the errors where data was lost stay, the file opens).
+/// ("About": decoding a damaged video on several threads, FFmpeg finds an
+/// error more or fewer from one time to the next - the same file must not
+/// be repaired one time and not the next.)
 fn media_checks_out(env: &Env, made: &Path, before: Option<&(bool, Vec<String>)>, damaged: Option<&Path>) -> Result<String, String> {
     probe_ok(made)?;
-    let Some((ok, errs)) = plays(env, made) else { return Ok(String::new()) };
+    let Some((ok, errs)) = plays(env, made) else {
+        // No FFmpeg here: the program's own check of its structure is all
+        // there is. FFmpeg there, but not through it (its time limit, or
+        // Stop): not checked, so not taken.
+        return if env.ffmpeg.is_none() {
+            Ok(String::new())
+        } else {
+            Err("FFmpeg did not get to the end of it (its time limit, or Stop), so it was not checked".to_string())
+        };
+    };
     if !ok {
         return Err(format!("FFmpeg cannot play it: {}", errs.first().cloned().unwrap_or_default()));
     }
     if let Some((was_ok, was)) = before {
-        let mended_structure = || damaged.is_some_and(|d| probe_ok(d).is_err());
-        if *was_ok && !was.is_empty() && (errs.len() > was.len() || (errs.len() == was.len() && !mended_structure())) {
+        let mended_structure = damaged.is_some_and(|d| probe_ok(d).is_err());
+        // (Sound is decoded on one thread: the same errors every time.)
+        let ext = ext_lower(&made.to_string_lossy());
+        let margin = if VIDEO_ISO.contains(&ext.as_str()) || VIDEO_OTHER.contains(&ext.as_str()) { (was.len() / 10).max(1) } else { 0 };
+        let worse = if mended_structure { errs.len() > was.len() + margin } else { errs.len() >= was.len() };
+        if *was_ok && !was.is_empty() && worse {
             return Err("it plays no better than the damaged copy".to_string());
         }
     }
@@ -647,11 +636,11 @@ fn fix_jpeg(env: &Env, src: &Path, tmp: &Path, read_whole: bool) -> Try {
                 Err(e) => no(format!("its end marker was put back, but it still does not check out ({e})"), Next::Paid),
             }
         }
-        JpegLayout::Complete(_) if read_whole => no(
-            "every part of the photo is in place, and every byte of it was read from the old drive: it is exactly as it was \
-             there",
-            Next::Nothing,
-        ),
+        // (READ_WHOLE, word for word: the hand-off and the evaluation tell
+        // the files that are as they were on the old drive by it.)
+        JpegLayout::Complete(_) if read_whole => {
+            no(format!("every part of the photo is in place. {READ_WHOLE}: it is exactly as it was there"), Next::Nothing)
+        }
         JpegLayout::Complete(_) => no(
             "every part of the photo is in place, but some of its picture data was never read: it opens, with part of the \
              picture grey or garbled from that point; no tool can bring that part back (a photo repair tool's free preview \
@@ -659,8 +648,8 @@ fn fix_jpeg(env: &Env, src: &Path, tmp: &Path, read_whole: bool) -> Try {
             Next::Paid,
         ),
         JpegLayout::Garbled if read_whole => no(
-            "its picture data has a mistake in it partway through, but every byte of it was read from the old drive: it \
-             is exactly as it was there",
+            format!("its picture data has a mistake in it partway through. {READ_WHOLE}: it is exactly as it was there, the \
+                     mistake with it"),
             Next::Nothing,
         ),
         JpegLayout::Garbled => no(
@@ -1037,6 +1026,9 @@ fn fix_reencode_flac(env: &Env, src: &Path, tmp: &Path) -> Try {
             "error".into(),
             "-err_detect".into(),
             "ignore_err".into(),
+            // (Sound decoded on one thread, as it is checked: extra::play_through_args.)
+            "-threads:a".into(),
+            "1".into(),
             "-i".into(),
             src.as_os_str().to_os_string(),
             "-map".into(),
@@ -2143,6 +2135,14 @@ pub fn run(
                         .unwrap_or_default();
                     no(format!("the repair hit an internal error on this file ({why}): left for the hand-off"), Next::Paid)
                 });
+            // Stopped while it was being tried: what came of it is not what
+            // it would be (a tool cut short, a check not made). Nothing of it
+            // is kept or written down; the next run tries it again.
+            if stop() {
+                let _ = std::fs::remove_dir_all(&tmp);
+                o.stopped = true;
+                break;
+            }
             match tried {
                 Try::Made { file, how, tool, salvage, note } if whole_only && !salvage => {
                     // Exactly as it was on the old drive: it stays in WORK.
@@ -2409,12 +2409,103 @@ mod tests {
         // ...and not where the damaged copy's was right too: nothing gained.
         assert!(media_checks_out(&env, &made, Some(&was_whole), Some(&whole)).is_err());
         assert!(media_checks_out(&env, &made, Some(&was_broken), None).is_err());
-        // More errors than the damaged copy: never; fewer: always.
+        // More errors: never; fewer: always.
         errors(&made, 4);
         assert!(media_checks_out(&env, &made, Some(&was_broken), Some(&broken)).is_err());
         errors(&made, 2);
         assert!(media_checks_out(&env, &made, Some(&was_whole), Some(&whole)).is_ok());
+        // A video: an error more is FFmpeg's own way (decoding on several
+        // threads) from one time to the next - still as many; more, never.
+        let mp4 = |index: bool| {
+            let bx = |kind: &[u8; 4], body: &[u8]| [&((body.len() + 8) as u32).to_be_bytes()[..], kind, body].concat();
+            let mut v = bx(b"ftyp", b"isom\0\0\0\0isom");
+            v.extend(bx(b"mdat", &[1u8; 200]));
+            if index {
+                v.extend(bx(b"moov", &bx(b"mvhd", &[0u8; 100])));
+            }
+            v
+        };
+        let (made_v, broken_v) = (dir.join("made.mp4"), dir.join("broken.mp4"));
+        std::fs::write(&made_v, mp4(true)).unwrap();
+        std::fs::write(&broken_v, mp4(false)).unwrap();
+        assert!(probe_ok(&made_v).is_ok() && probe_ok(&broken_v).is_err());
+        errors(&broken_v, 10);
+        let was_v = plays(&env, &broken_v).unwrap();
+        for (n, taken) in [(10, true), (11, true), (12, false), (3, true)] {
+            errors(&made_v, n);
+            assert_eq!(media_checks_out(&env, &made_v, Some(&was_v), Some(&broken_v)).is_ok(), taken, "{n} errors");
+        }
+        // FFmpeg there, but not through it (Stop, or its time limit): not taken.
+        let stopped = || true;
+        let mut env2 = bare_env(&dir, &stopped);
+        env2.ffmpeg = env.ffmpeg.clone();
+        let e = media_checks_out(&env2, &made, Some(&was_broken), Some(&broken)).unwrap_err();
+        assert!(e.contains("not checked"), "{e}");
+        // No FFmpeg at all: the structure check is all there is.
+        assert!(media_checks_out(&bare_env(&dir, &stop), &made, None, None).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_whole_photo_read_whole_is_handed_off_as_it_was() {
+        // A photo every byte of which was read (the map check names nothing
+        // of it), on a list of damaged files: exactly as it was on the old
+        // drive, and the hand-off says so - not "a glitch where data was lost".
+        let base = std::env::temp_dir().join(format!("rp-ar-whole-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(&work).unwrap();
+        let d = tiny_jpeg();
+        std::fs::write(work.join("IMG_0002.JPG"), &d).unwrap();
+        let sha = crate::sha256::file_hex(&work.join("IMG_0002.JPG"), &|| false).unwrap().unwrap();
+        let mut log = csv_row(&crate::rescue::LOG_HEADER);
+        log.push_str(&csv_row(&["FILE", "IMG_0002.JPG", &d.len().to_string(), "copied", "IMG_0002.JPG", "", &sha]));
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let repair = base.join(repair::REPAIR_DIR);
+        std::fs::create_dir_all(repair.join(repair::LISTS)).unwrap();
+        std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "IMG_0002.JPG\r\n").unwrap();
+        let mc = base.join("map-check");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join(crate::join::TSV_NAME), format!("{}\r\n", crate::join::TSV_HEADER)).unwrap();
+        repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: Some(mc) };
+        let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(o.attempts.len(), 1);
+        assert!(o.attempts[0].how.contains(READ_WHOLE), "{}", o.attempts[0].how);
+        let h = crate::handoff::prepare(&work).unwrap();
+        assert_eq!((h.as_before.len(), h.nothing.len()), (1, 0), "{h:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_file_being_tried_when_stop_is_clicked_is_tried_again_next_time() {
+        let base = std::env::temp_dir().join(format!("rp-ar-stop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(work.join("IMG_0001.HEIC"), vec![7u8; 3000]).unwrap();
+        let sha = crate::sha256::file_hex(&work.join("IMG_0001.HEIC"), &|| false).unwrap().unwrap();
+        let mut log = csv_row(&crate::rescue::LOG_HEADER);
+        log.push_str(&csv_row(&["FILE", "IMG_0001.HEIC", "3000", "copied", "IMG_0001.HEIC", "", &sha]));
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let repair = base.join(repair::REPAIR_DIR);
+        std::fs::create_dir_all(repair.join(repair::LISTS)).unwrap();
+        std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "IMG_0001.HEIC\r\n").unwrap();
+        let iso = repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
+        assert_eq!(iso.copied.len(), 1, "{:?}", iso.left);
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None };
+        // Stop clicked while the file is being tried (the second time Stop is
+        // looked at: the first is before it starts).
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let stop_now = || asked.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 1;
+        let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &stop_now).unwrap();
+        assert!(o.stopped && o.attempts.is_empty(), "{:?}", o.attempts);
+        assert!(read_log(&repair).is_empty(), "nothing written down of it");
+        // The next run tries it.
+        let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(o.attempts.len(), 1);
+        assert_eq!(read_log(&repair).len(), 1);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
@@ -2439,7 +2530,7 @@ mod tests {
         let env = bare_env(&dir, &stop);
         for (bytes, read_whole, want) in [
             (d.clone(), false, "damaged partway through, but its end is there"),
-            (d.clone(), true, "every byte of it was read from the old drive"),
+            (d.clone(), true, READ_WHOLE),
             (cut.to_vec(), false, "an end marker put back does not make it whole"),
         ] {
             let src = dir.join("input.jpg");

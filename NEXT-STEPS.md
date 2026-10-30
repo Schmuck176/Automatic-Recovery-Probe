@@ -825,17 +825,41 @@ sure bug fixes don't break other things."
     place it went wrong): NOT REPAIRED, "damaged partway through", handed
     off (or "exactly as it was there" when every byte was read). An end put
     back must also make the photo whole, or it is not taken.
-  - **The same damaged video came out repaired one time and not the next.**
-    FFmpeg decoding on several threads finds one error more or fewer from one
-    time to the next (1 time in 7 here), and a rebuilt version counts only
-    with fewer errors than the damaged copy. plays() decodes on one thread
-    now: the same answer every time (slower on big videos).
-  - **A container rebuilt round the same streams did not count**: a video
-    whose header was destroyed (MISMATCH) or that was cut short, rebuilt by
-    FFmpeg with a right header and the same errors where data was lost, was
-    "no better than the damaged copy". It counts now where the damaged
-    copy's structure was broken and the new one's is right; more errors
-    never count, and as many do not where the structure was right already.
+  - **FFmpeg on several threads said nothing of a damaged FLAC.** Decoding
+    sound on several threads, FFmpeg 6 (Linux CI's, and here) played 5 of 6
+    damaged FLACs "without an error" that on one thread gave four errors
+    each: the extra checks called them fine, and the repairs left them as
+    "it plays as it is" instead of re-encoding them (FFmpeg 9 on Windows CI
+    did report them). Sound is now always decoded on one thread
+    (extra::play_through_args, used by both); auto_check now requires its
+    damaged FLAC to be re-encoded, which the old build fails on Linux.
+  - **The same damaged video came out repaired one time and not the next**:
+    on several threads FFmpeg finds an error more or fewer from one time to
+    the next (28 or 29 here, 1 time in 7), and a rebuilt version counted
+    only with fewer errors than the damaged copy. And **a container rebuilt
+    round the same streams did not count at all**: a video whose header was
+    destroyed (MISMATCH) or that was cut short, rebuilt by FFmpeg with a
+    right header and the same errors where data was lost, was "no better
+    than the damaged copy". Now, where the damaged copy's structure was
+    broken and the new one's is right, about as many errors count (for a
+    video one in ten more, at least one, is FFmpeg's own way; for sound,
+    on one thread, none more); where the structure was right already, fewer
+    it must be. (Video on one thread too would make the answer the same
+    every time, but checking a big video would take several times as long
+    on the PC's many cores: tried, and left.)
+  - **Stop clicked while a repaired version was being checked took it
+    unchecked**: FFmpeg, stopped, gave no answer, which was read as "no
+    FFmpeg on this PC" - the version counted as REPAIRED on its structure
+    alone, was never tried again, and would have been put back. The same
+    for FFmpeg running out of time. Not taken now ("not checked"); and a
+    file being tried when Stop is clicked is not written down at all: the
+    next run tries it again.
+  - A whole photo every byte of which was read (on a list of damaged files,
+    say) was handed off under "they open or play as they are, with a glitch
+    where data was lost": its own words said it was exactly as on the old
+    drive, but not in the words the hand-off and the evaluation look for
+    (READ_WHOLE). They do now, so it is listed with the files that are as
+    they were.
   - **A photo's own small preview was never found when the photo is whole**:
     the search for previews jumped past every whole JPEG it found, and a
     camera keeps that preview inside the photo (in its EXIF notes). It looks
@@ -871,8 +895,12 @@ sure bug fixes don't break other things."
   recovered SSD, so this is for mistakes.
 - Version 2026-10-29 (1); the 2026-10-28 (2) checklist text is known
   (6922598995721939184).
-- Tests here: unit tests 161 (with overflow checks), test_mapcheck 94/94,
-  auto_check 96/96, auto_ui_check 34/34 and ui_check 67/67 with both fonts.
+- Tests here: unit tests 164 (with overflow checks), test_mapcheck 94/94,
+  auto_check 96/96 (its damaged FLAC now has to be re-encoded),
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts.
+- A test's own mistake, found by CI: auto_ui_check's "done around 00:10"
+  failed when it ran in the ten minutes before midnight ("... tomorrow" is
+  right then); it allows that now.
 - CI_RESULTS
 - DELIVERY
 
@@ -885,6 +913,12 @@ sure bug fixes don't break other things."
 
 - Two damaged copies of the same file whose lost places differ could be
   merged into one whole file (autorepair.rs twin logic, v2).
+- The repairs try again, each time the stage runs, every file not repaired
+  yet (FFmpeg plays big videos through again): they could skip a file tried
+  before with the same tools, the same copy and the same places to look in.
+- If a video's verdict still changes from one run to the next (FFmpeg's
+  threads: more than the margin of one error in ten), decode just the
+  damaged copy and the rebuilt one on one thread when the counts are close.
 - PNG repairs beyond re-encoding what FFmpeg decodes; GIF/TIFF/WebP.
 - HEIC salvage on Windows with FFmpeg 8.1+ (as JPEG), before the Mac.
 - A Windows scheduled reminder every six months (the checklist says to set a

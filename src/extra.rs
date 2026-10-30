@@ -423,6 +423,32 @@ fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -
     v
 }
 
+/// FFmpeg playing a file through, to nowhere, saying only what goes wrong
+/// (the extra checks, and the automatic repairs' check of what they made).
+/// Sound is decoded on one thread: on several, FFmpeg 6 says nothing of the
+/// damage in a FLAC (5 damaged FLACs in 6 played "without an error" here,
+/// that on one thread gave four errors each). Video keeps its threads (a
+/// big one would take several times as long on one).
+pub fn play_through_args(path: &Path) -> Vec<OsString> {
+    vec![
+        "-hide_banner".into(),
+        "-nostdin".into(),
+        "-v".into(),
+        "error".into(),
+        "-threads:a".into(),
+        "1".into(),
+        "-i".into(),
+        path.as_os_str().to_os_string(),
+        "-map".into(),
+        "0:v?".into(),
+        "-map".into(),
+        "0:a?".into(),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ]
+}
+
 fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
     let p = path.as_os_str().to_os_string();
     let args: Vec<OsString> = match check {
@@ -431,21 +457,7 @@ fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() 
         Check::Archive => vec!["t".into(), "-pnot-a-password".into(), "-y".into(), "-bd".into(), "--".into(), p],
         Check::Mp3 => vec![p],
         Check::Pdf => vec!["--check".into(), p],
-        Check::Photo | Check::Sound | Check::Video => vec![
-            "-hide_banner".into(),
-            "-nostdin".into(),
-            "-v".into(),
-            "error".into(),
-            "-i".into(),
-            p,
-            "-map".into(),
-            "0:v?".into(),
-            "-map".into(),
-            "0:a?".into(),
-            "-f".into(),
-            "null".into(),
-            "-".into(),
-        ],
+        Check::Photo | Check::Sound | Check::Video => play_through_args(path),
     };
     let r = match tools::run_low(exe, &args, None, limit_for(check, size), stop) {
         Ok(r) => r,
@@ -905,6 +917,16 @@ mod tests {
         assert_eq!(checks_for("a.mov", true, true), vec![Check::Video]);
         assert_eq!(checks_for("a.pdf", false, false), vec![Check::Pdf]);
         assert_eq!(checks_for("noext", true, true), Vec::<Check>::new());
+    }
+
+    #[test]
+    fn sound_is_played_through_on_one_thread() {
+        let a: Vec<String> = play_through_args(Path::new("track.flac")).iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let at = |w: &str| a.iter().position(|x| x == w).unwrap();
+        // (An input option: before the file.)
+        assert_eq!(a[at("-threads:a") + 1], "1");
+        assert!(at("-threads:a") < at("-i") && a[at("-i") + 1] == "track.flac", "{a:?}");
+        assert!(!a.iter().any(|x| x == "-threads"), "video keeps its threads: {a:?}");
     }
 
     #[test]

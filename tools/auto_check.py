@@ -437,7 +437,10 @@ def main():
         check(fate("DCIM/IMG_0007.JPG") in ("SALVAGED", "NOT REPAIRED"), "the photo with a hole in the middle is not "
               "called repaired (%s)" % fate("DCIM/IMG_0007.JPG"))
         check(fate("RAW/IMG_0100.CR2") == "SALVAGED", "the RAW's preview is salvaged")
-        check(fate("Music/track.flac") in ("REPAIRED", "NOT REPAIRED"), "the FLAC is tried (%s)" % fate("Music/track.flac"))
+        # (FFmpeg 6, decoding sound on several threads, says nothing of a FLAC's
+        # damage: played on one, its lost cluster shows, and it is re-encoded.)
+        check(fate("Music/track.flac") == "REPAIRED" and log["Music/track.flac"]["how"].startswith("re-encoded losslessly"),
+              "the FLAC with a lost cluster is re-encoded by FFmpeg (%s)" % fate("Music/track.flac"))
         check(fate("Documents/report.pdf") == ("REPAIRED" if tools["qpdf"] else "NOT REPAIRED"),
               "the PDF %s" % ("is rebuilt by qpdf" if tools["qpdf"] else "waits for qpdf"))
         if tools["7z"]:

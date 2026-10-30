@@ -148,7 +148,10 @@ function iconsWithoutWords(page) {
       box.innerHTML = feedHtml([{ when: day, tone: "good", text: "Done: the self-test" }]);
       return { soon: finishText(600), later: finishText(26 * 3600), feed: box.textContent.replace(/\s+/g, " ") };
     });
-    check(/^done around \d\d:\d\d$/.test(clock.soon) && /^done around \d\d:\d\d (tomorrow|on \w+day)$/.test(clock.later) &&
+    // (Ten minutes from now is tomorrow when this runs just before midnight: then it is just after it.)
+    const soon = /^done around (\d\d):\d\d( tomorrow)?$/.exec(clock.soon);
+    check(soon && (!soon[2] || soon[1] === "00") &&
+      /^done around \d\d:\d\d (tomorrow|on \w+day)$/.test(clock.later) &&
       /Yesterday\s*21:40\s*Done: the self-test/.test(clock.feed), "when it will be done reads as a time on the clock, and what happened by day (" + clock.soon + "; " + clock.later + ")");
     // The SSD's strip while the image is made: what is read, slowly, not at
     // all; the speed sagging; the temperature; and it fits a narrow window.
