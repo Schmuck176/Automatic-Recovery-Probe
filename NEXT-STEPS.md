@@ -903,8 +903,27 @@ sure bug fixes don't break other things."
 - A test's own mistake, found by CI: auto_ui_check's "done around 00:10"
   failed when it ran in the ten minutes before midnight ("... tomorrow" is
   right then); it allows that now.
-- CI_RESULTS
-- DELIVERY
+- CI run 40978798562 (87a8786), green on both systems. Windows: unit tests
+  168, map check tests 44/44, disk protection 21/21, unplugged 42/42, page
+  68/68, download 6/6, automatic 104/104 (its FLAC re-encoded), Automatic
+  tab 34/34, resume 17/17; Linux: unit tests 165 (and 165 with overflow
+  checks), map check tests 94/94, Linux kernel 23/23, page 67/67, automatic
+  103/103 (its FLAC re-encoded: the old build left it), Automatic tab 34/34,
+  resume 17/17. (The run of ada97a1 before it failed only because
+  Chocolatey's feed was down - no FFmpeg on the Windows machine; the run of
+  7b9f539 only on the clock check above.)
+- Also given to the harness since: put back after the repairs, again, the
+  repairs once more, then every put-back undone (370 runs): each REPAIRED
+  version exactly where its original was, the original kept in originals,
+  nothing else in WORK touched, nothing put back twice, and WORK exactly as
+  it was once every put-back is undone.
+- Delivered 30 Oct 2026, about 06:40 GMT: version 2026-10-29 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,978,624 bytes, SHA-256
+  dd6ce6977c14d081229d3dac5c456f05bc2a6655565c350ff71fbcb229cb6400 (staged
+  back and compared). main moved to it; the 2026-10-28 (2) main is kept as
+  branch version-2026-10-28-2. The PC as before: nothing run since 26 Oct,
+  no folders chosen. Its FFmpeg is 9.0.1 (gyan.dev), which reports a FLAC's
+  damage on several threads too: the FLAC fix matters for other FFmpegs.
 
 ## Not done / ideas for later
 
@@ -918,6 +937,9 @@ sure bug fixes don't break other things."
 - The repairs try again, each time the stage runs, every file not repaired
   yet (FFmpeg plays big videos through again): they could skip a file tried
   before with the same tools, the same copy and the same places to look in.
+- The Mac script's decodes() leaves mktemp's own empty file behind each time
+  (it decodes into that name with ".png" added): harmless (macOS clears its
+  temporary folder), left as it is until it can be tried on a Mac.
 - If a video's verdict still changes from one run to the next (FFmpeg's
   threads: more than the margin of one error in ten), decode just the
   damaged copy and the rebuilt one on one thread when the counts are close.
