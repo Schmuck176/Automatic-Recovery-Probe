@@ -892,10 +892,12 @@ sure bug fixes don't break other things."
   short. Refused now when the disk holds WORK, the image's folder, the image
   or the second copy (Windows only; a Windows unit test finds the disk under
   a folder). The page offers Protect only for a disk that could be the
-  recovered SSD, so this is for mistakes.
+  recovered SSD, so this is for mistakes. The rehearsal's **Switch SPARE
+  off** (off and read-only, remembered by Windows) had no such check at all:
+  refused now while anything runs.
 - Version 2026-10-29 (1); the 2026-10-28 (2) checklist text is known
   (6922598995721939184).
-- Tests here: unit tests 164 (with overflow checks), test_mapcheck 94/94,
+- Tests here: unit tests 165 (with overflow checks), test_mapcheck 94/94,
   auto_check 96/96 (its damaged FLAC now has to be re-encoded),
   auto_ui_check 34/34 and ui_check 67/67 with both fonts.
 - A test's own mistake, found by CI: auto_ui_check's "done around 00:10"

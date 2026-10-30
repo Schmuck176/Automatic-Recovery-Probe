@@ -1790,6 +1790,11 @@ fn watch_unplug(app: &Arc<Mutex<App>>, n: u32, id: &str) {
 /// Switch SPARE off, remembered (the rehearsal's middle step).
 pub(super) fn spare_off(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> {
     need_admin(app)?;
+    // (Switched off and read-only under a job, SPARE - where the image and
+    // WORK go - would cut it short.)
+    if let Some(title) = lock(app).job.as_ref().filter(|j| j.state == "running").map(|j| j.title.clone()) {
+        return Err(format!("\"{title}\" is running: leave SPARE as it is until it has finished."));
+    }
     let d = crate::win::disks().into_iter().find(|d| d.number == n).ok_or_else(|| format!("disk {n} is not plugged in"))?;
     is_spare(app, &d)?;
     if could_be_recovered(app, n) {
@@ -1833,6 +1838,23 @@ impl<T> SomeOrNotWindows for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spare_is_not_switched_off_under_a_running_job() {
+        let app = Arc::new(Mutex::new(App {
+            elevated: true,
+            home: std::env::temp_dir(),
+            results: std::env::temp_dir(),
+            settings: HashMap::new(),
+            job: Some(Job { title: "Start".to_string(), state: "running".to_string(), ..Default::default() }),
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: State::default(),
+        }));
+        let e = spare_off(&app, 5).unwrap_err();
+        assert!(e.contains("is running"), "{e}");
+    }
 
     #[test]
     fn folders_inside_each_other_or_on_one_drive_are_refused() {
