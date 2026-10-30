@@ -114,10 +114,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           choco install ffmpeg qpdf -y --no-progress > "$RUNNER_TEMP/report/80-tools-install.txt" 2>&1 || true
-          # untrunc's and MP3val's own Windows builds, as the person has them
-          # in "installed files" (the program finds them on the PATH here).
           dl="$RUNNER_TEMP/tools-dl"
           mkdir -p "$dl"
+          # Chocolatey's feed is down at times (30 Oct 2026: a 404 for every
+          # package): FFmpeg then from gyan.dev itself, the "essentials" build
+          # Chocolatey installs and the PC has. (qpdf comes from Get ready's
+          # own download, the next step, either way.)
+          if ! command -v ffmpeg > /dev/null; then
+            {
+              echo "Chocolatey gave no FFmpeg: gyan.dev's essentials build instead."
+              curl -sSfL -o "$dl/ffmpeg.zip" "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" &&
+                (mkdir -p "$dl/ffmpeg" && cd "$dl/ffmpeg" && "/c/Program Files/7-Zip/7z.exe" x -y ../ffmpeg.zip > /dev/null)
+            } >> "$RUNNER_TEMP/report/80-tools-install.txt" 2>&1 || true
+            found=$(find "$dl/ffmpeg" -iname ffmpeg.exe 2>/dev/null | head -1 || true)
+            if [ -n "$found" ]; then
+              cygpath -w "$(dirname "$found")" >> "$GITHUB_PATH"
+              export PATH="$(dirname "$found"):$PATH"
+            fi
+          fi
+          # untrunc's and MP3val's own Windows builds, as the person has them
+          # in "installed files" (the program finds them on the PATH here).
           {
             gh release download latest --repo anthwlock/untrunc --pattern '*x64*.zip' --dir "$dl/untrunc" &&
               (cd "$dl/untrunc" && "/c/Program Files/7-Zip/7z.exe" x -y *.zip > /dev/null)
@@ -132,7 +148,7 @@ jobs:
           {
             echo "7z: $(ls "/c/Program Files/7-Zip/7z.exe" 2>&1)"
             ffmpeg -hide_banner -version 2>&1 | head -1
-            qpdf --version 2>&1 | head -1
+            if command -v qpdf > /dev/null; then qpdf --version 2>&1 | head -1; else echo "qpdf: not from Chocolatey (Get ready's download, next, gives it)"; fi
             echo "untrunc: $(find "$dl" -iname untrunc.exe | head -1)"
             echo "mp3val: $(find "$dl" -iname mp3val.exe | head -1)"
           } 2>&1 | tee "$RUNNER_TEMP/report/80-tools.txt"

@@ -470,14 +470,21 @@ fn norm(p: &str) -> String {
 }
 
 /// A path's part inside `work` ("E:\WORK\Photos\a.jpg" -> "Photos\a.jpg").
+/// Letter by letter and without case, as Windows compares names: a folder
+/// typed "e:\fotos ölüdeniz" is "E:\Fotos Ölüdeniz". (Not by bytes: a path
+/// with a letter of two bytes where WORK's name ends is not cut inside it.)
 pub fn relative_to(work: &Path, path: &str) -> Option<String> {
     let w = norm(&std::path::absolute(work).unwrap_or_else(|_| work.to_path_buf()).to_string_lossy());
     let p = norm(path);
-    if p.len() > w.len() + 1 && p[..w.len()].eq_ignore_ascii_case(&w) && p.as_bytes()[w.len()] == b'\\' {
-        Some(p[w.len() + 1..].to_string())
-    } else {
-        None
+    let mut rest = p.chars();
+    for wc in w.chars() {
+        let c = rest.next()?;
+        if c != wc && !c.to_lowercase().eq(wc.to_lowercase()) {
+            return None;
+        }
     }
+    let inside = rest.as_str().strip_prefix('\\')?;
+    (!inside.is_empty()).then(|| inside.to_string())
 }
 
 fn now_text() -> String {
@@ -910,12 +917,17 @@ fn resolve_listed(work: &Path, line: &str) -> Option<String> {
         tries.push(r);
     }
     if !work_name.is_empty() {
-        let low = s.to_lowercase();
-        let pat = format!("\\{work_name}\\");
-        if let Some(i) = low.find(&pat) {
-            tries.push(s[i + pat.len()..].to_string());
-        } else if let Some(rest) = low.strip_prefix(&format!("{work_name}\\")) {
-            tries.push(s[s.len() - rest.len()..].to_string());
+        // WORK's name as one of the line's folders (the first one after
+        // another, else the line's first). By folders, not by places in a
+        // lower-case copy of the line: that can be longer or shorter ("İ" is
+        // two letters in lower case), so its places are not the line's.
+        let parts: Vec<&str> = s.split('\\').collect();
+        let is_work = |c: &str| c.to_lowercase() == work_name;
+        let at = (1..parts.len().saturating_sub(1))
+            .find(|&i| is_work(parts[i]))
+            .or_else(|| (parts.len() > 1 && is_work(parts[0])).then_some(0));
+        if let Some(i) = at {
+            tries.push(parts[i + 1..].join("\\"));
         }
     }
     tries.push(s.trim_start_matches(".\\").to_string());
@@ -1784,6 +1796,15 @@ fn verdict_for(p: &PackageReport) -> String {
     }
 }
 
+/// A file's path inside its package (`pkg` as found on the disk, `file` as
+/// the check named it). By folders: the two are matched without case, and a
+/// letter's two cases can differ in bytes ("ẞ" and "ß"), so a cut by the
+/// package's length in bytes could fall inside a letter, or a folder.
+fn inside_package(pkg: &str, file: &str) -> String {
+    let depth = pkg.split('\\').filter(|c| !c.is_empty()).count();
+    file.split('\\').filter(|c| !c.is_empty()).skip(depth).collect::<Vec<_>>().join("\\")
+}
+
 /// Step 4: what is damaged in every package, and in every file outside one;
 /// what has been put back, and what is still damaged. Written to
 /// REPAIR\evaluation.csv.
@@ -1930,7 +1951,7 @@ pub fn evaluate(
             let p = pkgs.get_mut(&k).unwrap();
             p.damaged += 1;
             if p.kind == Kind::Library {
-                match member_role(&d.path[p.path.len().min(d.path.len())..]) {
+                match member_role(&inside_package(&p.path, &d.path)) {
                     Role::Media => p.media += 1,
                     Role::Core => p.core += 1,
                     Role::Previews => p.previews += 1,
@@ -2175,6 +2196,56 @@ mod tests {
         assert_eq!(resolve_listed(&work, "\"Photos\\IMG 1.heic\"").as_deref(), Some("Photos\\IMG 1.heic"));
         assert_eq!(resolve_listed(&work, "Photos/nothing.heic"), None);
         let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn listed_paths_with_letters_longer_or_shorter_in_lower_case() {
+        let top = std::env::temp_dir().join(format!("rp-repair-list-tr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let work = top.join("WORK");
+        for (dir, name) in [("İzmir 2019", "IMG_1.heic"), ("Ölüdeniz", "IMG_2.heic")] {
+            std::fs::create_dir_all(work.join(dir)).unwrap();
+            std::fs::write(work.join(dir).join(name), b"x").unwrap();
+        }
+        // A Mac's list from the top of SPARE ("İ" is two letters in lower
+        // case: the line's folders are found by name, not by places).
+        assert_eq!(resolve_listed(&work, "WORK/İzmir 2019/IMG_1.heic").as_deref(), Some("İzmir 2019\\IMG_1.heic"));
+        assert_eq!(
+            resolve_listed(&work, "/Volumes/İSTANBUL/WORK/Ölüdeniz/IMG_2.heic: failed").as_deref(),
+            Some("Ölüdeniz\\IMG_2.heic")
+        );
+        assert_eq!(resolve_listed(&work, "./work/İzmir 2019/IMG_1.heic").as_deref(), Some("İzmir 2019\\IMG_1.heic"));
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_path_inside_work_is_found_letter_by_letter() {
+        let top = std::env::temp_dir().join(format!("rp-repair-rel-{}", std::process::id()));
+        let work = top.join("Fotos Ölüdeniz");
+        let w = std::path::absolute(&work).unwrap().display().to_string();
+        // Typed in another case, outside ASCII too (Windows sees one folder).
+        assert_eq!(relative_to(&work, &format!("{}\\a.jpg", w.to_lowercase())).as_deref(), Some("a.jpg"));
+        assert_eq!(relative_to(&work, &format!("{w}/Sub/b.jpg")).as_deref(), Some("Sub\\b.jpg"));
+        assert_eq!(relative_to(&work, &w), None);
+        assert_eq!(relative_to(&work, &format!("{w}x\\a.jpg")), None);
+        // A folder whose name only starts like WORK's, with a letter of two
+        // bytes where WORK's name ends: not inside it (and no crash).
+        let near = format!("{}é\\a.jpg", &w[..w.len() - 1]);
+        assert_eq!(relative_to(&work, &near), None);
+        let work2 = top.join("WORK");
+        let w2 = std::path::absolute(&work2).unwrap().display().to_string();
+        assert_eq!(relative_to(&work2, &format!("{}é\\a.jpg", &w2[..w2.len() - 1])), None);
+    }
+
+    #[test]
+    fn a_files_place_in_its_package_is_found_by_folders() {
+        // The package as on the disk, the file as the check named it: the
+        // same without case, not the same length in bytes.
+        let inside = inside_package("Straẞe.photoslibrary", "Straße.photoslibrary\\thumbnails\\x.jpg");
+        assert_eq!(inside, "thumbnails\\x.jpg");
+        assert_eq!(member_role(&inside), Role::Previews);
+        assert_eq!(inside_package("Pictures\\Mediathek ß", "Pictures\\Mediathek ẞ\\database\\Photos.sqlite"), "database\\Photos.sqlite");
+        assert_eq!(inside_package("Lib.photoslibrary", "Lib.photoslibrary\\originals\\0\\IMG_9.HEIC"), "originals\\0\\IMG_9.HEIC");
     }
 
     fn sha(b: &[u8]) -> String {

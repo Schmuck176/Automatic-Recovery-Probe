@@ -295,7 +295,11 @@ impl App {
     }
 
     fn load(&mut self) {
-        let Ok(text) = std::fs::read_to_string(self.state_file()) else { return };
+        // (Bytes, not text: one byte that is not UTF-8 - the file saved by
+        // another program, a bad sector - must not lose every setting with it:
+        // the image made, the folders, how far Start got.)
+        let Ok(bytes) = std::fs::read(self.state_file()) else { return };
+        let text = String::from_utf8_lossy(&bytes);
         for line in text.lines() {
             let f: Vec<&str> = line.splitn(4, '\t').collect();
             match f.as_slice() {
@@ -1990,7 +1994,8 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     if let Some(p) = &found {
         let changed = mtime_ms(p).map(|m| m.to_string()) != Some(copy_mtime.clone());
         if changed {
-            if let (Ok(text), Ok(modified)) = (std::fs::read_to_string(p), std::fs::metadata(p).and_then(|m| m.modified())) {
+            if let (Ok(bytes), Ok(modified)) = (std::fs::read(p), std::fs::metadata(p).and_then(|m| m.modified())) {
+                let text = String::from_utf8_lossy(&bytes);
                 // The newer change wins, compared as moments (local times
                 // repeat an hour when the clocks go back).
                 let secs = secs_of(modified);
@@ -2012,13 +2017,18 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     let done = cl::ticked(&items, &ticks, &st);
     let numbers = ssd_totals(&map_check).and_then(|s| s.bytes.map(|b| (s.files, b)));
     let md = cl::markdown(cl::TEXT, &items, &done, numbers);
-    match std::fs::read_to_string(&target) {
-        Ok(cur) if cur == md => {}
-        Ok(cur) if !cl::is_unedited(&cur, copy_hash.parse().ok()) => notes.push(format!(
+    // (Read as bytes: a copy that is not UTF-8 - saved by another editor -
+    // is the person's own, and is never written over for want of reading it.)
+    match std::fs::read(&target) {
+        Ok(cur) if cur == md.as_bytes() => {}
+        Ok(cur) if !cl::is_unedited(&String::from_utf8_lossy(&cur), copy_hash.parse().ok()) => notes.push(format!(
             "Your copy {} has something of your own written in it, so the program takes the ticks from it but leaves \
              it as it is.",
             target.display()
         )),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            notes.push(format!("Your copy {} could not be read ({e}), so it is left as it is.", target.display()))
+        }
         _ => match cl::write_whole(&target, &md) {
             Ok(()) => {
                 let mut a = lock(app);
@@ -2032,8 +2042,9 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     // The download manifest beside it, when it is one the program knows.
     if let Some(dir) = target.parent() {
         let m = dir.join(cl::MANIFEST_NAME);
-        match std::fs::read_to_string(&m) {
-            Ok(cur) if cur == cl::MANIFEST || !cl::manifest_unedited(&cur) => {}
+        match std::fs::read(&m) {
+            Ok(cur) if cur == cl::MANIFEST.as_bytes() || !cl::manifest_unedited(&String::from_utf8_lossy(&cur)) => {}
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {}
             _ => {
                 if let Err(e) = cl::write_whole(&m, cl::MANIFEST) {
                     notes.push(e);
@@ -2914,6 +2925,42 @@ mod tests {
         assert_eq!(folder_on_disk(&app, n + 1000), None);
     }
 
+    /// The person's copy of the checklist, saved by another editor (not
+    /// UTF-8: "café" in Windows' old code page): its ticks are taken, and it
+    /// is never written over (before: read as text, it failed, and was
+    /// written over with the program's own).
+    #[test]
+    fn a_checklist_copy_that_is_not_utf8_is_left_as_it_is() {
+        let home = std::env::temp_dir().join(format!("arp-cl-latin1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let dir = home.join("Obsidian MD files");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (_, items) = crate::checklist::parse(crate::checklist::TEXT);
+        let mut done = vec![false; items.len()];
+        done[1] = true;
+        let mut copy = crate::checklist::markdown(crate::checklist::TEXT, &items, &done, None).into_bytes();
+        copy.extend_from_slice(b"\nMy note: caf\xe9 at 9\n");
+        let path = dir.join(crate::checklist::COPY_NAME);
+        std::fs::write(&path, &copy).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: home.clone(),
+            results: home.join("results"),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        let json = checklist_sync(&app);
+        assert_eq!(std::fs::read(&path).unwrap(), copy, "left exactly as it is");
+        assert!(json.contains("something of your own"), "{json}");
+        let ticks = crate::checklist::Ticks::load(&home.join("results").join(crate::checklist::TICKS_NAME));
+        assert!(ticks.on(&items[1].key), "its tick is taken all the same");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn forms_decode() {
         let f = parse_form("action=scan&folder=E%3A%5CWORK%5CPhotos+2019&holes=1&x");
@@ -2930,6 +2977,38 @@ mod tests {
     fn state_lines_round_trip() {
         let s = "tab\there\nnew\\line\r";
         assert_eq!(unescape(&escape(s)), s);
+    }
+
+    /// One byte in the saved state that is not UTF-8 (saved again by another
+    /// editor, say): every other setting is still read (before: none was).
+    #[test]
+    fn a_saved_state_with_a_byte_that_is_not_utf8_is_still_read() {
+        let home = std::env::temp_dir().join(format!("arp-state-latin1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let results = home.join("results");
+        std::fs::create_dir_all(&results).unwrap();
+        let mut app = App {
+            elevated: false,
+            home: home.clone(),
+            results: results.clone(),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        };
+        std::fs::write(
+            app.state_file(),
+            b"# state\r\nS\tauto_work\tE:\\\\WORK\r\nS\tnote\tcaf\xe9 at 9\r\nJ\tscan\tstate\tdone\r\nS\tauto_image\tC:\\\\IMAGE\r\n",
+        )
+        .unwrap();
+        app.load();
+        assert_eq!(app.setting("auto_work"), "E:\\WORK");
+        assert_eq!(app.setting("auto_image"), "C:\\IMAGE");
+        assert!(app.setting("note").starts_with("caf"), "{:?}", app.setting("note"));
+        assert_eq!(app.last.get("scan").map(|j| j.state.as_str()), Some("done"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

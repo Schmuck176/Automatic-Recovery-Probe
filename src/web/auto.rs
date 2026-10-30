@@ -73,18 +73,22 @@ impl State {
         }
     }
 
-    /// As kept in the settings ("auto_state").
+    /// As kept in the settings ("auto_state"): a line for each stage. (A
+    /// line break inside what a stage said - a tool's message of several
+    /// lines, say - is kept as a space: as a break, it would end the stage's
+    /// line there, and the rest of what it said would be lost when read back.)
     pub fn text(&self) -> String {
         self.stages
             .iter()
             .map(|s| {
+                let said: Vec<String> = s.summary.iter().map(|l| l.replace("\r\n", " ").replace(['\r', '\n'], " ")).collect();
                 format!(
                     "{}{SEP_FIELD}{}{SEP_FIELD}{}{SEP_FIELD}{}{SEP_FIELD}{}",
                     s.key,
                     s.state,
                     s.started_at,
                     s.seconds,
-                    s.summary.join(&SEP_LINE.to_string())
+                    said.join(&SEP_LINE.to_string())
                 )
             })
             .collect::<Vec<_>>()
@@ -1900,6 +1904,19 @@ mod tests {
         assert_eq!(back.stages[1].state, "stopped", "a stage running when the program closed did not finish");
         assert_eq!(back.resume_at(), 1);
         assert_eq!(State::new().resume_at(), 0);
+    }
+
+    #[test]
+    fn what_a_stage_said_over_several_lines_is_kept_whole() {
+        let mut s = State::new();
+        s.get("ready").state = "done".to_string();
+        s.get("image").state = "failed".to_string();
+        s.get("image").summary = vec!["the tool said:\r\nline one\nline two".to_string(), "then this".to_string()];
+        let back = State::from_text(&s.text());
+        assert_eq!(back.stages[1].state, "failed");
+        assert_eq!(back.stages[1].summary, vec!["the tool said: line one line two".to_string(), "then this".to_string()]);
+        assert_eq!(back.stages[0].state, "done");
+        assert_eq!(back.resume_at(), 1);
     }
 
     #[test]

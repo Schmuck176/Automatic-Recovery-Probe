@@ -925,6 +925,60 @@ sure bug fixes don't break other things."
   no folders chosen. Its FFmpeg is 9.0.1 (gyan.dev), which reports a FLAC's
   damage on several threads too: the FLAC fix matters for other FFmpegs.
 
+## 30 Oct 2026: Bring back, the person's own copies, odd letters in paths
+
+The user (30 Oct, 06:37): "keep looking for bugs and fixing them ... Make
+sure bug fixes don't break other things."
+
+- CI: when Chocolatey's feed is down (it was, for ada97a1's run), the Windows
+  machine gets FFmpeg from gyan.dev instead (the same "essentials" build as
+  the PC's), so the automatic checks still have FFmpeg; qpdf comes from Get
+  ready's own download as before, and the report says where each came from.
+- Bring back was given random hand-off folders (a harness in the scratchpad:
+  versions of a number in several folders, the same number twice, salvaged
+  kinds, unknown numbers, Mac housekeeping files; 600 runs, each run twice).
+  Found: **two versions of one number on the stick were brought back by
+  turns, every time.** Each Bring back brought the one set aside last time
+  back again and set the other aside once more: REPAIR\replaced grew by a
+  copy each time, and which version put back would use changed from one
+  Bring back to the next. Now, while both are on the stick, the one there
+  stays. A version set aside before and on the stick by itself again is
+  brought back (the person chose it over the one there now); the same bytes
+  there already under another name are "unchanged"; and a try brought back
+  as salvaged (".jpeg" for a ".jpg") and then renamed to the photo's own kind
+  comes back as the repaired version. The harness passes 600 runs again.
+- **The person's copy of the checklist, saved by another editor in Windows'
+  old code page ("café" as one byte), was written over** with the program's
+  own: read as text it failed, which was taken as "no copy". Read as bytes
+  now: its ticks are taken and it is never written over for want of reading
+  it (nor the download manifest beside it).
+- **The program's saved state with one byte that is not UTF-8 was not read at
+  all**: every setting lost (the image made, the folders, how far Start got).
+  Read now, that one byte read as "�".
+- **What a stage said over several lines** (a tool's message) was cut at the
+  first line break when the program was opened again, and the stage's later
+  lines lost with it. The breaks are kept as spaces.
+- Letters whose lower case is longer or shorter (Turkish "İ" is two letters
+  in lower case) or that differ in case outside ASCII:
+  - A list of damaged files from the Mac, with lines like "WORK/İzmir 2019/
+    IMG_1.heic", named "\İzmir 2019\IMG_1.heic": the same file as the check's
+    own line under another name, so listed (and copied out) twice. A line
+    with such a letter in front of WORK's name ("/Volumes/İSTANBUL/WORK/
+    Ölüdeniz/...") cut a letter in two: copying out and the evaluation
+    stopped with "an internal error". The line's folders are found by name now.
+  - WORK typed in another case outside ASCII ("e:\fotos ölüdeniz" for
+    "E:\Fotos Ölüdeniz", one folder to Windows): nothing the check found was
+    "in WORK", so no file was damaged. And a line in a list that starts like
+    WORK's path but has a two-byte letter where WORK's name ends stopped the
+    step with an internal error. Compared letter by letter, without case, now.
+  - The evaluation's place of a file inside its library (by the library's
+    length in bytes: "ẞ" and "ß" differ) could stop it with an internal error
+    or count a damaged preview as a photo. By folders now.
+- Re-read with nothing found: how state is saved (whole or not at all), the
+  evaluation's counts, the checklist's ticks and its sync both ways.
+- Version 2026-10-30 (1); the 2026-10-29 (1) checklist text is known
+  (11615376224096173300).
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

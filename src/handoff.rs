@@ -509,30 +509,38 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         }
     }
     files.sort();
+    // Each one's number and bytes first: which versions of a number are on
+    // the stick decides what stays set aside (below).
+    let mut stick: Vec<OnStick> = Vec::new();
     for (p, name) in files {
         let Some(id) = repair::tag_in(&name) else {
             o.unknown.push(p.display().to_string());
             continue;
         };
-        let Some(item) = by_id.get(id.as_str()) else {
+        if !by_id.contains_key(id.as_str()) {
             o.unknown.push(p.display().to_string());
             continue;
-        };
-        let sha = if p.is_dir() {
-            repair::hash_of(&p, &|| false).ok().flatten().map(|h| h.1)
+        }
+        let (sha, len) = if p.is_dir() {
+            (repair::hash_of(&p, &|| false).ok().flatten().map(|h| h.1), None)
         } else {
-            crate::sha256::file_hex(&p, &|| false).ok().flatten()
+            (crate::sha256::file_hex(&p, &|| false).ok().flatten(), std::fs::metadata(&p).map(|m| m.len()).ok())
         };
         let Some(sha) = sha else {
             o.unreadable.push(p.display().to_string());
             continue;
         };
-        if sha == item.sha256 {
+        stick.push(OnStick { p, name, id, sha, len });
+    }
+    for s in &stick {
+        let (p, name, id, sha, len) = (&s.p, &s.name, &s.id, &s.sha, s.len);
+        let item = by_id[id.as_str()];
+        if *sha == item.sha256 {
             o.unchanged += 1; // the damaged original itself (the hand-off's own copy)
             continue;
         }
         let orig_name = item.path.rsplit('\\').next().unwrap_or(&item.path);
-        let same_kind = ext_lower(orig_name) == ext_lower(&name) && (item.package == p.is_dir());
+        let same_kind = ext_lower(orig_name) == ext_lower(name) && (item.package == p.is_dir());
         let dest_rel = if same_kind {
             format!("{}\\{RETURNED}\\{name}", repair::REPAIRED)
         } else {
@@ -551,20 +559,41 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
                 continue;
             }
         }
+        // There already as a version of its number, under another name:
+        // nothing to bring.
+        let area = repair.join(if same_kind { repair::REPAIRED } else { repair::SALVAGED });
+        let now = versions_of(&area, id);
+        if now.iter().any(|(v, d)| is_these(v, *d, sha, len)) {
+            o.unchanged += 1;
+            continue;
+        }
+        // Set aside before, for a version there now that is on the stick too:
+        // the stick holds both, and the one there stays. (Before, each Bring
+        // back brought the two back by turns, setting the other aside once
+        // more each time.) On the stick without that one, it is brought back:
+        // the person chose it over the one there now.
+        let would_go: Vec<&(PathBuf, bool)> =
+            now.iter().filter(|(v, _)| same_kind || path_key(v) == path_key(&dest)).collect();
+        if set_aside(&repair, id, sha, len)
+            && would_go.iter().any(|(v, d)| stick.iter().any(|t| t.id == *id && t.sha != *sha && is_these(v, *d, &t.sha, t.len)))
+        {
+            o.unchanged += 1;
+            continue;
+        }
         if same_kind {
             // Exactly one version per number in "repaired": earlier ones
             // (the automatic repair's, an earlier bring-back's) make way.
-            o.superseded += supersede(&repair, &id, &dest)?;
+            o.superseded += supersede(&repair, id, &dest)?;
         }
         if dest.exists() {
             // A different version under the same name, brought back before:
             // kept too, in REPAIR\replaced (nothing is ever deleted).
             let _ = std::fs::create_dir_all(repair.join(repair::REPLACED));
-            let to = repair::aside(&repair, &id, &name);
+            let to = repair::aside(&repair, id, name);
             std::fs::rename(&dest, &to).map_err(|e| format!("could not move {} aside: {e}", dest.display()))?;
             o.superseded += 1;
         }
-        copy_tree(&p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
+        copy_tree(p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
         // The file's own dates, whatever the Mac or the paid tool gave it.
         repair::give_dates(&under(work, &item.path), &dest);
         say(&format!("{id}  {}  <- {}", if same_kind { "repaired" } else { "salvaged" }, p.display()));
@@ -576,6 +605,63 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         }
     }
     Ok(o)
+}
+
+/// A file (or a document kept as a folder) to bring back: its number, and
+/// its bytes (`len`: a file's size; None for a folder).
+struct OnStick {
+    p: PathBuf,
+    name: String,
+    id: String,
+    sha: String,
+    len: Option<u64>,
+}
+
+/// Every version of `id` in `dir` (REPAIR\repaired or salvaged) and the
+/// folders in it, as `supersede` finds them: its path, and whether it is a
+/// folder.
+fn versions_of(dir: &Path, id: &str) -> Vec<(PathBuf, bool)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with("._") {
+                continue;
+            }
+            let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+            match repair::tag_in(&name) {
+                Some(t) if t == id => out.push((e.path(), is_dir)),
+                None if is_dir => stack.push(e.path()),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Whether the file or folder at `p` is these bytes (`len`: a file's size,
+/// None for a folder).
+fn is_these(p: &Path, is_dir: bool, sha: &str, len: Option<u64>) -> bool {
+    if is_dir != len.is_none() {
+        return false;
+    }
+    if is_dir {
+        return repair::hash_of(p, &|| false).ok().flatten().is_some_and(|h| h.1 == sha);
+    }
+    std::fs::metadata(p).is_ok_and(|m| Some(m.len()) == len)
+        && crate::sha256::file_hex(p, &|| false).ok().flatten().is_some_and(|h| h == sha)
+}
+
+/// Whether these bytes were set aside in REPAIR\replaced as a version of
+/// `id` ("R0012 20261027-1400 name").
+fn set_aside(repair: &Path, id: &str, sha: &str, len: Option<u64>) -> bool {
+    let prefix = format!("{id} ");
+    let Ok(rd) = std::fs::read_dir(repair.join(repair::REPLACED)) else { return false };
+    rd.flatten().any(|e| {
+        e.file_name().to_string_lossy().starts_with(&prefix) && is_these(&e.path(), e.file_type().is_ok_and(|t| t.is_dir()), sha, len)
+    })
 }
 
 /// Move every version of `id` in REPAIR\repaired (but `keep`) to REPAIR\replaced.
@@ -856,6 +942,107 @@ mod tests {
         assert!(!MAC_SCRIPT_TEXT.contains('\r'), "a Mac script must have Unix line ends");
         // It never writes over the files it tries.
         assert!(!MAC_SCRIPT_TEXT.contains("--out \"$f\""));
+    }
+
+    /// WORK with one damaged photo copied out as R0001 (Pics\a.jpg); REPAIR.
+    fn one_copied_out(base: &Path) -> (PathBuf, PathBuf) {
+        let _ = std::fs::remove_dir_all(base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Pics")).unwrap();
+        std::fs::write(work.join("Pics").join("a.jpg"), b"damaged").unwrap();
+        let repair = base.join("REPAIR");
+        std::fs::create_dir_all(&repair).unwrap();
+        let mut h = crate::sha256::Sha256::new();
+        h.update(b"damaged");
+        std::fs::write(
+            repair.join(repair::LIST_NAME),
+            format!(
+                "\u{FEFF}id,path_in_work,kind,repair_with,size_bytes,sha256,why,inside_package,copied_out_as\r\n\
+                 R0001,Pics\\a.jpg,file,1 Photos,7,{},HOLE,,to-repair\\1 Photos\\a [R0001].jpg\r\n",
+                h.finish_hex()
+            ),
+        )
+        .unwrap();
+        (work, repair)
+    }
+
+    fn files_in(dir: &Path) -> Vec<Vec<u8>> {
+        let mut v: Vec<Vec<u8>> =
+            std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| std::fs::read(e.path()).unwrap()).collect()).unwrap_or_default();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn an_earlier_version_brought_back_by_itself_again_is_taken() {
+        let base = std::env::temp_dir().join(format!("arp-bring-older-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let stick = base.join("stick").join("returned").join("repaired");
+        std::fs::create_dir_all(&stick).unwrap();
+        let returned = repair.join(repair::REPAIRED).join(RETURNED);
+        std::fs::write(stick.join("a [R0001].jpg"), b"version A").unwrap();
+        let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+        assert_eq!(o.repaired.len(), 1, "{o:?}");
+        // Another tool's try, in its place on the stick.
+        std::fs::write(stick.join("a [R0001].jpg"), b"version B").unwrap();
+        let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.superseded), (1, 1), "{o:?}");
+        assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"version B");
+        // The first was better after all: on the stick by itself again, it is
+        // brought back (it was set aside once, but nothing on the stick now
+        // stands for the one there).
+        std::fs::write(stick.join("a [R0001].jpg"), b"version A").unwrap();
+        let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.superseded), (1, 1), "{o:?}");
+        assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"version A");
+        assert!(files_in(&repair.join(repair::REPLACED)).contains(&b"version B".to_vec()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_try_brought_back_as_salvaged_then_renamed_comes_back_as_repaired() {
+        let base = std::env::temp_dir().join(format!("arp-bring-renamed-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let stick = base.join("stick");
+        std::fs::create_dir_all(&stick).unwrap();
+        // Saved as ".jpeg" (the photo was ".jpg"): kept, as something salvaged.
+        std::fs::write(stick.join("a [R0001].jpeg"), b"version A").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.salvaged.len()), (0, 1), "{o:?}");
+        // Renamed on the stick to the photo's own kind: now it is the repaired
+        // version (the same bytes in salvaged do not make it "there already").
+        std::fs::rename(stick.join("a [R0001].jpeg"), stick.join("a [R0001].jpg")).unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.salvaged.len()), (1, 0), "{o:?}");
+        assert_eq!(std::fs::read(repair.join(repair::REPAIRED).join(RETURNED).join("a [R0001].jpg")).unwrap(), b"version A");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn two_versions_of_one_number_are_brought_back_once() {
+        let base = std::env::temp_dir().join(format!("arp-bring-twice-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        // Two tools' tries, both on the stick.
+        let stick = base.join("stick").join("returned").join("repaired");
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(stick.join("a [R0001].jpg"), b"version A").unwrap();
+        std::fs::write(stick.join("a [R0001] (2).jpg"), b"version B").unwrap();
+        let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.superseded), (2, 1), "{o:?}");
+        // The later one (in the order of their names) stays; the other is kept in replaced.
+        let returned = repair.join(repair::REPAIRED).join(RETURNED);
+        assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"version A");
+        let replaced = || files_in(&repair.join(repair::REPLACED));
+        assert_eq!(replaced(), vec![b"version B".to_vec()]);
+        // Again and again: nothing brought back, nothing more set aside (before:
+        // the two by turns, each Bring back setting the other aside once more).
+        for _ in 0..2 {
+            let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+            assert!(o.repaired.is_empty() && o.superseded == 0 && o.unchanged == 2, "{o:?}");
+            assert_eq!(std::fs::read(returned.join("a [R0001].jpg")).unwrap(), b"version A");
+            assert_eq!(replaced(), vec![b"version B".to_vec()]);
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
