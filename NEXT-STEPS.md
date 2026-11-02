@@ -978,6 +978,23 @@ sure bug fixes don't break other things."
   evaluation's counts, the checklist's ticks and its sync both ways.
 - Version 2026-10-30 (1); the 2026-10-29 (1) checklist text is known
   (11615376224096173300).
+- Tests here: unit tests 174, test_mapcheck 94/94, auto_check 96/96,
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts; resume_check with
+  seeds 7, 11 and 13, 30 interruptions each: 17/17 each. The CI fallback was
+  tried by hand with no FFmpeg and gyan.dev refused: the step carries on (a
+  line it had, that ended the step then, was fixed before the commit).
+- CI run 41018647776 (231207b), green on both systems. Windows: unit tests
+  177, map check tests 44/44, disk protection 21/21, unplugged 42/42, page
+  68/68, download 6/6, automatic 104/104, Automatic tab 34/34, resume 17/17
+  (FFmpeg 9.0.2 from Chocolatey this time); Linux: unit tests 174 (and 174
+  with overflow checks), map check tests 94/94, Linux kernel 23/23, page
+  67/67, automatic 103/103, Automatic tab 34/34, resume 17/17.
+- Delivered 2 Nov 2026, about 22:30 GMT: version 2026-10-30 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 5,999,104 bytes, SHA-256
+  88566c56ebe69feaa6e3fbe0ed0a3b0349d71724d0fab7eade126321977de8bf (staged
+  back and compared). main moved to it; the 2026-10-29 (1) main is kept as
+  branch version-2026-10-29-1. The PC as before: nothing run since the last
+  delivery, no folders chosen.
 
 ## Not done / ideas for later
 
