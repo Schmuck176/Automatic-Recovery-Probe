@@ -1101,6 +1101,19 @@ bug fixes don't break other things."
 - Tests here: unit tests 183, test_mapcheck 94/94, auto_check 96/96,
   auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check with
   seeds 21, 23 (25 interruptions each) and 31 (20): 17/17 each.
+- CI run 41542105906 (2fc59e0), green on both systems (and the run of
+  2c10d36 before it, the round's first part, too). Windows: unit tests 185,
+  map check tests 44/44, disk protection 21/21, unplugged 42/42, page 68/68,
+  download 6/6, automatic 104/104, Automatic tab 34/34, resume 17/17; Linux:
+  unit tests 183 (and 183 with overflow checks), map check tests 94/94,
+  Linux kernel 23/23, page 67/67, automatic 103/103, Automatic tab 34/34,
+  resume 17/17.
+- Delivered 2 Nov 2026, about 23:31 GMT: version 2026-11-02 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,018,048 bytes, SHA-256
+  8873ffaf23c0d9238c5ddf3a86c27d89d9d83a26c73e31ac50df434091d3fc2c (staged
+  back and compared). main moved to it; the 2026-10-30 (1) main is kept as
+  branch version-2026-10-30-1. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
