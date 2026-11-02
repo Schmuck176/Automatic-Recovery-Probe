@@ -273,7 +273,7 @@ pub fn check_sqlite(path: &Path) -> Finding {
     };
     let wal = with_suffix(path, "-wal");
     let hot_wal = std::fs::metadata(&wal).map(|m| m.len() > 0).unwrap_or(false);
-    if !hot_wal {
+    if !hot_wal && !needs_copy(path) {
         return sqlite_verdict(api, path, "?mode=ro&immutable=1", false, "");
     }
     let scratch = match scratch_dir() {
@@ -288,7 +288,11 @@ pub fn check_sqlite(path: &Path) -> Finding {
                 std::fs::copy(&src, with_suffix(&copy, suffix))?;
             }
         }
-        Ok(sqlite_verdict(api, &copy, "?mode=ro", true, " (checked with its -wal, on a scratch copy)"))
+        Ok(if hot_wal {
+            sqlite_verdict(api, &copy, "?mode=ro", true, " (checked with its -wal, on a scratch copy)")
+        } else {
+            sqlite_verdict(api, &copy, "?mode=ro&immutable=1", false, " (checked on a scratch copy)")
+        })
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     match result {
@@ -297,10 +301,22 @@ pub fn check_sqlite(path: &Path) -> Finding {
     }
 }
 
+/// A path SQLite cannot be given as a file: URI as it is: one Windows is to
+/// take literally ("\\?\": a folder whose name ends in a space or a dot, as
+/// a Mac allows - the usual way, Windows cuts those off, to another folder's
+/// name or to none), or one too long for the usual way. The database is
+/// checked on a scratch copy then, with a plain short name. (Before, such a
+/// database could not be opened at all: "UNREADABLE", a healthy Photos
+/// library's database said to be damaged.)
+fn needs_copy(path: &Path) -> bool {
+    let s = path.as_os_str().to_string_lossy();
+    s.starts_with(r"\\?\") || s.starts_with("//?/") || s.len() > 240
+}
+
 fn copy_failed(e: &std::io::Error) -> Finding {
     (
         "UNREADABLE",
-        format!("has a hot -wal and could not be copied for checking ({}: {e}) - check it by hand", crate::probe::py_error_name(e)),
+        format!("could not be copied for checking ({}: {e}) - check it by hand", crate::probe::py_error_name(e)),
     )
 }
 
@@ -323,6 +339,65 @@ fn scratch_dir() -> std::io::Result<PathBuf> {
         }
     }
     Err(std::io::Error::other("could not create a scratch folder"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_database_at_a_literal_or_long_path_is_checked_on_a_copy() {
+        assert!(needs_copy(Path::new(r"\\?\E:\WORK\Photos Library. \database\Photos.sqlite")));
+        assert!(needs_copy(Path::new(&format!(r"E:\WORK\{}\Photos.sqlite", "x".repeat(240)))));
+        assert!(!needs_copy(Path::new(r"E:\WORK\Pictures\Photos Library.photoslibrary\database\Photos.sqlite")));
+    }
+
+    /// A healthy database at a long path: checked on a scratch copy, and
+    /// healthy there.
+    #[test]
+    fn a_database_at_a_long_path_checks_out_on_a_copy() {
+        let base = std::env::temp_dir().join(format!("rp-sqlite-long-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("a".repeat(90)).join("b".repeat(90)).join("c".repeat(90));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("Photos.sqlite");
+        std::fs::write(&db, include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/seeds/Photos.sqlite"))).unwrap();
+        assert!(needs_copy(&db));
+        if available() {
+            let (v, d) = check_sqlite(&db);
+            assert_eq!(v, "", "healthy: {d}");
+            // And a damaged one is still found damaged there.
+            let mut bad = std::fs::read(&db).unwrap();
+            let n = bad.len();
+            bad[n / 2..].fill(0x55);
+            std::fs::write(&db, &bad).unwrap();
+            let (v, d) = check_sqlite(&db);
+            assert!(v == "DB_DAMAGED" || v == "UNREADABLE", "{v}: {d}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The self-test's healthy database, in a folder whose name ends in a dot
+    /// (as a Mac allows): Windows can only reach it by its literal path, and
+    /// SQLite, given that as a URI, could not open it ("UNREADABLE").
+    #[cfg(windows)]
+    #[test]
+    fn a_database_in_a_folder_ending_in_a_dot_checks_out() {
+        let base = std::env::temp_dir().join(format!("rp-sqlite-dot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let lit = format!(r"\\?\{}\Library.", std::path::absolute(&base).unwrap().display());
+        std::fs::create_dir_all(&lit).unwrap();
+        let db = std::path::PathBuf::from(format!(r"{lit}\Photos.sqlite"));
+        std::fs::write(&db, include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/seeds/Photos.sqlite"))).unwrap();
+        if available() {
+            let (v, d) = check_sqlite(&db);
+            assert_eq!(v, "", "healthy: {d}");
+        }
+        let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(&lit);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
 
 fn collapse_ws(s: &str) -> String {

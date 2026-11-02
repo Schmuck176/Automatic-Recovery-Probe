@@ -901,11 +901,26 @@ pub fn rescue(
         }
         let mut renamed_note = String::new();
         // Something else already has this name there: keep it, and give the
-        // copy a name of its own.
-        let clash = |p: &Path| match std::fs::symlink_metadata(p) {
-            Ok(m) if e.is_dir => !m.is_dir(),
-            Ok(m) => !(m.is_file() && (m.len() == e.data_length || claims_too_much(&vol, e))),
-            Err(_) => false,
+        // copy a name of its own. The program's own lists at WORK's top (the
+        // copying's, put back's) are always taken: a file or folder of that
+        // name on the old drive was copied over by them, or stopped the
+        // copying at its end, or was taken for them.
+        let own = |p: &Path| {
+            p.parent() == Some(base.as_path())
+                && p.file_name().is_some_and(|n| {
+                    let n = n.to_string_lossy();
+                    [LOG_NAME, UNFINISHED_LOG_NAME, crate::repair::RETURNS_NAME, "rescue-log.csv.new"]
+                        .iter()
+                        .any(|x| x.eq_ignore_ascii_case(&n))
+                })
+        };
+        let clash = |p: &Path| {
+            own(p)
+                || match std::fs::symlink_metadata(p) {
+                    Ok(m) if e.is_dir => !m.is_dir(),
+                    Ok(m) => !(m.is_file() && (m.len() == e.data_length || claims_too_much(&vol, e))),
+                    Err(_) => false,
+                }
         };
         if clash(&dest) {
             let stem = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1383,6 +1398,49 @@ mod tests {
         let gone = Unplugged { inner: &disk, reads_left: AtomicI64::new(3) };
         let e = rescue(&gone, &opts(&dir.join("gone"), None), &mut |_| {}, &mut |_, _| {});
         assert!(e.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A folder at the old drive's top named as one of the program's own lists
+    /// in WORK ("rescue-log.csv": a recovery before, kept on that drive): it
+    /// is copied under a name of its own, and the copying's list is written
+    /// at the end (before, the folder took the list's name, and the copying
+    /// failed at its end every time: "could not write ...rescue-log.csv").
+    #[test]
+    fn a_folder_named_as_the_copyings_list_gets_a_name_of_its_own() {
+        let mut d = crate::selftest::disk_image().unwrap();
+        let root = 2095 * 512 + 152 * 512 + (4 - 2) * 4096;
+        let utf16 = |s: &str| s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect::<Vec<u8>>();
+        let mut patched = false;
+        for i in 0..4096 / 32 {
+            let o = root + 32 * i;
+            if d[o] != 0x85 || d[o + 32] != 0xC0 || d[o + 64] != 0xC1 {
+                continue;
+            }
+            let sc = d[o + 1] as usize;
+            let len = d[o + 32 + 3] as usize;
+            if len == 10 && d[o + 64 + 2..o + 64 + 2 + 20] == utf16("Big folder")[..] {
+                d[o + 32 + 3] = 14;
+                let name = utf16(LOG_NAME);
+                d[o + 64 + 2..o + 64 + 2 + name.len()].copy_from_slice(&name);
+                let c = crate::exfat::entry_set_checksum(&d[o..o + 32 * (sc + 1)]);
+                d[o + 2..o + 4].copy_from_slice(&c.to_le_bytes());
+                patched = true;
+                break;
+            }
+        }
+        assert!(patched, "the folder \"Big folder\" in the root");
+        let disk = Memory::new(d);
+        let dir = scratch("own-name");
+        let o = rescue(&disk, &opts(&dir, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o.stopped && o.failed.is_empty(), "{o:?}");
+        assert!(dir.join(LOG_NAME).is_file(), "the list is the program's");
+        assert!(dir.join(format!("{LOG_NAME} (2)")).is_dir(), "the folder, under a name of its own");
+        assert!(o.renamed >= 1, "{o:?}");
+        // Again: nothing copied twice, the list still the program's.
+        let o2 = rescue(&disk, &opts(&dir, None), &mut |_| {}, &mut |_, _| {}).unwrap();
+        assert!(!o2.stopped && o2.failed.is_empty() && o2.files == 0, "{o2:?}");
+        assert!(dir.join(LOG_NAME).is_file() && !dir.join(format!("{LOG_NAME} (3)")).exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 

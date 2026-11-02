@@ -1115,6 +1115,49 @@ bug fixes don't break other things."
   branch version-2026-10-30-1. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026: two requests at once, folder names, a database at a literal path
+
+The user (2 Nov, 22:28): "keep looking for bugs and fixing them ... Make sure
+bug fixes don't break other things." (23:39: "automatically continue after
+[3:20 AM] if you run out of usage" - a reminder is set for 03:25.)
+
+- **Two checklist syncs at once** - a box ticked while the page asks for the
+  checklist, each its own request and its own thread - wrote the copy
+  through the same temporary file ("<name>.new"): one failed, and the page
+  said "could not write <the copy>"; and the copy could come out mixed of
+  the two (then "something of your own written in it": never written again).
+  One sync at a time now. A new test (six threads ticking and syncing, twelve
+  times each) failed every time before (three runs in three), and passes.
+- **A file or folder at the old drive's top named as one of the program's
+  own lists in WORK** (rescue-log.csv, rescue-log-unfinished.csv,
+  repair-returns.csv, rescue-log.csv.new - a recovery before, kept on that
+  drive): a folder took the list's name, and the copying failed at its end
+  every time ("could not write ...rescue-log.csv (Is a directory) - is it
+  open in another program? ... run the copying again": for ever); a file was
+  copied there and then replaced by the program's list (the copy lost, and
+  the copies check finding it "changed"), or taken for put back's list.
+  Those names at WORK's top are always taken now: the file or folder gets a
+  name of its own ("rescue-log.csv (2)"), and its line in the list says so.
+  (Test: the self-test disk with its "Big folder" renamed "rescue-log.csv".)
+- **WORK called REPAIR or RECORDS** (E:\REPAIR) was taken: REPAIR goes beside
+  WORK, so it was WORK itself - the repairs' copies, lists and originals in
+  among the old drive's files. Refused now; so is the image's folder inside
+  REPAIR or RECORDS (Finalise copies those whole into the second copy, the
+  image with them).
+- **A healthy SQLite database (a Photos library's) was said to be damaged**
+  when its folder's name ends in a space or a dot (a Mac allows that; Windows
+  reaches it only by its literal "\\?\" path), or when its path is too long
+  for the usual way: the file: URI made from "\\?\C:\..." has "?" as its
+  host, so SQLite could not open it ("SQLite cannot read it"). Such a database
+  is checked on a scratch copy with a plain short name now, as one with a hot
+  -wal already was. (A Windows-only test makes such a folder; another, with a
+  long path, runs here too, healthy and damaged.)
+- Version 2026-11-03 (1); the 2026-11-02 (1) checklist text is known
+  (272150529707908978).
+- Tests here: unit tests 187, test_mapcheck 94/94, auto_check 96/96,
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check (seed
+  37, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
@@ -1130,9 +1173,6 @@ bug fixes don't break other things."
 - A temperature reading stuck at a value an SSD can have (85 °C, say) keeps
   reading paused for good: "it has not cooled at all in an hour" could be
   said, with a way to carry on.
-- Two checklist syncs at once (a box ticked while the page asks for the
-  checklist) can each write the copy; in a rare order a tick is undone and
-  has to be clicked again: one sync at a time (a lock) would end it.
 - If a video's verdict still changes from one run to the next (FFmpeg's
   threads: more than the margin of one error in ten), decode just the
   damaged copy and the rebuilt one on one thread when the counts are close.

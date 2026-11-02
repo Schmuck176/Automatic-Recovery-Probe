@@ -1975,6 +1975,12 @@ fn mtime_ms(p: &Path) -> Option<u64> {
 /// anything the person wrote into it themselves.
 fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     use crate::checklist as cl;
+    // One at a time: the page asks for the checklist while a box ticked is
+    // being written, each its own request. Two at once wrote the copy through
+    // the same temporary file: one failed ("could not write" on the page),
+    // and the copy could come out mixed of the two.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let (home, results, map_check, copy_mtime, copy_hash) = {
         let a = lock(app);
         (
@@ -3018,6 +3024,62 @@ mod tests {
         let after = std::fs::read_to_string(&path).unwrap();
         assert!(after.contains("- [x]"), "written again, with the tick");
         assert!(after.contains(row), "the numbers stay: {after}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Boxes ticked while the page asks for the checklist (each its own
+    /// request, at once): the copy is written by one at a time - never a
+    /// failed write, nor a copy mixed of two.
+    #[test]
+    fn checklist_syncs_at_once_write_one_at_a_time() {
+        let home = std::env::temp_dir().join(format!("arp-cl-together-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("Obsidian MD files")).unwrap();
+        let results = home.join("results");
+        std::fs::create_dir_all(&results).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: home.clone(),
+            results: results.clone(),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        let (_, items) = crate::checklist::parse(crate::checklist::TEXT);
+        let tickable: Vec<usize> = (0..items.len()).filter(|&i| !items[i].checkpoint).take(6).collect();
+        checklist_sync(&app);
+        let said: Vec<String> = std::thread::scope(|s| {
+            let hs: Vec<_> = tickable
+                .iter()
+                .map(|&i| {
+                    let app = app.clone();
+                    s.spawn(move || {
+                        let mut out = Vec::new();
+                        for k in 0..12 {
+                            if let Ok(j) = tick(&app, &i.to_string(), k % 2 == 1) {
+                                out.push(j);
+                            }
+                            out.push(checklist_sync(&app));
+                        }
+                        out
+                    })
+                })
+                .collect();
+            hs.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        });
+        for j in &said {
+            assert!(!j.contains("could not write"), "{j}");
+        }
+        // As the ticks are, whole.
+        checklist_sync(&app);
+        let copy = std::fs::read_to_string(crate::checklist::find_copy(&home).expect("the copy")).unwrap();
+        let ticks = crate::checklist::Ticks::load(&results.join(crate::checklist::TICKS_NAME));
+        let st = crate::checklist::statuses(&items, &ticks, &crate::verify::history(&results));
+        let done = crate::checklist::ticked(&items, &ticks, &st);
+        assert_eq!(copy, crate::checklist::markdown(crate::checklist::TEXT, &items, &done, None));
         let _ = std::fs::remove_dir_all(&home);
     }
 

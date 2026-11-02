@@ -329,11 +329,34 @@ pub(super) fn check_folders(image_dir: &str, work: &str, copy2: &str, one_drive_
     }
     let beside = |name: &str| if base.is_empty() { String::new() } else { format!("{base}\\{name}") };
     let (repair, records) = (beside(crate::repair::REPAIR_DIR), beside("RECORDS"));
+    // WORK named as one of the folders the program makes beside it would be
+    // that folder too: the repairs' copies, lists and originals in among
+    // the old drive's files.
+    let work_name = work.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next().unwrap_or("");
+    if !work.is_empty() && [crate::repair::REPAIR_DIR, "RECORDS"].iter().any(|n| n.eq_ignore_ascii_case(work_name.trim())) {
+        return Err(format!(
+            "WORK ({work}) cannot be called {}: the program makes REPAIR and RECORDS beside WORK for itself. Call it WORK, \
+             say (3. The folders).",
+            work_name.trim().to_uppercase()
+        ));
+    }
     if !image_dir.is_empty() && !work.is_empty() && (within(image_dir, work) || within(work, image_dir)) {
         return Err(format!(
             "The image's folder ({image_dir}) and WORK ({work}) are one inside the other: give each a folder of its own \
              (3. The folders)."
         ));
+    }
+    // Nor the image inside REPAIR or RECORDS (Finalise copies them whole into
+    // the second copy: the image with them), nor one of them inside it.
+    if !image_dir.is_empty() && !work.is_empty() {
+        for (what, f) in [("REPAIR", repair.as_str()), ("RECORDS", records.as_str())] {
+            if !f.is_empty() && (within(image_dir, f) || within(f, image_dir)) {
+                return Err(format!(
+                    "The image's folder ({image_dir}) and {what} ({f}, which the program makes beside WORK) are one inside \
+                     the other: give the image a folder of its own (3. The folders)."
+                ));
+            }
+        }
     }
     if !copy2.is_empty() && !work.is_empty() {
         for (what, f) in [("WORK", work), ("REPAIR", repair.as_str()), ("RECORDS", records.as_str())] {
@@ -1890,6 +1913,18 @@ mod tests {
             assert!(e.contains("not written out from its drive"), "{e}");
         }
         assert!(ok(r"C:\IMAGE", r"\\server\share\WORK", "").is_ok(), "a network folder is written out in full");
+        // WORK called as a folder the program makes beside it (it would be
+        // that folder as well), or the image inside one of those.
+        for work in [r"E:\REPAIR", r"E:\Recovery\records\", r"E:\repair "] {
+            let e = ok(r"C:\IMAGE", work, "").unwrap_err();
+            assert!(e.contains("cannot be called"), "{work}: {e}");
+        }
+        assert!(ok(r"C:\IMAGE", r"E:\REPAIRS", "").is_ok(), "another name");
+        for img in [r"E:\REPAIR\IMAGE", r"E:\RECORDS", r"E:\"] {
+            let e = ok(img, r"E:\WORK", r"C:\COPY 2").unwrap_err();
+            assert!(e.contains("one inside"), "{img}: {e}");
+        }
+        assert!(ok(r"E:\IMAGE", r"E:\WORK", r"C:\COPY 2").is_ok(), "the image beside WORK, in a folder of its own");
     }
 
     #[test]
