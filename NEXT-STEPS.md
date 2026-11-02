@@ -996,6 +996,83 @@ sure bug fixes don't break other things."
   branch version-2026-10-29-1. The PC as before: nothing run since the last
   delivery, no folders chosen.
 
+## 2 Nov 2026: the hand-off's copies, the kinds of file, the evaluation
+
+The user (2 Nov, 22:28): "keep looking for bugs and fixing them ... Make sure
+bug fixes don't break other things."
+
+- **The hand-off's copies, and Bring back's, were not whole or nothing**
+  (std::fs::copy straight to the copy's own name). A power cut, a full disk
+  or a stick unplugged halfway left part of a copy under its own name: the
+  next hand-off took it as made (and handed it off - the Mac or a paid tool
+  would repair a cut-short copy), and once the file no longer needed handing
+  off, the hand-off's tidying moved it into "returned" as a repair made in
+  place, from where Bring back took it and put back put it over WORK's file.
+  Bring back's own copy into REPAIR\repaired\returned the same: put back
+  would take half of it. Now each copy is made under a temporary name with no
+  number in it, made safe on the drive (as put back does with what it puts in
+  WORK) and renamed once whole; a leftover goes the next time (the hand-off's
+  tidying, the start of Bring back), and neither put back nor Bring back ever
+  takes it for anything.
+- **A photo repaired and saved as ".jpeg" for a ".jpg"** (the Mac's Preview
+  does) was "salvaged": kept in REPAIR\salvaged, never put back, and nothing
+  said so. Extensions of one kind (jpg/jpeg/jpe/jfif, tif/tiff,
+  heic/heif/hif, mov/qt, mp4/m4v, mpg/mpeg, aif/aiff) are now the same kind,
+  in Bring back and in put back (which puts it back under the original's
+  name). A HEIC made a JPEG is still salvaged.
+- **A rebuilt video with errors replaced a damaged copy that played without
+  one**: the "no better than the damaged copy" check was skipped when the
+  damaged copy had no errors, so any version that played was taken. Now none
+  is allowed where the damaged copy's structure was right; where it was
+  mended, the video margin (one error) still applies.
+- **The evaluation left out a document kept as a folder** (Pages, Numbers,
+  Keynote) copied out whole, once the latest check found nothing damaged in
+  it - after Bring back and put back, always, as Bring back checks every file
+  again: not in the counts, and its package said "nothing inside it is
+  damaged". Also while it was waiting, after any fresh check. Counted now,
+  with its state ("repaired and put back", "still to repair").
+- **Finalise, with the second copy on an exFAT drive, said every time that
+  files "were not as WORK holds them"**: a file there already is the same by
+  its size and modified time, and exFAT keeps a time to 10 ms (NTFS to 100
+  ns). The files copied off the old drive (exFAT too) were fine, but every
+  file the program writes itself - its lists and logs in WORK, REPAIR's,
+  RECORDS - differed: copied again by each Finalise after the first, and
+  counted as changed in the second copy "since the last Finalise?". Times
+  within two seconds are the same now (a network drive may keep them to a
+  second or two; a file put back is still compared by its contents).
+- Bring back never looks in WORK, or a copy of it (a folder with the
+  copying's list at its top: COPY 2), below the folder chosen, and refuses a
+  folder inside one. The page refused WORK and a folder holding it already;
+  a folder holding COPY 2 was walked whole, and a file there with a number in
+  its name (from a recovery before) would have been taken.
+- The Mac script tried each file inside a document kept as a folder by itself:
+  "Report [R0001].pages/Data/pic.jpg" was "repaired" into returned/repaired
+  as "pic.jpg", with no number (Bring back: "no number"), and Index.zip was
+  listed as one to open "in its own app". Files inside such a document are
+  left now (the document is done by hand, as before); a document already
+  saved into "returned" is not listed again; and decodes() takes away the
+  empty file mktemp makes (the idea noted before). zsh is not here (nor on
+  CI's machines): these are checked by reading, and by the test of the
+  script's text.
+- Given to the Bring back harness since: put back after each Bring back, then
+  the evaluation, then every put-back undone (700 runs, with ".jpeg" versions
+  of ".jpg" files among the tries): each WORK copy as it was or exactly the
+  one version of its number in repaired, its original kept, nothing else in
+  WORK touched, nothing put back twice, the evaluation's count of what was
+  put back right, and WORK exactly as before once every put-back is undone.
+- Re-read with nothing found: lock guards held across calls (a condition's
+  temporaries are dropped before the next operand: tried), every string
+  slice by a position, the files the program reads that the person or
+  another program may have saved (read as bytes already, but the extra
+  checks' own lists), the page server (this PC only, its Host checked, a
+  key in the address and on every action). resume_check with seeds 7, 11 and
+  13, 30 interruptions each: 17/17 each.
+- Version 2026-11-02 (1); the 2026-10-30 (1) checklist text is known
+  (5922503402146213730).
+- Tests here: unit tests 180, test_mapcheck 94/94, auto_check 96/96,
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check with
+  seeds 21 and 23, 25 interruptions each: 17/17 each.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
@@ -1008,9 +1085,14 @@ sure bug fixes don't break other things."
 - The repairs try again, each time the stage runs, every file not repaired
   yet (FFmpeg plays big videos through again): they could skip a file tried
   before with the same tools, the same copy and the same places to look in.
-- The Mac script's decodes() leaves mktemp's own empty file behind each time
-  (it decodes into that name with ".png" added): harmless (macOS clears its
-  temporary folder), left as it is until it can be tried on a Mac.
+- While a map check runs again (Start over), its numbers are not known, so
+  the checklist copy is written with an empty Your numbers row until it
+  finishes (then filled in again). Numbers the person typed into that row
+  themselves would be replaced by the program's: keep the copy's row while
+  the program has none.
+- The extra checks read their own lists in REPAIR\damaged-lists as text: one
+  edited and saved in another code page loses, on a stopped run, what the
+  earlier run found (read as bytes, as the other lists are).
 - If a video's verdict still changes from one run to the next (FFmpeg's
   threads: more than the margin of one error in ten), decode just the
   damaged copy and the rebuilt one on one thread when the counts are close.

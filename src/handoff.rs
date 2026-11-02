@@ -85,6 +85,42 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<u64> {
     }
 }
 
+/// Copy `from` (a file, or a document kept as a folder) to `to` whole or not
+/// at all: under a temporary name beside it first (no number in it: nothing
+/// takes it for a version), then renamed. A power cut, a full disk or a stick
+/// unplugged halfway leaves only that, which goes next time - never part of a
+/// copy under the copy's own name, which the next hand-off would take as made
+/// (and hand off), and Bring back, or put back, as a repaired version.
+fn copy_whole(from: &Path, to: &Path) -> std::io::Result<u64> {
+    let dir = to.parent().map(Path::to_path_buf).unwrap_or_default();
+    std::fs::create_dir_all(&dir)?;
+    let tmp = dir.join(repair::COPYING_NAME);
+    remove_copying(&tmp);
+    // (On the drive before it takes its own name: after a power cut, a copy
+    // under its name whose bytes never reached the drive would be as bad as
+    // half a copy.)
+    match copy_tree(from, &tmp).and_then(|n| repair::make_safe_on_drive(&tmp).and_then(|_| std::fs::rename(&tmp, to)).map(|_| n)) {
+        Ok(n) => Ok(n),
+        Err(e) => {
+            remove_copying(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// Remove a copy `copy_whole` left half-made.
+fn remove_copying(p: &Path) {
+    match std::fs::symlink_metadata(p) {
+        Ok(m) if m.is_dir() => {
+            let _ = std::fs::remove_dir_all(p);
+        }
+        Ok(_) => {
+            let _ = std::fs::remove_file(p);
+        }
+        Err(_) => {}
+    }
+}
+
 /// Where a file that was not repaired goes, when there is no attempt to say.
 fn next_by_kind(name: &str) -> Next {
     let e = ext_lower(name);
@@ -169,7 +205,7 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
             continue;
         }
         if !dest.exists() {
-            copy_tree(&src, &dest).map_err(|e| format!("could not copy {} into the hand-off: {e}", item.copied_as))?;
+            copy_whole(&src, &dest).map_err(|e| format!("could not copy {} into the hand-off: {e}", item.copied_as))?;
         }
         keep.insert(path_key(&dest));
         match next {
@@ -203,6 +239,10 @@ fn remove_unkept(
     for e in rd.flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().into_owned();
+        if name == repair::COPYING_NAME {
+            remove_copying(&p); // a copy a power cut stopped halfway
+            continue;
+        }
         if name == README || name == MAC_SCRIPT || name == RETURNED || name.starts_with("._") {
             continue;
         }
@@ -354,11 +394,11 @@ print "Repairs on the Mac, $(date)" >> "$log"
 caffeinate -i -w $$ &
 
 decodes() {  # $1 file: does sips decode it?
-  local t; t="$(mktemp -t arp).png"
+  local m t; m="$(mktemp -t arp)"; t="$m.png"
   if sips -s format png "$1" --out "$t" >/dev/null 2>"$t.err" && [[ -s "$t" ]] && ! grep -qi error "$t.err"; then
-    rm -f "$t" "$t.err"; return 0
+    rm -f "$m" "$t" "$t.err"; return 0
   fi
-  rm -f "$t" "$t.err"; return 1
+  rm -f "$m" "$t" "$t.err"; return 1
 }
 
 repaired=0; salvaged=0; failed=0; byhand=0
@@ -368,6 +408,9 @@ for f in **/*(.D); do
     ._*|.DS_Store|"READ ME.txt"|*.command) continue ;;
   esac
   [[ "$f" == returned/* ]] && continue
+  # (A file inside a document kept as a folder is part of it: the document is
+  # done by hand, below - not each file in it, under its own name.)
+  [[ "$f" == *.(pages|numbers|key|rtfd)/* ]] && continue
   ext="${name:e:l}"; stem="${name:r}"
   print -n "$name ... "
   ok=""
@@ -414,6 +457,7 @@ for f in **/*(.D); do
   print "$name: $ok" >> "$log"
 done
 for d in **/*.(pages|numbers|key|rtfd)(/N); do
+  [[ "$d" == returned/* ]] && continue
   print "${d:t}: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name"
   print "${d:t}: by hand" >> "$log"
   byhand=$((byhand+1))
@@ -462,6 +506,10 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         return Err(format!("{} is not a folder", from.display()));
     }
     let mut o = Brought::default();
+    // A copy into REPAIR a power cut stopped halfway, the last time.
+    for area in [repair::REPAIRED, repair::SALVAGED] {
+        remove_copying(&repair.join(area).join(RETURNED).join(repair::COPYING_NAME));
+    }
     let mut files: Vec<(PathBuf, String)> = Vec::new();
     // Of REPAIR, only the hand-off folder is looked in (when "from" is REPAIR
     // or above it): the rest is the program's own - the damaged copies, the
@@ -473,6 +521,13 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         return Err(format!(
             "{} is one of REPAIR's own folders, which hold the program's copies: choose the USB stick, or the folder, that \
              holds what came back - or REPAIR\\{HANDOFF_DIR}",
+            from.display()
+        ));
+    }
+    if from.ancestors().any(holds_the_copies) {
+        return Err(format!(
+            "{} is WORK (or a copy of it, or a folder in one), which holds the copies of the old drive, not what came back: \
+             choose the USB stick, or the folder, that holds what came back - or REPAIR\\{HANDOFF_DIR}",
             from.display()
         ));
     }
@@ -495,7 +550,15 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
                     stack.push(p.join(HANDOFF_DIR));
                     continue;
                 }
-                if drive_housekeeping(&name) || (inside(&k, &repair_key) && !inside(&k, &handoff_key)) {
+                // (Nor WORK, or a copy of it, below the folder chosen - SPARE's
+                // top, say: its files are the old drive's, and one with a
+                // number in its name, from a recovery before, is not what came
+                // back for that number.)
+                if drive_housekeeping(&name)
+                    || name == repair::COPYING_NAME
+                    || (inside(&k, &repair_key) && !inside(&k, &handoff_key))
+                    || holds_the_copies(&p)
+                {
                     continue;
                 }
                 if repair::tag_in(&name).is_some() && repair::package_of_name(&name).is_some() {
@@ -503,7 +566,12 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
                 } else {
                     stack.push(p);
                 }
-            } else if !is_mac_housekeeping(&name) && name != README && name != MAC_SCRIPT && !name.ends_with("-log.txt") {
+            } else if !is_mac_housekeeping(&name)
+                && name != README
+                && name != MAC_SCRIPT
+                && name != repair::COPYING_NAME
+                && !name.ends_with("-log.txt")
+            {
                 files.push((p, name));
             }
         }
@@ -540,7 +608,7 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             continue;
         }
         let orig_name = item.path.rsplit('\\').next().unwrap_or(&item.path);
-        let same_kind = ext_lower(orig_name) == ext_lower(name) && (item.package == p.is_dir());
+        let same_kind = repair::same_kind(orig_name, name) && (item.package == p.is_dir());
         let dest_rel = if same_kind {
             format!("{}\\{RETURNED}\\{name}", repair::REPAIRED)
         } else {
@@ -593,7 +661,7 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             std::fs::rename(&dest, &to).map_err(|e| format!("could not move {} aside: {e}", dest.display()))?;
             o.superseded += 1;
         }
-        copy_tree(p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
+        copy_whole(p, &dest).map_err(|e| format!("could not copy {} into REPAIR: {e}", p.display()))?;
         // The file's own dates, whatever the Mac or the paid tool gave it.
         repair::give_dates(&under(work, &item.path), &dest);
         say(&format!("{id}  {}  <- {}", if same_kind { "repaired" } else { "salvaged" }, p.display()));
@@ -605,6 +673,11 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         }
     }
     Ok(o)
+}
+
+/// WORK, or a copy of it (COPY 2): a folder with the copying's list at its top.
+fn holds_the_copies(dir: &Path) -> bool {
+    dir.join(crate::rescue::LOG_NAME).is_file() || dir.join(crate::rescue::UNFINISHED_LOG_NAME).is_file()
 }
 
 /// A file (or a document kept as a folder) to bring back: its number, and
@@ -821,6 +894,62 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// A copy cut short (here: a document kept as a folder, one of whose
+    /// files cannot be read) leaves nothing under the copy's own name - which
+    /// the next hand-off would take as made, and, once the file no longer
+    /// needs handing off, move into "returned" as a repair made in place.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_cut_short_leaves_nothing_under_its_own_name() {
+        let base = std::env::temp_dir().join(format!("arp-copy-whole-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let from = base.join("Report [R0001].pages");
+        std::fs::create_dir_all(from.join("Data")).unwrap();
+        std::fs::write(from.join("Data").join("a.jpg"), b"picture").unwrap();
+        std::os::unix::fs::symlink(base.join("nowhere"), from.join("Index.zip")).unwrap();
+        let to = base.join("hand-off").join("Report [R0001].pages");
+        assert!(copy_whole(&from, &to).is_err());
+        assert!(std::fs::symlink_metadata(&to).is_err(), "nothing under its own name");
+        assert!(std::fs::symlink_metadata(to.with_file_name(repair::COPYING_NAME)).is_err(), "nor half a copy left over");
+        // Whole, it is made under its own name; a file too.
+        std::fs::remove_file(from.join("Index.zip")).unwrap();
+        std::fs::write(from.join("Index.zip"), b"index").unwrap();
+        assert!(copy_whole(&from, &to).is_ok());
+        assert_eq!(std::fs::read(to.join("Index.zip")).unwrap(), b"index");
+        let f = base.join("hand-off").join("a [R0002].jpg");
+        std::fs::write(base.join("a.jpg"), b"photo").unwrap();
+        assert!(copy_whole(&base.join("a.jpg"), &f).is_ok());
+        assert_eq!(std::fs::read(&f).unwrap(), b"photo");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Half a copy a power cut left (under the temporary name): the next
+    /// hand-off takes it away, and Bring back never takes it for anything.
+    #[test]
+    fn half_a_copy_left_by_a_power_cut_goes() {
+        let base = std::env::temp_dir().join(format!("arp-handoff-half-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let src = repair.join("to-repair").join("1 Photos");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a [R0001].jpg"), b"damaged").unwrap();
+        let paid = repair.join(HANDOFF_DIR).join(FOR_PAID).join("1 Photos");
+        std::fs::create_dir_all(&paid).unwrap();
+        std::fs::write(paid.join(repair::COPYING_NAME), b"dama").unwrap();
+        let returned_here = repair.join(repair::REPAIRED).join(RETURNED);
+        std::fs::create_dir_all(&returned_here).unwrap();
+        std::fs::write(returned_here.join(repair::COPYING_NAME), b"vers").unwrap();
+        let o = prepare(&work).unwrap();
+        assert_eq!(o.paid.len(), 1, "{o:?}");
+        assert_eq!(std::fs::read(paid.join("a [R0001].jpg")).unwrap(), b"damaged");
+        assert!(!paid.join(repair::COPYING_NAME).exists(), "the half copy went");
+        assert!(o.moved.is_empty(), "{o:?}");
+        std::fs::write(paid.join(repair::COPYING_NAME), b"dama").unwrap();
+        let b = bring_back(&work, &repair.join(HANDOFF_DIR), &mut |_| {}).unwrap();
+        assert!(b.unknown.is_empty() && b.repaired.is_empty(), "{b:?}");
+        assert!(!returned_here.join(repair::COPYING_NAME).exists(), "the half copy in REPAIR went");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn a_repair_made_in_place_in_the_hand_off_is_kept_once_it_leaves() {
         let base = std::env::temp_dir().join(format!("arp-handoff-inplace-{}", std::process::id()));
@@ -942,6 +1071,17 @@ mod tests {
         assert!(!MAC_SCRIPT_TEXT.contains('\r'), "a Mac script must have Unix line ends");
         // It never writes over the files it tries.
         assert!(!MAC_SCRIPT_TEXT.contains("--out \"$f\""));
+        // A file inside a document kept as a folder (Report [R0001].pages/
+        // Data/pic.jpg) is not tried by itself - it was, and "repaired" into
+        // returned/repaired as "pic.jpg", with no number, or listed as one to
+        // open "in its own app" (Index.zip): the document is done by hand.
+        let first_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for f in **/*(.D)").unwrap()..MAC_SCRIPT_TEXT.find("case \"$ext\"").unwrap()];
+        assert!(first_loop.contains("[[ \"$f\" == *.(pages|numbers|key|rtfd)/* ]] && continue"), "{first_loop}");
+        // Nor is a document already saved into "returned" listed to do again.
+        let second_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for d in **/*.(pages").unwrap()..];
+        assert!(second_loop.lines().nth(1).is_some_and(|l| l.trim() == "[[ \"$d\" == returned/* ]] && continue"), "{second_loop}");
+        // decodes() takes away the empty file mktemp makes, not only its own.
+        assert!(MAC_SCRIPT_TEXT.contains("rm -f \"$m\" \"$t\" \"$t.err\"; return 0"));
     }
 
     /// WORK with one damaged photo copied out as R0001 (Pics\a.jpg); REPAIR.
@@ -971,6 +1111,34 @@ mod tests {
             std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| std::fs::read(e.path()).unwrap()).collect()).unwrap_or_default();
         v.sort();
         v
+    }
+
+    #[test]
+    fn bring_back_never_takes_files_from_work() {
+        let base = std::env::temp_dir().join(format!("arp-bring-notwork-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        std::fs::write(work.join(crate::rescue::LOG_NAME), "\u{FEFF}kind,path\r\n").unwrap();
+        // A photo on the old drive from a recovery before, with a number in
+        // its name that this one gave a photo too.
+        std::fs::create_dir_all(work.join("Old")).unwrap();
+        std::fs::write(work.join("Old").join("b [R0001].jpg"), b"some other photo").unwrap();
+        // What came back, on SPARE itself (taken to the Mac).
+        let back = base.join("returned");
+        std::fs::create_dir_all(&back).unwrap();
+        std::fs::write(back.join("a [R0001].jpg"), b"version A").unwrap();
+        // SPARE's top chosen: what came back is taken; WORK is not looked in.
+        let o = bring_back(&work, &base, &mut |_| {}).unwrap();
+        assert_eq!(o.repaired.len(), 1, "{o:?}");
+        assert!(o.repaired[0].1.ends_with("a [R0001].jpg"), "{o:?}");
+        assert!(o.unknown.iter().all(|u| !u.contains("WORK")), "{o:?}");
+        let returned = repair.join(repair::REPAIRED).join(RETURNED);
+        assert_eq!(files_in(&returned), vec![b"version A".to_vec()]);
+        // WORK, or a folder in it, chosen: refused.
+        for from in [work.clone(), work.join("Old")] {
+            let e = bring_back(&work, &from, &mut |_| {}).unwrap_err();
+            assert!(e.contains("holds the copies of the old drive"), "{e}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
@@ -1005,16 +1173,39 @@ mod tests {
         let (work, repair) = one_copied_out(&base);
         let stick = base.join("stick");
         std::fs::create_dir_all(&stick).unwrap();
-        // Saved as ".jpeg" (the photo was ".jpg"): kept, as something salvaged.
-        std::fs::write(stick.join("a [R0001].jpeg"), b"version A").unwrap();
+        // Saved as ".png" (the photo was ".jpg"): kept, as something salvaged.
+        std::fs::write(stick.join("a [R0001].png"), b"version A").unwrap();
         let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
         assert_eq!((o.repaired.len(), o.salvaged.len()), (0, 1), "{o:?}");
         // Renamed on the stick to the photo's own kind: now it is the repaired
         // version (the same bytes in salvaged do not make it "there already").
-        std::fs::rename(stick.join("a [R0001].jpeg"), stick.join("a [R0001].jpg")).unwrap();
+        std::fs::rename(stick.join("a [R0001].png"), stick.join("a [R0001].jpg")).unwrap();
         let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
         assert_eq!((o.repaired.len(), o.salvaged.len()), (1, 0), "{o:?}");
         assert_eq!(std::fs::read(repair.join(repair::REPAIRED).join(RETURNED).join("a [R0001].jpg")).unwrap(), b"version A");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A photo repaired and saved as ".jpeg" for a ".jpg" (the Mac's Preview
+    /// does): the same kind of file, so the repaired version, put back under
+    /// the photo's own name (before: kept as "salvaged", never put back, and
+    /// nothing said so).
+    #[test]
+    fn a_jpeg_saved_as_jpeg_for_a_jpg_is_the_repaired_version() {
+        let base = std::env::temp_dir().join(format!("arp-bring-jpeg-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        assert!(repair.join(repair::LIST_NAME).is_file());
+        let stick = base.join("stick");
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(stick.join("a [R0001].jpeg"), b"repaired photo").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.salvaged.len()), (1, 0), "{o:?}");
+        let pb = repair::put_back(&work, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert_eq!(std::fs::read(work.join("Pics").join("a.jpg")).unwrap(), b"repaired photo");
+        assert!(!work.join("Pics").join("a.jpeg").exists());
+        assert!(repair::same_kind("IMG_1.HEIC", "IMG_1 [R0002].heif") && repair::same_kind("clip.MOV", "clip [R0003].qt"));
+        assert!(!repair::same_kind("IMG_1.HEIC", "IMG_1 [R0002].jpg"), "a HEIC made a JPEG is salvaged");
         let _ = std::fs::remove_dir_all(&base);
     }
 

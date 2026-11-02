@@ -50,6 +50,10 @@ pub const LISTS: &str = "damaged-lists";
 pub const SALVAGED: &str = "salvaged";
 const README_NAME: &str = "READ ME.txt";
 const TMP_NAME: &str = "~recovery-probe-returning.tmp";
+/// A copy into REPAIR or the hand-off being made (handoff.rs): renamed to
+/// its own name once whole. No number in it, so nothing takes it for a
+/// version of one.
+pub const COPYING_NAME: &str = "~recovery-probe-copying.tmp";
 /// A document kept as a folder bigger than this is not copied out whole.
 const PACKAGE_LIMIT: u64 = 4 << 30;
 
@@ -547,7 +551,7 @@ fn hash_with(p: &Path, stop: &dyn Fn() -> bool, on_drive: bool) -> std::io::Resu
 
 /// Make a file, or every file in a folder, safe on the drive. (Windows only
 /// does that through a handle that may write; nothing is written.)
-fn make_safe_on_drive(p: &Path) -> std::io::Result<()> {
+pub(crate) fn make_safe_on_drive(p: &Path) -> std::io::Result<()> {
     let sync = |f: &Path| std::fs::OpenOptions::new().write(true).open(f)?.sync_all();
     if std::fs::metadata(p)?.is_dir() {
         let mut files = Vec::new();
@@ -1339,6 +1343,10 @@ fn candidates(repair: &Path) -> (Vec<(String, PathBuf, String)>, Vec<String>) {
             if if is_dir { is_drive_housekeeping(&name) } else { is_housekeeping(&name) } {
                 continue;
             }
+            // (Bring back's copy being made, or one a power cut stopped.)
+            if name == COPYING_NAME {
+                continue;
+            }
             match tag_in(&name) {
                 Some(id) => found.push((id, e.path(), format!("{REPAIRED}\\{here}"))),
                 None if is_dir => stack.push((e.path(), here)),
@@ -1350,8 +1358,24 @@ fn candidates(repair: &Path) -> (Vec<(String, PathBuf, String)>, Vec<String>) {
     (found, untagged)
 }
 
-fn same_kind(original: &str, candidate: &str) -> bool {
-    ext_of(original).eq_ignore_ascii_case(ext_of(candidate))
+/// Extensions that name one kind of file: a JPEG saved as ".jpeg" for a
+/// ".jpg" (the Mac's Preview does), say. A version with any of them is the
+/// same kind as its original, and is put back under the original's name.
+const SAME_KINDS: &[&[&str]] = &[
+    &["jpg", "jpeg", "jpe", "jfif"],
+    &["tif", "tiff"],
+    &["heic", "heif", "hif"],
+    &["mov", "qt"],
+    &["mp4", "m4v"],
+    &["mpg", "mpeg"],
+    &["aif", "aiff"],
+];
+
+/// Whether a repaired version (`candidate`) is the same kind of file as its
+/// original: the same extension, without case, or one of the same kind.
+pub fn same_kind(original: &str, candidate: &str) -> bool {
+    let (a, b) = (ext_of(original).to_lowercase(), ext_of(candidate).to_lowercase());
+    a == b || SAME_KINDS.iter().any(|k| k.contains(&a.as_str()) && k.contains(&b.as_str()))
 }
 
 /// Step 3: put every repaired file back where its original is.
@@ -1966,6 +1990,43 @@ pub fn evaluate(
             file_rows.push((d.path.clone(), state));
         }
     }
+    // A document kept as a folder, copied out whole to repair, with nothing
+    // inside it damaged by the latest check (after it was repaired and put
+    // back, that check finds nothing wrong with it): one of the damaged files
+    // all the same, as a file copied out is. (Before, it was left out of the
+    // counts, and its package said "nothing inside it is damaged".)
+    let had_damage: HashSet<String> = pkgs.iter().filter(|(_, p)| p.damaged > 0).map(|(k, _)| k.clone()).collect();
+    for i in items.iter().filter(|i| i.package) {
+        let low = i.path.to_lowercase();
+        let mut prefix = String::new();
+        let mut key: Option<String> = None;
+        for part in low.split('\\') {
+            if !prefix.is_empty() {
+                prefix.push('\\');
+            }
+            prefix.push_str(part);
+            if pkgs.contains_key(&prefix) {
+                key = Some(prefix.clone());
+                break;
+            }
+        }
+        // (Where the check still finds something damaged inside it, that is
+        // what is counted.)
+        let Some(p) = key.filter(|k| !had_damage.contains(k)).and_then(|k| pkgs.get_mut(&k)) else { continue };
+        let state = state_of(&i.path);
+        p.damaged += 1;
+        if state == STATE_BACK {
+            p.put_back += 1;
+            ev.put_back += 1;
+        } else if state == STATE_AS_BEFORE {
+            ev.left += 1;
+        } else {
+            if state == STATE_WAITING {
+                p.waiting += 1;
+            }
+            ev.waiting += 1;
+        }
+    }
     let mut reports: Vec<PackageReport> = pkgs.into_values().collect();
     for p in &mut reports {
         p.verdict = verdict_for(p);
@@ -2387,6 +2448,63 @@ mod tests {
         assert_eq!(ev.files.len(), 2, "{:?}", ev.files);
         assert!(ev.files.iter().any(|f| f.0 == "Photos\\IMG_0003.JPG" && f.1 == STATE_WAITING), "{:?}", ev.files);
         assert!(repair.join(EVALUATION_NAME).is_file());
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn put_back_takes_no_half_made_copy_for_a_file() {
+        let top = std::env::temp_dir().join(format!("rp-repair-copying-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let repair = top.join(REPAIR_DIR);
+        let returned = repair.join(REPAIRED).join("returned");
+        std::fs::create_dir_all(returned.join(COPYING_NAME)).unwrap();
+        std::fs::write(returned.join(COPYING_NAME).join("Index.zip"), b"half").unwrap();
+        std::fs::write(returned.join("a [R0001].jpg"), b"repaired").unwrap();
+        let (found, untagged) = candidates(&repair);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(untagged.is_empty(), "nothing said about Bring back's copy being made: {untagged:?}");
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_document_repaired_and_put_back_is_counted_after_a_fresh_check() {
+        let top = std::env::temp_dir().join(format!("rp-repair-pkg-again-{}", std::process::id()));
+        let (work, scan) = setup(&top);
+        let no = || false;
+        isolate(&work, std::slice::from_ref(&scan), &mut |_| {}, &no).unwrap();
+        let repair = top.join(REPAIR_DIR);
+        // A fresh check finding nothing wrong in the document (nor the photo):
+        // copied out and waiting, it is still one to repair...
+        let mut fresh = csv_row(&crate::report::RESULT_HEADER);
+        let full = format!("{}\\Tools\\Thing.app\\Contents\\MacOS\\Thing", work.display()).replace('/', "\\");
+        fresh.push_str(&csv_row(&["NEVER_READ", "ddrescue never read 512 bytes of this file", "10", &full]));
+        let fresh_csv = top.join("fresh.csv");
+        std::fs::write(&fresh_csv, format!("\u{FEFF}{fresh}")).unwrap();
+        let ev = evaluate(&work, std::slice::from_ref(&fresh_csv), &mut |_| {}, &no).unwrap();
+        let doc = ev.packages.iter().find(|p| p.path == "Docs\\Report.pages").unwrap().clone();
+        assert_eq!((doc.damaged, doc.waiting, doc.put_back), (1, 1, 0), "{doc:?}");
+        assert_eq!((ev.put_back, ev.waiting), (0, 3), "{ev:?}");
+        // ...and repaired and put back, it is counted as that (before: left
+        // out, and "nothing inside it is damaged").
+        let fixed = repair.join(REPAIRED);
+        copy_tree(&repair.join(TO_REPAIR).join(GROUPS[7].0).join("Report [R0001].pages"), &fixed.join("Report [R0001].pages"))
+            .unwrap();
+        std::fs::write(fixed.join("Report [R0001].pages").join("Data").join("pic.jpg"), b"repaired picture").unwrap();
+        std::fs::write(fixed.join("IMG_0003 [R0003]_repaired.JPG"), b"repaired photo").unwrap();
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert_eq!(pb.returned.len(), 2, "{pb:?}");
+        let ev = evaluate(&work, std::slice::from_ref(&fresh_csv), &mut |_| {}, &no).unwrap();
+        let doc = ev.packages.iter().find(|p| p.path == "Docs\\Report.pages").unwrap().clone();
+        assert_eq!((doc.damaged, doc.put_back), (1, 1), "{doc:?}");
+        assert_eq!(doc.verdict, "repaired and put back");
+        assert_eq!(ev.put_back, 2, "the document and the photo: {ev:?}");
+        let said = evaluation_summary(&ev).join("\n");
+        assert!(said.contains("2 repaired and put back"), "{said}");
+        // With the first check (the damage inside it named), it is counted
+        // once, as before.
+        let ev = evaluate(&work, std::slice::from_ref(&scan), &mut |_| {}, &no).unwrap();
+        let doc = ev.packages.iter().find(|p| p.path == "Docs\\Report.pages").unwrap().clone();
+        assert_eq!((doc.damaged, doc.put_back), (1, 1), "{doc:?}");
         let _ = std::fs::remove_dir_all(&top);
     }
 

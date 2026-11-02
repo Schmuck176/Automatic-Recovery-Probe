@@ -583,13 +583,23 @@ fn media_checks_out(env: &Env, made: &Path, before: Option<&(bool, Vec<String>)>
     if !ok {
         return Err(format!("FFmpeg cannot play it: {}", errs.first().cloned().unwrap_or_default()));
     }
-    if let Some((was_ok, was)) = before {
+    if let Some((true, was)) = before {
         let mended_structure = damaged.is_some_and(|d| probe_ok(d).is_err());
         // (Sound is decoded on one thread: the same errors every time.)
         let ext = ext_lower(&made.to_string_lossy());
         let margin = if VIDEO_ISO.contains(&ext.as_str()) || VIDEO_OTHER.contains(&ext.as_str()) { (was.len() / 10).max(1) } else { 0 };
-        let worse = if mended_structure { errs.len() > was.len() + margin } else { errs.len() >= was.len() };
-        if *was_ok && !was.is_empty() && worse {
+        // Where the damaged copy's structure was broken and this one's is
+        // right, about as many errors count; where it was right already,
+        // fewer it must be - and none, where the damaged copy played without
+        // an error. (Before, a damaged copy that played without an error
+        // took any version that played, errors and all.)
+        if mended_structure && errs.len() > was.len() + margin {
+            return Err("it plays no better than the damaged copy".to_string());
+        }
+        if !mended_structure && was.is_empty() && !errs.is_empty() {
+            return Err("the damaged copy plays without an error, and this one does not".to_string());
+        }
+        if !mended_structure && !was.is_empty() && errs.len() >= was.len() {
             return Err("it plays no better than the damaged copy".to_string());
         }
     }
@@ -2435,6 +2445,24 @@ mod tests {
             errors(&made_v, n);
             assert_eq!(media_checks_out(&env, &made_v, Some(&was_v), Some(&broken_v)).is_ok(), taken, "{n} errors");
         }
+        // A damaged copy that plays without an error: a version with errors
+        // is worse, whatever else (before: it was taken).
+        errors(&whole, 0);
+        errors(&broken, 0);
+        errors(&broken_v, 0);
+        let (was_whole0, was_broken0, was_v0) =
+            (plays(&env, &whole).unwrap(), plays(&env, &broken).unwrap(), plays(&env, &broken_v).unwrap());
+        assert!(was_whole0.0 && was_whole0.1.is_empty() && was_broken0.1.is_empty() && was_v0.1.is_empty());
+        for (n, taken) in [(0, true), (1, false)] {
+            errors(&made, n);
+            assert_eq!(media_checks_out(&env, &made, Some(&was_whole0), Some(&whole)).is_ok(), taken, "{n}: structure right before");
+            assert_eq!(media_checks_out(&env, &made, Some(&was_broken0), Some(&broken)).is_ok(), taken, "{n}: structure mended");
+        }
+        for (n, taken) in [(0, true), (1, true), (2, false)] {
+            errors(&made_v, n);
+            assert_eq!(media_checks_out(&env, &made_v, Some(&was_v0), Some(&broken_v)).is_ok(), taken, "video, {n} errors");
+        }
+        errors(&made, 0);
         // FFmpeg there, but not through it (Stop, or its time limit): not taken.
         let stopped = || true;
         let mut env2 = bare_env(&dir, &stopped);

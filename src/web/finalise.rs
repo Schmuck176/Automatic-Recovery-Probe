@@ -88,7 +88,7 @@ pub(super) fn copy_tree(
         crate::live::now(&shown);
         let mut replacing = false;
         if let Ok(dm) = std::fs::metadata(&d) {
-            let looks_same = dm.len() == m.len() && dm.modified().ok() == m.modified().ok();
+            let looks_same = dm.len() == m.len() && same_time(dm.modified().ok(), m.modified().ok());
             // (Not replacing anything: no need to read both to compare.)
             let same = looks_same && (!overwrite || !always(&s) || same_contents(&s, &d));
             if same || !overwrite {
@@ -121,6 +121,19 @@ pub(super) fn copy_tree(
         crate::live::done(&shown, m.len());
     }
     Ok(c)
+}
+
+/// Two modified times the same, as the second copy's drive keeps them: exFAT
+/// keeps a file's time to 10 ms, a network drive to a second or two, where
+/// NTFS keeps it to 100 ns. (Before, on an exFAT drive every file the program
+/// writes itself - its lists, logs, READ MEs - differed each time: copied
+/// again by every Finalise, and said to be "not as WORK holds them".)
+fn same_time(a: Option<std::time::SystemTime>, b: Option<std::time::SystemTime>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.duration_since(b).unwrap_or_else(|e| e.duration()) < std::time::Duration::from_secs(2),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 /// The same bytes in both files.
@@ -452,6 +465,19 @@ mod tests {
         let (c, _) = copy(&put_back, true);
         assert_eq!((c.files, c.replaced), (1, 1));
         assert_eq!(std::fs::read(b.join("b.txt")).unwrap(), b"HELLO");
+        // On an exFAT drive a time is kept to 10 ms: a file whose time in WORK
+        // is finer (one the program wrote) is there already all the same.
+        let fine = old + std::time::Duration::from_nanos(12_345_600);
+        std::fs::File::options().write(true).open(a.join("b.txt")).unwrap().set_modified(fine).unwrap();
+        let kept_as = old + std::time::Duration::from_millis(10);
+        std::fs::File::options().write(true).open(b.join("b.txt")).unwrap().set_modified(kept_as).unwrap();
+        let (c, _) = copy(&|_| false, true);
+        assert_eq!((c.files, c.replaced), (0, 0), "not copied again, nor said to differ");
+        // A time further off is a change.
+        std::fs::File::options().write(true).open(b.join("b.txt")).unwrap().set_modified(old + std::time::Duration::from_secs(5)).unwrap();
+        let (c, _) = copy(&|_| false, true);
+        assert_eq!((c.files, c.replaced), (1, 1));
+        assert!(same_time(None, None) && !same_time(Some(old), None));
         let _ = std::fs::remove_dir_all(&base);
     }
 
