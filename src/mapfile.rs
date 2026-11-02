@@ -237,6 +237,9 @@ fn apply_command_line(m: &mut Mapfile) {
             .max()
             .unwrap_or(0);
     }
+    // (Never ending before it starts - a mapfile with no block past its -i:
+    // its size, end minus start, is taken in several places.)
+    m.domain_end = m.domain_end.max(m.domain_start);
     if let Some(o) = opos {
         m.output_shift = o as i128 - start as i128;
         if m.output_shift != 0 {
@@ -379,5 +382,10 @@ mod tests {
         // -o: where the copy was written instead.
         let m = with("-o 1MiB");
         assert_eq!(m.output_shift, 1 << 20);
+        // -i past every block it holds, and no -s: it ends where it starts
+        // (before, before it started: its size, end minus start, went round).
+        let m = with("-i 2TB");
+        assert_eq!((m.domain_start, m.domain_end), (2_000_000_000_000, 2_000_000_000_000));
+        assert_eq!(m.domain_end - m.domain_start, 0);
     }
 }

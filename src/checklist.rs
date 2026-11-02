@@ -506,8 +506,31 @@ fn normal(text: &str) -> String {
     out.join("\n").trim_end().to_string()
 }
 
+/// The Your numbers row of a copy, when something is written in it (the
+/// program's numbers from before, or the person's own).
+pub fn numbers_row_in(copy: &str) -> Option<String> {
+    let mut numbers_row = 0;
+    for line in copy.replace("\r\n", "\n").lines() {
+        let l = line.trim_end();
+        if numbers_row == 2 && l.starts_with("> |") {
+            let empty = l.trim_start_matches('>').split('|').all(|c| c.trim().is_empty());
+            return (!empty).then(|| l.to_string());
+        }
+        numbers_row = if l.contains(NUMBERS_HEADER) { 1 } else if numbers_row == 1 { 2 } else { 0 };
+    }
+    None
+}
+
 /// The checklist with these ticks, and Your numbers filled in when known.
 pub fn markdown(text: &str, items: &[Item], done: &[bool], numbers: Option<(u64, u64)>) -> String {
+    markdown_keeping(text, items, done, numbers, None)
+}
+
+/// The same, with Your numbers row as `row` when the program has no numbers
+/// (what the copy has in it already: while a map check runs again, say, its
+/// numbers are not known, and the row was emptied - numbers the person had
+/// written in it too).
+pub fn markdown_keeping(text: &str, items: &[Item], done: &[bool], numbers: Option<(u64, u64)>, row: Option<&str>) -> String {
     let by_line: HashMap<usize, usize> = items.iter().enumerate().map(|(i, it)| (it.line, i)).collect();
     let mut out = String::with_capacity(text.len() + 256);
     let mut numbers_row = 0;
@@ -519,6 +542,8 @@ pub fn markdown(text: &str, items: &[Item], done: &[bool], numbers: Option<(u64,
         if numbers_row == 2 && l.starts_with("> |") {
             if let Some((f, b)) = numbers {
                 l = format!("> | {} | {} |", commas(f), size(b));
+            } else if let Some(r) = row {
+                l = r.to_string();
             }
         }
         numbers_row = if l.contains(NUMBERS_HEADER) { 1 } else if numbers_row == 1 { 2 } else { 0 };

@@ -99,7 +99,11 @@ fn copy_whole(from: &Path, to: &Path) -> std::io::Result<u64> {
     // (On the drive before it takes its own name: after a power cut, a copy
     // under its name whose bytes never reached the drive would be as bad as
     // half a copy.)
-    match copy_tree(from, &tmp).and_then(|n| repair::make_safe_on_drive(&tmp).and_then(|_| std::fs::rename(&tmp, to)).map(|_| n)) {
+    let made = copy_tree(from, &tmp).and_then(|n| {
+        repair::make_writable(&tmp);
+        repair::make_safe_on_drive(&tmp).and_then(|_| std::fs::rename(&tmp, to)).map(|_| n)
+    });
+    match made {
         Ok(n) => Ok(n),
         Err(e) => {
             remove_copying(&tmp);
@@ -920,6 +924,37 @@ mod tests {
         std::fs::write(base.join("a.jpg"), b"photo").unwrap();
         assert!(copy_whole(&base.join("a.jpg"), &f).is_ok());
         assert_eq!(std::fs::read(&f).unwrap(), b"photo");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A repaired version marked read-only on the stick (a file a Mac had
+    /// locked): brought back and put back all the same, and what is put in
+    /// WORK is not read-only. (On Windows a read-only copy could not be made
+    /// safe on the drive: Bring back, then put back, stopped there.)
+    #[test]
+    fn a_read_only_version_on_the_stick_is_brought_back_and_put_back() {
+        let base = std::env::temp_dir().join(format!("arp-bring-readonly-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let stick = base.join("stick");
+        std::fs::create_dir_all(&stick).unwrap();
+        let f = stick.join("a [R0001].jpg");
+        std::fs::write(&f, b"repaired, locked").unwrap();
+        let mut perm = std::fs::metadata(&f).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&f, perm).unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!(o.repaired.len(), 1, "{o:?}");
+        let pb = repair::put_back(&work, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        let put = work.join("Pics").join("a.jpg");
+        assert_eq!(std::fs::read(&put).unwrap(), b"repaired, locked");
+        assert!(!std::fs::metadata(&put).unwrap().permissions().readonly(), "WORK's file can be changed like any other");
+        assert!(repair.join(repair::REPAIRED).join(RETURNED).join("a [R0001].jpg").is_file());
+        // (Writable again, so the folder can be taken away.)
+        let mut perm = std::fs::metadata(&f).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perm.set_readonly(false);
+        let _ = std::fs::set_permissions(&f, perm);
         let _ = std::fs::remove_dir_all(&base);
     }
 

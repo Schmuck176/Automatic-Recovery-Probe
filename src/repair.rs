@@ -551,6 +551,36 @@ fn hash_with(p: &Path, stop: &dyn Fn() -> bool, on_drive: bool) -> std::io::Resu
 
 /// Make a file, or every file in a folder, safe on the drive. (Windows only
 /// does that through a handle that may write; nothing is written.)
+/// The program's own copy (a file, or a folder's files) made writable: a
+/// read-only mark comes along with a copy (a file a Mac had locked, on a
+/// stick), and would keep it from being made safe on the drive - so from
+/// being put back, or brought back at all.
+pub(crate) fn make_writable(p: &Path) {
+    let set = |f: &Path| {
+        let Ok(m) = std::fs::metadata(f) else { return };
+        let mut perm = m.permissions();
+        if perm.readonly() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                perm.set_mode(perm.mode() | 0o200);
+            }
+            #[cfg(not(unix))]
+            perm.set_readonly(false);
+            let _ = std::fs::set_permissions(f, perm);
+        }
+    };
+    if p.is_dir() {
+        let mut files = Vec::new();
+        let _ = tree_files(p, "", &mut files);
+        for (_, f) in files {
+            set(&f);
+        }
+    } else {
+        set(p);
+    }
+}
+
 pub(crate) fn make_safe_on_drive(p: &Path) -> std::io::Result<()> {
     let sync = |f: &Path| std::fs::OpenOptions::new().write(true).open(f)?.sync_all();
     if std::fs::metadata(p)?.is_dir() {
@@ -1562,6 +1592,7 @@ fn put_one(
         remove_own_temp(&tmp);
         format!("could not copy it into WORK: {e}")
     })?;
+    make_writable(&tmp);
     // Safe on the drive before it takes the original's place (a power cut
     // must not leave a version that never reached the drive in WORK), and
     // checked as the drive holds it.

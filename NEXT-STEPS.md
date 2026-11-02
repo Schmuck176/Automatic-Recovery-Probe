@@ -1040,6 +1040,30 @@ bug fixes don't break other things."
   counted as changed in the second copy "since the last Finalise?". Times
   within two seconds are the same now (a network drive may keep them to a
   second or two; a file put back is still compared by its contents).
+- A repaired version marked read-only on the stick (a file a Mac had
+  locked): the mark came along with each copy, and on Windows a read-only
+  copy cannot be made safe on the drive - put back stopped at it ("could not
+  make its copy in WORK safe on the drive"), and with the hand-off's copies
+  made safe too, Bring back would have stopped at it. The program's own
+  copies are made writable now (WORK's file is never left read-only either).
+- **A temperature over 100 °C was taken as real**: some USB cases answer 127
+  or 128 for "no sensor", and reading would have paused for good, waiting for
+  the SSD to cool - the image never finished, but for Stop. No working SSD
+  reads that hot (it shuts itself down first): such a reading is now no
+  reading ("cannot be watched", or while paused, after three, "could not be
+  read for a while: reading carries on").
+- The checklist copy's Your numbers row was emptied whenever the program had
+  no numbers (a map check running again, after Start over) and the copy was
+  written again (a box ticked on the page) - numbers the person wrote there
+  too. The row the copy has stays while the program has none (the idea noted
+  before).
+- The extra checks read their own lists (REPAIR\damaged-lists) and the list
+  of what they checked as bytes: one saved again in Windows' old code page
+  lost, on a stopped run, what the earlier run found (the idea noted before).
+- A mapfile whose -i lies past every block it holds (and no -s) ended before
+  it started: its size, end minus start, taken in several places, went round
+  to an enormous number (a panic in the build with overflow checks). It ends
+  where it starts now.
 - Bring back never looks in WORK, or a copy of it (a folder with the
   copying's list at its top: COPY 2), below the folder chosen, and refuses a
   folder inside one. The page refused WORK and a folder holding it already;
@@ -1060,6 +1084,11 @@ bug fixes don't break other things."
   one version of its number in repaired, its original kept, nothing else in
   WORK touched, nothing put back twice, the evaluation's count of what was
   put back right, and WORK exactly as before once every put-back is undone.
+- A build with overflow checks (and debug assertions) on was given the
+  end-to-end checks: auto_check 96/96, test_mapcheck 114/114 (seed 4242, 100
+  random disks), resume_check 17/17 (seed 29, 20 interruptions), ui_check
+  67/67, auto_ui_check 34/34: no sum went round anywhere. test_mapcheck with
+  seeds 2026 and 7777, 150 random disks each: 164/164 each.
 - Re-read with nothing found: lock guards held across calls (a condition's
   temporaries are dropped before the next operand: tried), every string
   slice by a position, the files the program reads that the person or
@@ -1069,9 +1098,9 @@ bug fixes don't break other things."
   13, 30 interruptions each: 17/17 each.
 - Version 2026-11-02 (1); the 2026-10-30 (1) checklist text is known
   (5922503402146213730).
-- Tests here: unit tests 180, test_mapcheck 94/94, auto_check 96/96,
+- Tests here: unit tests 183, test_mapcheck 94/94, auto_check 96/96,
   auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check with
-  seeds 21 and 23, 25 interruptions each: 17/17 each.
+  seeds 21, 23 (25 interruptions each) and 31 (20): 17/17 each.
 
 ## Not done / ideas for later
 
@@ -1085,14 +1114,12 @@ bug fixes don't break other things."
 - The repairs try again, each time the stage runs, every file not repaired
   yet (FFmpeg plays big videos through again): they could skip a file tried
   before with the same tools, the same copy and the same places to look in.
-- While a map check runs again (Start over), its numbers are not known, so
-  the checklist copy is written with an empty Your numbers row until it
-  finishes (then filled in again). Numbers the person typed into that row
-  themselves would be replaced by the program's: keep the copy's row while
-  the program has none.
-- The extra checks read their own lists in REPAIR\damaged-lists as text: one
-  edited and saved in another code page loses, on a stopped run, what the
-  earlier run found (read as bytes, as the other lists are).
+- A temperature reading stuck at a value an SSD can have (85 °C, say) keeps
+  reading paused for good: "it has not cooled at all in an hour" could be
+  said, with a way to carry on.
+- Two checklist syncs at once (a box ticked while the page asks for the
+  checklist) can each write the copy; in a rare order a tick is undone and
+  has to be clicked again: one sync at a time (a lock) would end it.
 - If a video's verdict still changes from one run to the next (FFmpeg's
   threads: more than the margin of one error in ten), decode just the
   damaged copy and the rebuilt one on one thread when the counts are close.

@@ -150,7 +150,8 @@ fn done_line(c: Check, size: u64, mtime: i64, v: &Verdict, path: &str) -> Option
 
 fn read_done(p: &Path) -> std::collections::HashMap<(Check, String), (u64, i64, Verdict)> {
     let mut out = std::collections::HashMap::new();
-    let Ok(text) = std::fs::read_to_string(p) else { return out };
+    let Ok(bytes) = std::fs::read(p) else { return out };
+    let text = String::from_utf8_lossy(&bytes);
     for line in text.lines() {
         let f: Vec<&str> = line.splitn(6, '\t').collect();
         if f.len() < 6 {
@@ -788,7 +789,10 @@ fn write_lists(work: &Path, o: &mut Outcome) -> Result<(), String> {
         let mine: Vec<&Finding> = o.findings.iter().filter(|f| f.check == c).collect();
         let p = dir.join(c.list_name());
         let mut lines: BTreeMap<String, String> = BTreeMap::new();
-        if let Ok(old) = std::fs::read_to_string(&p) {
+        // (As bytes: a list saved again by another editor, in Windows' old
+        // code page, must not lose what an earlier run found.)
+        if let Ok(bytes) = std::fs::read(&p) {
+            let old = String::from_utf8_lossy(&bytes);
             for l in old.lines() {
                 if l.starts_with('#') || l.trim().is_empty() {
                     continue;
@@ -905,6 +909,37 @@ mod tests {
 
     fn ran(code: i32, out: &str, err: &str) -> tools::Ran {
         tools::Ran { code: Some(code), out: out.to_string(), err: err.to_string(), ..Default::default() }
+    }
+
+    /// A list an earlier run wrote, saved again in Windows' old code page
+    /// ("Café" as one byte): a run stopped before it got to those files keeps
+    /// what that run found (before: none of it, the list read as text failed).
+    #[test]
+    fn a_list_saved_by_another_editor_keeps_what_was_found() {
+        let base = std::env::temp_dir().join(format!("arp-extra-latin1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(&work).unwrap();
+        for n in ["a.mp3", "b.mp3"] {
+            std::fs::write(work.join(n), b"mp3").unwrap();
+        }
+        let lists = crate::repair::repair_dir(&work).unwrap().join(crate::repair::LISTS);
+        std::fs::create_dir_all(&lists).unwrap();
+        let p = lists.join(Check::Mp3.list_name());
+        let a = work.join("a.mp3").display().to_string();
+        let mut old = format!("# an earlier run\r\n{a}\tMP3val: bad frames\r\n").into_bytes();
+        old.extend_from_slice(format!("{}\\Caf\u{e9}.mp3", work.display()).as_bytes());
+        old.truncate(old.len() - "\u{e9}.mp3".len());
+        old.extend_from_slice(b"\xe9.mp3\tMP3val: bad frames\r\n");
+        std::fs::write(&p, &old).unwrap();
+        let b = work.join("b.mp3").display().to_string();
+        let mut o = Outcome { stopped: true, ..Default::default() };
+        o.findings.push(Finding { path: b.clone(), check: Check::Mp3, message: "bad header".to_string() });
+        write_lists(&work, &mut o).unwrap();
+        let text = String::from_utf8_lossy(&std::fs::read(&p).unwrap()).into_owned();
+        assert!(text.contains(&a), "what the earlier run found is kept: {text}");
+        assert!(text.contains(&b), "{text}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

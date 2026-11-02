@@ -178,7 +178,7 @@ pub fn reliability_temperature(n: u32) -> Option<i16> {
     if r.code != Some(0) {
         return None;
     }
-    r.out.lines().filter_map(|l| l.trim().parse::<i16>().ok()).find(|t| (1..=150).contains(t))
+    r.out.lines().filter_map(|l| l.trim().parse::<i16>().ok()).find(|t| (1..=crate::win::PLAUSIBLE_MOST).contains(t))
 }
 
 /// Words in PowerShell's single quotes. PowerShell takes the curly single

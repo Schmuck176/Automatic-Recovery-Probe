@@ -2016,7 +2016,13 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     let st = cl::statuses(&items, &ticks, &history);
     let done = cl::ticked(&items, &ticks, &st);
     let numbers = ssd_totals(&map_check).and_then(|s| s.bytes.map(|b| (s.files, b)));
-    let md = cl::markdown(cl::TEXT, &items, &done, numbers);
+    // (No numbers known: the row the copy has stays as it is.)
+    let kept_row = if numbers.is_none() {
+        std::fs::read(&target).ok().and_then(|b| cl::numbers_row_in(&String::from_utf8_lossy(&b)))
+    } else {
+        None
+    };
+    let md = cl::markdown_keeping(cl::TEXT, &items, &done, numbers, kept_row.as_deref());
     // (Read as bytes: a copy that is not UTF-8 - saved by another editor -
     // is the person's own, and is never written over for want of reading it.)
     match std::fs::read(&target) {
@@ -2971,6 +2977,48 @@ mod tests {
         assert_eq!(url_decode("%E5%AE%B6%20%F0%9F%98%80"), "家 😀");
         assert_eq!(url_decode("100%"), "100%");
         assert_eq!(url_decode("%zz"), "%zz");
+    }
+
+    /// Numbers in the copy's Your numbers row (written by the person, or by the
+    /// program before), and no numbers known now (a map check running again):
+    /// the row stays as it is when the copy is written again (before: emptied).
+    #[test]
+    fn numbers_in_the_checklist_copy_stay_while_the_program_has_none() {
+        let home = std::env::temp_dir().join(format!("arp-cl-numbers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let dir = home.join("Obsidian MD files");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (_, items) = crate::checklist::parse(crate::checklist::TEXT);
+        let done = vec![false; items.len()];
+        let row = "> | 52,341 | 1.8 TB |";
+        let copy = crate::checklist::markdown(crate::checklist::TEXT, &items, &done, None).replacen("> |  |  |", row, 1);
+        assert!(copy.contains(row));
+        let path = dir.join(crate::checklist::COPY_NAME);
+        std::fs::write(&path, &copy).unwrap();
+        let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(long_ago).unwrap();
+        // A box ticked on the page since: the copy is written again.
+        let results = home.join("results");
+        std::fs::create_dir_all(&results).unwrap();
+        let ticks_path = results.join(crate::checklist::TICKS_NAME);
+        let key = items.iter().find(|i| !i.checkpoint).unwrap().key.clone();
+        crate::checklist::Ticks::load(&ticks_path).set(&ticks_path, &key, true, &crate::fmt::when_now()).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: home.clone(),
+            results,
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        checklist_sync(&app);
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.contains("- [x]"), "written again, with the tick");
+        assert!(after.contains(row), "the numbers stay: {after}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

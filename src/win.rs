@@ -580,6 +580,9 @@ pub struct Temperature {
 /// CriticalTemperature and WarningTemperature (i16), InfoCount (u16), and
 /// from byte 24 the readings (16 bytes each; the temperature at 2), °C.
 /// None when it holds no believable reading (0 means "not reported").
+/// The hottest reading an SSD can give and still be working (°C).
+pub const PLAUSIBLE_MOST: i16 = 100;
+
 pub fn parse_temperature(b: &[u8]) -> Option<Temperature> {
     if b.len() < 24 + 16 {
         return None;
@@ -588,7 +591,10 @@ pub fn parse_temperature(b: &[u8]) -> Option<Temperature> {
     let count = u16::from_le_bytes([b[12], b[13]]);
     let now = i16_at(24 + 2);
     let sane = |t: i16| (1..=150).contains(&t);
-    if count == 0 || !sane(now) {
+    // (A reading over 100 °C is no SSD's: it would have shut itself down well
+    // before. Some cases answer 127 or 128 for "no sensor": taken as that,
+    // it would pause reading for good, waiting for it to cool.)
+    if count == 0 || !(1..=PLAUSIBLE_MOST).contains(&now) {
         return None;
     }
     Some(Temperature {
@@ -738,6 +744,13 @@ mod tests {
         zero[26..28].fill(0);
         assert_eq!(super::parse_temperature(&zero), None);
         assert_eq!(super::parse_temperature(&b[..30]), None);
+        // A reading no working SSD gives ("no sensor", from some USB cases):
+        // nothing, so reading is never paused for good waiting for it to cool.
+        for junk in [101i16, 127, 128] {
+            let mut j = b.clone();
+            j[26..28].copy_from_slice(&junk.to_le_bytes());
+            assert_eq!(super::parse_temperature(&j), None, "{junk}");
+        }
     }
 
     #[test]
