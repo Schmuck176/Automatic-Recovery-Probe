@@ -645,7 +645,7 @@ fn find_volume_in<'a>(src: &'a dyn Source, table: &Table, scan: bool) -> Result<
                 // A damaged main boot sector: its backup, 12 sectors on.
                 Err(e) => {
                     for bps in [512u64, 4096] {
-                        if crate::exfat::is_exfat_at(src, s + 12 * bps) {
+                        if crate::exfat::is_exfat_at(src, s.saturating_add(12 * bps)) {
                             if let Ok(v) = Volume::open_backup(src, s, bps) {
                                 return Ok((v, true));
                             }
@@ -660,7 +660,9 @@ fn find_volume_in<'a>(src: &'a dyn Source, table: &Table, scan: bool) -> Result<
     // copy 12 sectors further on.
     for &s in &starts {
         for bps in [512u64, 4096] {
-            if crate::exfat::is_exfat_at(src, s + 12 * bps) {
+            // (A partition table damaged where ddrescue never read it can
+            // name any start.)
+            if crate::exfat::is_exfat_at(src, s.saturating_add(12 * bps)) {
                 if let Ok(v) = Volume::open_backup(src, s, bps) {
                     return Ok((v, true));
                 }
@@ -801,7 +803,8 @@ pub fn analyse_with(
     // Split each patch into what it falls on. Clusters are owned by files
     // and folders found later by the walk; everything else is known now.
     let bps = vol.bytes_per_sector;
-    let vol_end = (vol.offset + vol.volume_length).max(vol.heap_end());
+    // (A damaged boot sector can claim any length.)
+    let vol_end = vol.offset.saturating_add(vol.volume_length).max(vol.heap_end());
     let heap_start = vol.offset + vol.heap_offset;
     let heap_end = vol.heap_end();
     let fat_start = vol.offset + vol.fat_offset;
@@ -2621,5 +2624,42 @@ mod tests {
         assert!(!copy_rule(Some(size), size, || false, size));
         assert!(copy_rule(Some(size), size + 512, || panic!("not needed"), size));
         assert!(!copy_rule(None, size + 512, || panic!("not needed"), size));
+    }
+
+    /// Places ddrescue never read hold whatever the SSD held before: a
+    /// partition entry there can name a start near the end of all numbers,
+    /// and a boot sector any volume length. Neither stops the map check (in
+    /// a build that checks its sums, each did: the volume's backup boot
+    /// sector was looked for past the largest number there is, and the end
+    /// of the volume worked out past it).
+    #[test]
+    fn a_partition_entry_or_volume_length_past_any_disk_is_lived_with() {
+        let img = crate::selftest::disk_image().unwrap();
+        let disk = Memory::new(img.clone());
+        let t = gpt::read(&disk, &[]);
+        let (vol, _) = find_volume(&disk, &t).unwrap();
+        let vo = vol.offset as usize;
+        let map_text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/selftest/disk.map")).unwrap();
+        let map = crate::mapfile::parse(&map_text).unwrap();
+        // The first partition entry starting past any disk, and the main boot
+        // sector unreadable (zeros): the backup boot sector is found.
+        let mut d = img.clone();
+        let entries = 2 * 512;
+        d[entries..entries + 16].copy_from_slice(&[0x11; 16]);
+        d[entries + 32..entries + 40].copy_from_slice(&0xFFFF_FFFF_FFFF_FF00u64.to_le_bytes());
+        d[entries + 40..entries + 48].copy_from_slice(&u64::MAX.to_le_bytes());
+        d[vo..vo + 512].fill(0);
+        let m = Memory::new(d);
+        let t = gpt::read(&m, &[]);
+        assert!(t.partitions.iter().any(|p| p.start == u64::MAX), "{:?}", t.partitions);
+        let (v, backup) = find_volume(&m, &t).unwrap();
+        assert!(backup && v.offset == vol.offset);
+        assert!(analyse(&m, &map, &[], "map", &mut |_| {}).is_ok());
+        // A volume length past any disk.
+        let mut d = img.clone();
+        d[vo + 72..vo + 80].copy_from_slice(&u64::MAX.to_le_bytes());
+        let m = Memory::new(d);
+        let r = analyse(&m, &map, &[], "map", &mut |_| {}).unwrap();
+        assert!(!summary(&r).is_empty());
     }
 }

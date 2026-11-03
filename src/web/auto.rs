@@ -759,15 +759,21 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
         } else if cfg!(windows) {
             return Ok(End::Stop(format!("the image folder {} is not on a drive this PC has", plan.image_dir), Vec::new()));
         }
-        if real_ssd && crate::winset::restart_pending() == Some(true) {
-            // Restarted since it was asked for, and Windows says so still: a
-            // restart that a restart does not clear (a failed update leaves
-            // one), which would otherwise stop Start here for good.
-            let asked = lock(app).setting("restart_asked_at").trim().parse::<u64>().ok();
-            if crate::winset::restarted_since(asked, crate::winset::started_at()) {
+        let pending = real_ssd && crate::winset::restart_pending() == Some(true);
+        if pending {
+            // Restarted since it was asked for, and Windows waits still for
+            // the very same: a restart that a restart does not clear (a failed
+            // update leaves one), which would otherwise stop Start here for
+            // good. Waiting for something else, it is a new one to do.
+            let now_for = crate::winset::restart_pending_for();
+            let (asked, asked_for) = {
+                let a = lock(app);
+                (a.setting("restart_asked_at").trim().parse::<u64>().ok(), a.setting("restart_asked_for"))
+            };
+            if crate::winset::restart_is_stuck(asked, &asked_for, crate::winset::started_at(), &now_for) {
                 lines.push(
-                    "Windows still says it is waiting to restart, though the PC has restarted since: taken as one that \
-                     does not clear (a failed update leaves that), and Start carries on."
+                    "Windows still says it is waiting to restart, for the same as before, though the PC has restarted \
+                     since: taken as one that does not clear (a failed update leaves that), and Start carries on."
                         .to_string(),
                 );
             } else {
@@ -775,6 +781,7 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
                     let mut a = lock(app);
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
                     a.settings.insert("restart_asked_at".to_string(), now.to_string());
+                    a.settings.insert("restart_asked_for".to_string(), now_for);
                     a.save();
                 }
                 return Ok(End::Stop(
@@ -783,6 +790,13 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
                         .to_string(),
                     Vec::new(),
                 ));
+            }
+        } else if real_ssd {
+            // Not waiting now: a restart asked for before was done, and one
+            // Windows waits for later is asked for afresh.
+            let mut a = lock(app);
+            if a.settings.remove("restart_asked_at").is_some() | a.settings.remove("restart_asked_for").is_some() {
+                a.save();
             }
         }
         if real_ssd && crate::winset::restarts_after_crash() == Some(true) {

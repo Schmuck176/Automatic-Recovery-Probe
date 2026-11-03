@@ -1301,6 +1301,40 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-2. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (morning): a new restart taken for a stuck one; mangled disks
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **A restart Windows waits for was taken for a stuck one once any restart
+  had been asked for before** (2026-11-03 (2)): after the PC had restarted,
+  any restart Windows waited for later - a new update a day later too - was
+  taken as "one that a restart does not clear", and Start carried on to the
+  image with the recovered SSD to be plugged in, where it should have asked
+  for that restart first (Windows could then restart by itself in the middle
+  of the image, the SSD plugged in). Now what Windows waits for is kept with
+  the request (the names it keeps the updates under: RebootRequired's
+  values, RebootPending's keys): after a restart, the very same is a restart
+  that does not clear; anything else is a new restart to do; and once
+  Windows waits for nothing, the request is forgotten.
+- Found by a new fuzzing pass, in a build that checks its sums (18,000
+  mangled copies of the self-test's disk through the map check and the
+  copying; 39,000 mangled sample files through the file checks; 6,000
+  mangled mapfiles and checklists through their readers): two sums ran past
+  the largest number there is, from what a place ddrescue never read can
+  hold - a partition entry naming a start near the end of all numbers (the
+  backup boot sector was looked for past it), a boot sector naming any
+  volume length (the volume's end worked out past it). In the program as
+  built they went round (harmlessly, as it happens); a checked build
+  stopped. They stop at the largest number now. Nothing else was found. A
+  smaller pass stays among the unit tests (200 damaged disks, 60 rounds of
+  damaged files: proptests.rs), run by CI in both builds; it catches those
+  two sums as they were.
+- Version 2026-11-03 (4); the 2026-11-03 (3) checklist text is known
+  (13294317554399837179).
+- Tests here: unit tests 199 (and 199 with overflow checks), test_mapcheck
+  94/94, auto_check 96/96, auto_ui_check 34/34 and ui_check 67/67 with both
+  fonts, resume_check (seed 47, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

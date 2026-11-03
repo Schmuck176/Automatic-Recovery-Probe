@@ -158,3 +158,124 @@ fn a_name_made_safe_for_windows_is_safe_and_stays_so() {
         assert!(!s.ends_with(' ') && !s.ends_with('.'), "{s:?}");
     }
 }
+
+/// Damage the way a place ddrescue never read can hold anything: a few
+/// bytes, a field set to an extreme, a sector of zeros or of 0xFF - mostly
+/// where `hot` says (the structures), sometimes anywhere.
+fn mangle(r: &mut Rng, d: &mut [u8], hot: &[(usize, usize)], most: u64) {
+    for _ in 0..1 + r.below(most) {
+        let (a, b) = if !hot.is_empty() && r.below(4) != 0 { *r.pick(hot) } else { (0, d.len()) };
+        if b <= a + 1 || b > d.len() {
+            continue;
+        }
+        let at = a + r.below((b - a) as u64) as usize;
+        let sector = |at: usize| (at / 512 * 512, (at / 512 * 512 + 512).min(d.len()));
+        match r.below(7) {
+            0 => d[at] ^= 1 << r.below(8),
+            1 => d[at] = r.next() as u8,
+            2 => {
+                let n = (1 + r.below(64) as usize).min(d.len() - at);
+                for x in &mut d[at..at + n] {
+                    *x = r.next() as u8;
+                }
+            }
+            3 => {
+                let (s, e) = sector(at);
+                d[s..e].fill(0);
+            }
+            4 => {
+                let (s, e) = sector(at);
+                d[s..e].fill(0xFF);
+            }
+            5 if at + 4 <= d.len() => {
+                let v = *r.pick(&[0u32, 1, 2, 0x7FFF_FFFF, 0xFFFF_FFFF, 0x8000_0000, 0xFFFF_FFF7]);
+                d[at..at + 4].copy_from_slice(&v.to_le_bytes());
+            }
+            _ if at + 8 <= d.len() => {
+                let v = *r.pick(&[0u64, 1, u64::MAX, 1 << 63, 0x7FFF_FFFF_FFFF_FFFF, 1 << 40]);
+                d[at..at + 8].copy_from_slice(&v.to_le_bytes());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The self-test's disk, damaged at random where its partition table, boot
+/// region, FAT, root folder and the start of its clusters are: the map check
+/// and the copying run to an end on every one (in the build with overflow
+/// checks too: 18,000 such disks found two sums that ran past the largest
+/// number there is).
+#[test]
+fn a_disk_damaged_anywhere_never_stops_the_map_check_or_the_copying() {
+    let disk = crate::selftest::disk_image().unwrap();
+    let map_text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/selftest/disk.map")).unwrap();
+    let map = crate::mapfile::parse(&map_text).unwrap();
+    let hot = {
+        let src = crate::disk::Memory::new(disk.clone());
+        let table = crate::gpt::read(&src, &[]);
+        let (v, _) = crate::mapcheck::find_volume(&src, &table).unwrap();
+        let (vo, heap) = (v.offset as usize, (v.offset + v.heap_offset) as usize);
+        let fat = vo + v.fat_offset as usize;
+        let root = v.cluster_offset(v.root_cluster) as usize;
+        vec![(0, 34 * 512), (vo, vo + 24 * 512), (fat, fat + v.fat_length as usize), (heap, heap + 65_536), (root, root + 65_536), (disk.len() - 33 * 512, disk.len())]
+    };
+    let out = std::env::temp_dir().join(format!("arp-prop-disks-{}", std::process::id()));
+    let mut r = Rng(0x5eed_0006);
+    for round in 0..200 {
+        let mut d = disk.clone();
+        mangle(&mut r, &mut d, &hot, 6);
+        let src = crate::disk::Memory::new(d);
+        if let Ok(rep) = crate::mapcheck::analyse(&src, &map, &[], "map", &mut |_| {}) {
+            let _ = (crate::mapcheck::summary(&rep), crate::mapcheck::to_json(&rep), crate::mapcheck::page_json(&rep));
+        }
+        if round % 10 == 0 {
+            let opts = crate::rescue::Options {
+                disk: "a damaged test disk".into(),
+                out_dir: out.join(round.to_string()).display().to_string(),
+                pick: crate::rescue::Pick::Everything,
+                lost: true,
+                stop: None,
+                stop_after_files: None,
+            };
+            let _ = crate::rescue::rescue(&src, &opts, &mut |_| {}, &mut |_, _| {});
+        }
+    }
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// The sample files the self-test checks, damaged at random (and cut short,
+/// and given a hole of zeros): the file checks, and reading and moving a
+/// video's moments, come to a verdict on every one.
+#[test]
+fn a_file_damaged_anywhere_never_stops_the_file_checks() {
+    let dir = std::env::temp_dir().join(format!("arp-prop-files-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let seeds: Vec<std::path::PathBuf> =
+        std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/seeds")).unwrap().flatten().map(|e| e.path()).collect();
+    let mut r = Rng(0x5eed_0007);
+    for round in 0..60 {
+        for s in &seeds {
+            let mut d = std::fs::read(s).unwrap();
+            let len = d.len();
+            let hot = [(0, 4096.min(len)), (len.saturating_sub(4096), len)];
+            mangle(&mut r, &mut d, &hot, 6);
+            match r.below(5) {
+                0 => d.truncate(r.below(len as u64 + 1) as usize),
+                1 => {
+                    let at = r.below(len as u64) as usize;
+                    let n = (512 * (1 + r.below(8)) as usize).min(len - at);
+                    d[at..at + n].fill(0);
+                }
+                _ => {}
+            }
+            let p = dir.join(format!("{round}-{}", s.file_name().unwrap().to_string_lossy()));
+            std::fs::write(&p, &d).unwrap();
+            let v = crate::probe::probe_file(&p, 4096, true);
+            assert!(!v.verdict.is_empty(), "{}", p.display());
+            let _ = crate::mp4time::made(&p);
+            let _ = crate::mp4time::shift(&p, 3600);
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

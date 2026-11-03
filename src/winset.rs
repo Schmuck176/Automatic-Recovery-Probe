@@ -35,6 +35,26 @@ mod imp {
         fn RegOpenKeyExW(key: isize, subkey: *const u16, options: u32, access: u32, result: *mut isize) -> i32;
         fn RegCloseKey(key: isize) -> i32;
         fn RegSetKeyValueW(key: isize, subkey: *const u16, value: *const u16, kind: u32, data: *const c_void, len: u32) -> i32;
+        fn RegEnumKeyExW(
+            key: isize,
+            index: u32,
+            name: *mut u16,
+            name_len: *mut u32,
+            reserved: *mut u32,
+            class: *mut u16,
+            class_len: *mut u32,
+            last_write: *mut c_void,
+        ) -> i32;
+        fn RegEnumValueW(
+            key: isize,
+            index: u32,
+            name: *mut u16,
+            name_len: *mut u32,
+            reserved: *mut u32,
+            kind: *mut u32,
+            data: *mut u8,
+            data_len: *mut u32,
+        ) -> i32;
     }
 
     extern "system" {
@@ -65,6 +85,37 @@ mod imp {
         } else {
             false
         }
+    }
+
+    /// The names of a key's subkeys and values (None: no such key).
+    pub fn names_under(path: &str) -> Option<Vec<String>> {
+        let k = wide(path);
+        let mut h: isize = 0;
+        if unsafe { RegOpenKeyExW(HKLM, k.as_ptr(), 0, KEY_READ | KEY_WOW64_64KEY, &mut h) } != 0 {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut buf = vec![0u16; 16_384];
+        for values in [false, true] {
+            for i in 0..10_000u32 {
+                let mut len = buf.len() as u32;
+                let r = unsafe {
+                    if values {
+                        RegEnumValueW(h, i, buf.as_mut_ptr(), &mut len, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
+                    } else {
+                        RegEnumKeyExW(h, i, buf.as_mut_ptr(), &mut len, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
+                    }
+                };
+                if r != 0 {
+                    break; // ERROR_NO_MORE_ITEMS, or one that cannot be read
+                }
+                let name = String::from_utf16_lossy(&buf[..(len as usize).min(buf.len())]);
+                out.push(if values { format!("value {name}") } else { format!("key {name}") });
+            }
+        }
+        unsafe { RegCloseKey(h) };
+        out.sort();
+        Some(out)
     }
 
     pub fn dword(path: &str, value: &str) -> Option<u32> {
@@ -103,6 +154,9 @@ mod imp {
     pub fn key_exists(_path: &str) -> bool {
         false
     }
+    pub fn names_under(_path: &str) -> Option<Vec<String>> {
+        None
+    }
     pub fn dword(_path: &str, _value: &str) -> Option<u32> {
         None
     }
@@ -120,15 +174,40 @@ pub fn keep_awake(on: bool) {
     imp::keep_awake(on)
 }
 
+/// Where Windows says it is waiting to restart.
+const RESTART_KEYS: [&str; 2] = [
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+];
+
 /// Is Windows waiting to restart (an update installed, a restart due)?
 pub fn restart_pending() -> Option<bool> {
     if !cfg!(windows) {
         return None;
     }
-    Some(
-        imp::key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending")
-            || imp::key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"),
-    )
+    Some(RESTART_KEYS.iter().any(|k| imp::key_exists(k)))
+}
+
+/// What Windows is waiting to restart for, as it says it (the updates, by
+/// the names it keeps them under): the same after a restart, it is a restart
+/// that a restart does not clear; another, it is a new one.
+pub fn restart_pending_for() -> String {
+    let mut t = Vec::new();
+    for (i, k) in RESTART_KEYS.iter().enumerate() {
+        if let Some(names) = imp::names_under(k) {
+            t.push(format!("{i}: {}", names.join(", ")));
+        }
+    }
+    t.join("; ")
+}
+
+/// A restart Windows is waiting for that a restart did not clear: asked for
+/// (at `asked`, waiting for `asked_for`), Windows started again since, and
+/// still waiting for the very same (`now_for`). Waiting for something else
+/// since, it is a new restart to do (a failed update stays the same; a new
+/// one comes under a name of its own).
+pub fn restart_is_stuck(asked: Option<u64>, asked_for: &str, started: Option<u64>, now_for: &str) -> bool {
+    restarted_since(asked, started) && asked_for == now_for
 }
 
 /// When Windows last started, in seconds since 1970 (None: not known).
@@ -262,12 +341,29 @@ mod tests {
         assert!(!restarted_since(Some(1_000_000), Some(900_000)), "started before it was asked for");
         assert!(!restarted_since(None, Some(1_000_000)), "never asked");
         assert!(!restarted_since(Some(1_000_000), None), "not known");
+        // The same updates waiting after the restart: stuck. Others: a new
+        // restart to do (before, any restart since the first time it was
+        // asked for let Start carry on for good - a new update a day later
+        // too, with the recovered SSD to be plugged in).
+        let w = "1: value {0D1E2C3B-4A59-6877-8695-A4B3C2D1E0F9}";
+        assert!(restart_is_stuck(Some(1_000_000), w, Some(1_000_100), w));
+        assert!(!restart_is_stuck(Some(1_000_000), w, Some(1_000_100), "1: value {11111111-2222-3333-4444-555555555555}"));
+        assert!(!restart_is_stuck(Some(1_000_000), w, Some(1_000_030), w), "not restarted since");
+        assert!(!restart_is_stuck(None, "", Some(1_000_100), ""), "never asked");
         if cfg!(windows) {
             let s = started_at().expect("Windows says when it started");
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             assert!(s <= now && s > 1_600_000_000, "{s}");
+            // The names under a key Windows always has, read as they are.
+            let names = imp::names_under(r"SOFTWARE\Microsoft\Windows\CurrentVersion").expect("the key is there");
+            assert!(names.iter().any(|n| n == "key Explorer") && names.iter().any(|n| n.starts_with("value ")), "{names:?}");
+            assert_eq!(imp::names_under(r"SOFTWARE\No Such Key Here 7f3a"), None);
+            // What Windows waits for: said the same twice running.
+            assert_eq!(restart_pending_for(), restart_pending_for());
+            assert_eq!(restart_pending() == Some(true), !restart_pending_for().is_empty());
         } else {
             assert_eq!(started_at(), None);
+            assert_eq!(restart_pending_for(), "");
         }
     }
 
