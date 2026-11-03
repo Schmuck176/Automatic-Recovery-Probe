@@ -1,8 +1,9 @@
 """The hand-off's Mac script ("Repair on the Mac.command"), run by zsh for
 real, with stand-ins for the Mac's own tools (sips, avconvert, caffeinate,
 and mktemp as the Mac's takes -t): every kind of file it tries, what it says,
-and that run again it keeps what is in "returned" - what an earlier run made,
-and what the person saved there by hand.
+and that run again it keeps what is in "returned" as it is - what an earlier
+run made, and what the person saved there by hand (over what the Mac made
+too).
 
     python3 tools/mac_script_check.py workdir
 
@@ -36,9 +37,13 @@ def the_script():
 
 SIPS = r'''#!/usr/bin/env python3
 # sips -s format FMT IN --out OUT: a file with UNDECODABLE in it does not decode.
+# As the Mac's, a file named with a "-" first is taken for an option.
 import sys
 a = sys.argv[1:]
 fmt, src, out = a[a.index("-s") + 2], a[a.index("-s") + 3], a[a.index("--out") + 1]
+if src.startswith("-"):
+    print("Error: unknown option " + src, file=sys.stderr)
+    sys.exit(1)
 data = open(src, "rb").read()
 if b"UNDECODABLE" in data:
     print("Error: cannot decode " + src, file=sys.stderr)
@@ -123,6 +128,7 @@ def main():
     files = {
         "a [R0001].heic": b"an iPhone photo",
         "Photos/b [R0002].jpg": b"a photo in a folder",
+        "-f [R0009].jpg": b"a photo whose name starts with a dash",
         "c [R0003].jpg": b"UNDECODABLE photo",
         "d [R0004].mov": b"a video",
         "e [R0005].cr2": b"a camera RAW",
@@ -159,15 +165,32 @@ def main():
         except OSError:
             return None
 
-    made = ["repaired/a [R0001].heic", "repaired/b [R0002].jpg", "repaired/d [R0004].mov", "salvaged/e [R0005] (as TIFF).tif"]
-    done = "Done: 3 repaired, 1 salvaged, 1 not repaired, 2 to do by hand."
+    made = ["repaired/a [R0001].heic", "repaired/b [R0002].jpg", "repaired/d [R0004].mov", "salvaged/e [R0005] (as TIFF).tif",
+            "repaired/-f [R0009].jpg"]
+    done = "Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand."
     for n, (what, extra) in enumerate([("first run", {}), ("run again", {}), ("run again, with an older avconvert", {"STUB_OLD_AVCONVERT": "1"})]):
+        if n == 1:
+            # The person saves a version of their own over one the Mac made
+            # (better, edited in Preview): run again, it is kept as it is.
+            with open(there("repaired/b [R0002].jpg"), "wb") as f:
+                f.write(b"edited by hand in Preview")
+        if n == 2:
+            # (The video made again - by an avconvert that does not know the
+            # option to keep its notes.)
+            os.remove(there("repaired/d [R0004].mov"))
         r = run(what, **extra)
         check(r.returncode == 0, "%s: the script runs to its end (code %d)" % (what, r.returncode))
         check(done in r.stdout, "%s: it says %r" % (what, done))
         for rel in made:
             check(bool(read(rel)), "%s: %s is in returned" % (what, rel))
         check(read("repaired/c [R0003].jpg") == b"saved by hand in Preview", "%s: the version saved there by hand is kept as it was" % what)
+        check(read("repaired/-f [R0009].jpg") == b"sips jpeg of a photo whose name starts with a dash",
+              "%s: a name that starts with a dash is tried like any other" % what)
+        if n >= 1:
+            check(read("repaired/b [R0002].jpg") == b"edited by hand in Preview",
+                  "%s: a version saved by hand over the one the Mac made is kept as it is" % what)
+            check("b [R0002].jpg ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is "
+                  "kept as it is)" in r.stdout, "%s: and it says so" % what)
         check(b"sips heic of an iPhone photo" == read("repaired/a [R0001].heic"), "%s: the HEIC is saved again by the Mac's decoder" % what)
         video = read("repaired/d [R0004].mov") or b""
         if n < 2:
@@ -181,7 +204,7 @@ def main():
                    if "READ ME" in f or f.startswith("._")], "%s: READ ME and the Mac's housekeeping are not tried" % what)
         check(hashes(mac, skip="returned") == originals, "%s: the files it tried are not changed" % what)
         log = open(there("mac-repair-log.txt"), encoding="utf-8").read()
-        check(log.count("Done: 3 repaired, 1 salvaged, 1 not repaired, 2 by hand") == n + 1, "%s: the log says what it did" % what)
+        check(log.count("Done: 4 repaired, 1 salvaged, 1 not repaired, 2 by hand") == n + 1, "%s: the log says what it did" % what)
         check("Report [R0007].pages: by hand" in log and "c [R0003].jpg: not repaired" in log, "%s: the log names each file" % what)
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))
     return 1 if FAILS else 0

@@ -1469,6 +1469,36 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-6. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (early afternoon): the Mac script run again, SPARE not plugged in
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **The Mac script, run again, wrote over what was in "returned"** (mv -f):
+  a better version the person saved there by hand, over the one the Mac
+  made (edited in Preview, say), was replaced by the Mac's again - where the
+  script and its READ ME promise that run again it keeps what an earlier
+  run, or the person, put there. Now nothing in "returned" is written over:
+  the line says "(one was in returned already: that one is kept as it is)",
+  and the READ ME says so (and to delete one there to have it made again).
+- **A file whose name starts with a "-"** ("-x [R0009].jpg") was taken for
+  an option by sips and cmp on the Mac, so never repaired: each file is
+  given as ./name now (and names are printed as they are).
+- **Twice a year, SPARE not plugged in** (kept somewhere else, as Finalise
+  says to): Finalise said WORK "has no rescue-log.csv: Start has not copied
+  everything yet" - alarming, and wrong - and Bring back that REPAIR\hand-off
+  "is not a folder this PC can see (is the USB stick plugged in?)". Both say
+  now that WORK is not there, to plug SPARE in (under another letter it is
+  found by itself), and that 3. The folders says whether SPARE is switched
+  off. Finalise says it first, before anything about the second copy.
+- Version 2026-11-03 (8); the 2026-11-03 (7) checklist text is known
+  (9335646703940176367).
+- Tests here: unit tests 205 (and 205 with overflow checks), auto_check
+  99/99 (the 2026-11-03 (7) build fails the two new ones), auto_ui_check
+  35/35 and ui_check 67/67 with both fonts; test_mapcheck 94/94 and
+  resume_check (seed 67, 20 interruptions) 17/17 on the build just before
+  the version number changed. The Mac script check (zsh) runs in CI only:
+  zsh cannot be had here.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

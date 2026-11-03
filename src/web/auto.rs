@@ -274,6 +274,30 @@ fn within(inner: &str, outer: &str) -> bool {
     !i.is_empty() && !o.is_empty() && (i == o || i.starts_with(&format!("{o}\\")))
 }
 
+/// WORK, there - or why not, in words that say what to do: SPARE not
+/// plugged in (or switched off). (Before, Finalise said WORK had no list of
+/// copies, "Start has not copied everything yet", and Bring back that
+/// nothing on the USB stick had a number it knew.)
+pub(super) fn work_is_there(work: &str) -> Result<(), String> {
+    if Path::new(work.trim()).is_dir() {
+        return Ok(());
+    }
+    Err(format!(
+        "WORK ({}) is not there: plug SPARE in - under another letter, WORK is found on it by itself. (Plugged in, and still \
+         not there? 3. The folders says whether SPARE is switched off.)",
+        work.trim()
+    ))
+}
+
+/// WORK, there with the copies in it (the copying's list).
+pub(super) fn work_with_copies(work: &str) -> Result<(), String> {
+    work_is_there(work)?;
+    if Path::new(work.trim()).join(crate::rescue::LOG_NAME).is_file() {
+        return Ok(());
+    }
+    Err(format!("{} has no {}: Start has not copied everything yet", work.trim(), crate::rescue::LOG_NAME))
+}
+
 /// WORK may be changed until Start has begun copying into it; after that,
 /// only to a folder that holds those copies (WORK moved, say) - the stages
 /// after the copying go on in WORK, and a new folder would hold nothing.
@@ -1451,6 +1475,7 @@ fn stage_handoff(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
 /// everything again.
 pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64, String> {
     let plan = plan_of(app)?;
+    work_is_there(&plan.work)?;
     super::check_destination(app, &plan.work)?;
     let work = PathBuf::from(&plan.work);
     let repair = crate::repair::repair_dir(&work)?;
@@ -1919,6 +1944,26 @@ mod tests {
         }));
         let e = spare_off(&app, 5).unwrap_err();
         assert!(e.contains("is running"), "{e}");
+    }
+
+    /// Finalise twice a year, or Bring back, with SPARE not plugged in: they
+    /// say to plug it in (before: Finalise said WORK had no list of copies,
+    /// "Start has not copied everything yet"; Bring back went through the
+    /// stick and named nothing there it knew).
+    #[test]
+    fn work_not_there_is_said_as_spare_to_plug_in() {
+        let base = std::env::temp_dir().join(format!("arp-work-there-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let w = base.join("WORK").display().to_string();
+        let e = work_with_copies(&w).unwrap_err();
+        assert!(e.contains("is not there: plug SPARE in") && !e.contains("not copied"), "{e}");
+        assert!(work_is_there(&w).unwrap_err().contains("plug SPARE in"));
+        std::fs::create_dir_all(&w).unwrap();
+        assert!(work_is_there(&w).is_ok());
+        assert!(work_with_copies(&w).unwrap_err().contains("Start has not copied everything yet"), "there, with no copies");
+        std::fs::write(Path::new(&w).join(crate::rescue::LOG_NAME), b"path,size\n").unwrap();
+        assert!(work_with_copies(&format!(" {w} ")).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

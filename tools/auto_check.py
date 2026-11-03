@@ -602,6 +602,31 @@ def main():
         check(os.path.isdir(os.path.join(spare, "RECORDS", "results")), "RECORDS is beside WORK")
         hist = read_csv(os.path.join(home, "results", "safety-checks.csv"))
         check(len(hist) >= 5, "every check is in safety-checks.csv (%d)" % len(hist))
+        # Twice a year, SPARE not plugged in (here: its folder away): Finalise
+        # and Bring back say to plug it in - not that Start has not copied
+        # everything, nor that nothing on the stick has a number they know.
+        away = spare + " (unplugged)"
+        for _ in range(20):
+            try:
+                os.rename(spare, away)
+                break
+            except OSError:
+                time.sleep(0.5)
+        try:
+            r = prog.do(action="finalise")
+            check(not r.get("ok") and "plug SPARE in" in (r.get("error") or "") and "not copied" not in (r.get("error") or ""),
+                  "Finalise with SPARE not plugged in says to plug it in: %s" % r.get("error"))
+            r = prog.do(action="bring-back", **{"from": ""})
+            check(not r.get("ok") and "plug SPARE in" in (r.get("error") or ""),
+                  "and so does Bring back: %s" % r.get("error"))
+        finally:
+            for _ in range(20):
+                try:
+                    os.rename(away, spare)
+                    break
+                except OSError:
+                    time.sleep(0.5)
+        check(os.path.isdir(w), "SPARE plugged in again (its folder back)")
         # Start again: nothing left to do.
         r = prog.do(action="auto-start")
         s = prog.wait()

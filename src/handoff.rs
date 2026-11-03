@@ -312,7 +312,8 @@ iPhone photos (HEIC) and camera RAW better than anything on Windows.
 3. It tries every file here, never changes them, and saves what it can repair into the folder \"returned\" beside
    it: \"returned/repaired\" (the same kind of file: put back into WORK) and \"returned/salvaged\" (a TIFF made from
    a RAW, say: kept, the original stays). It keeps each file's number ([R0012]). It writes what it did into
-   \"returned/mac-repair-log.txt\".
+   \"returned/mac-repair-log.txt\". Run again, it leaves what is in \"returned\" as it is - a better version you
+   saved there yourself too (delete one there to have it made again).
 4. Documents kept as folders (Pages, Numbers, Keynote) can't be repaired by a script: open each in its own app,
    and if it opens, File > Save a copy into \"returned/repaired\" with the same name and number.
 5. Bring the stick back to the PC, and in Automatic Recovery Probe click \"Bring back\" and choose the stick.
@@ -395,8 +396,8 @@ pub const MAC_SCRIPT_TEXT: &str = r#"#!/bin/zsh
 # them: what it repairs goes into "returned" beside this script, each file's
 # [R....] number kept, ready for "Bring back" on the PC. Each is made in a
 # folder of its own first (which Bring back passes over) and moved into
-# "returned" only once it is made, so nothing in "returned" is taken away: run
-# again, it keeps what an earlier run - or you - put there.
+# "returned" only once it is made, and only where nothing is yet: run again,
+# it keeps what an earlier run - or you - put there, as it is.
 setopt null_glob extended_glob
 here="${0:A:h}"
 cd "$here" || exit 1
@@ -415,8 +416,11 @@ decodes() {  # $1 file: does sips decode it?
   rm -f "$m" "$t" "$t.err"; return 1
 }
 
-keep() {  # $1 made in the work folder, $2 its place in "returned"
-  [[ -s "$1" ]] && mv -f "$1" "$2"
+keep() {  # $1 made in the work folder, $2 its place in "returned" - where one
+  # there already (an earlier run's, or a version saved there by hand) is kept
+  [[ -s "$1" ]] || return 1
+  if [[ -e "$2" ]]; then there=1; return 0; fi
+  mv "$1" "$2"
 }
 
 # The Mac's video framework copies a video into a new file, asked to keep the
@@ -429,18 +433,18 @@ video() {  # $1 file, $2 the new file
 }
 
 repaired=0; salvaged=0; failed=0; byhand=0
-for f in **/*(.D); do
+for f in ./**/*(.D); do  # (each "./...": a name that starts with "-" is no option)
   name="${f:t}"
   case "$name" in
     ._*|.DS_Store|"READ ME.txt"|*.command) continue ;;
   esac
-  [[ "$f" == returned/* ]] && continue
+  [[ "$f" == ./returned/* ]] && continue
   # (A file inside a document kept as a folder is part of it: the document is
   # done by hand, below - not each file in it, under its own name.)
   [[ "$f" == *.(pages|numbers|key|rtfd)/* ]] && continue
   ext="${name:e:l}"; stem="${name:r}"
-  print -n "$name ... "
-  ok=""
+  print -rn -- "$name ... "
+  ok=""; there=""
   rm -rf "$w"; mkdir -p "$w"
   case "$ext" in
     heic|heif|hif|avif)
@@ -473,13 +477,14 @@ for f in **/*(.D); do
   esac
   rm -rf "$w"
   if [[ -z "$ok" ]]; then ok="not repaired: the Mac could not decode it either"; failed=$((failed+1)); fi
-  print "$ok"
-  print "$name: $ok" >> "$log"
+  [[ -n "$there" ]] && ok="$ok (one was in returned already: that one is kept as it is)"
+  print -r -- "$ok"
+  print -r -- "$name: $ok" >> "$log"
 done
-for d in **/*.(pages|numbers|key|rtfd)(/N); do
-  [[ "$d" == returned/* ]] && continue
-  print "${d:t}: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name"
-  print "${d:t}: by hand" >> "$log"
+for d in ./**/*.(pages|numbers|key|rtfd)(/N); do
+  [[ "$d" == ./returned/* ]] && continue
+  print -r -- "${d:t}: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name"
+  print -r -- "${d:t}: by hand" >> "$log"
   byhand=$((byhand+1))
 done
 print ""
@@ -1210,11 +1215,11 @@ mod tests {
         // Data/pic.jpg) is not tried by itself - it was, and "repaired" into
         // returned/repaired as "pic.jpg", with no number, or listed as one to
         // open "in its own app" (Index.zip): the document is done by hand.
-        let first_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for f in **/*(.D)").unwrap()..MAC_SCRIPT_TEXT.find("case \"$ext\"").unwrap()];
+        let first_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for f in ./**/*(.D)").unwrap()..MAC_SCRIPT_TEXT.find("case \"$ext\"").unwrap()];
         assert!(first_loop.contains("[[ \"$f\" == *.(pages|numbers|key|rtfd)/* ]] && continue"), "{first_loop}");
         // Nor is a document already saved into "returned" listed to do again.
-        let second_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for d in **/*.(pages").unwrap()..];
-        assert!(second_loop.lines().nth(1).is_some_and(|l| l.trim() == "[[ \"$d\" == returned/* ]] && continue"), "{second_loop}");
+        let second_loop = &MAC_SCRIPT_TEXT[MAC_SCRIPT_TEXT.find("for d in ./**/*.(pages").unwrap()..];
+        assert!(second_loop.lines().nth(1).is_some_and(|l| l.trim() == "[[ \"$d\" == ./returned/* ]] && continue"), "{second_loop}");
         // decodes() takes away the empty file mktemp makes, not only its own.
         assert!(MAC_SCRIPT_TEXT.contains("rm -f \"$m\" \"$t\" \"$t.err\"; return 0"));
         // Run again, it takes nothing out of "returned" (before: avconvert,
@@ -1229,6 +1234,11 @@ mod tests {
             assert!(!(l.contains("rm ") && l.contains("\"$out/")), "takes something out of returned: {l}");
             assert!(!l.contains("--out \"$out") && !l.contains("--output \"$out"), "made straight into returned: {l}");
         }
+        // Nor does it write over anything there: a version saved by hand over
+        // the one the Mac made stays as it is, run again (before: mv -f).
+        assert!(!MAC_SCRIPT_TEXT.contains("mv -f") && MAC_SCRIPT_TEXT.contains("if [[ -e \"$2\" ]]; then there=1; return 0; fi"));
+        // A file named with a "-" first is never taken for an option.
+        assert!(!MAC_SCRIPT_TEXT.contains("for f in **") && MAC_SCRIPT_TEXT.contains("print -rn -- \"$name ... \""));
         // The video keeps when and where it was recorded (avconvert leaves
         // that out unless told otherwise), on a Mac whose avconvert knows how.
         assert_eq!(MAC_SCRIPT_TEXT.matches("avconvert --source").count(), 2);

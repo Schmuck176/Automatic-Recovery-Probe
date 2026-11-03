@@ -270,6 +270,10 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
         let a = lock(app);
         (a.setting("copy2_made"), !a.test_disks.is_empty())
     };
+    // WORK first: without it there is nothing to finalise (SPARE not plugged
+    // in, say - twice a year, it is kept somewhere else).
+    auto::check_folders(&plan.image_dir, &plan.work, "", one_drive_ok)?;
+    auto::work_with_copies(&plan.work)?;
     let letters: Vec<String> = crate::win::drives().into_iter().map(|d| d.letter).collect();
     let fits = |p: &str| auto::check_folders(&plan.image_dir, &plan.work, p, one_drive_ok).is_ok();
     let moved = second_copy_now(&plan.copy2, &made, &letters, &holds_second_copy, &fits)?;
@@ -297,10 +301,6 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
                 d.letter, d.fs
             ));
         }
-    }
-    let work = PathBuf::from(&plan.work);
-    if !work.join(crate::rescue::LOG_NAME).is_file() {
-        return Err(format!("{} has no {}: Start has not copied everything yet", plan.work, crate::rescue::LOG_NAME));
     }
     let app2 = app.clone();
     start_job(app, "finalise", "Finalising: the second copy and the final checks", move |ctx| {
