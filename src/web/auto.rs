@@ -760,12 +760,30 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
             return Ok(End::Stop(format!("the image folder {} is not on a drive this PC has", plan.image_dir), Vec::new()));
         }
         if real_ssd && crate::winset::restart_pending() == Some(true) {
-            return Ok(End::Stop(
-                "Windows is waiting to restart (an update). Restart the PC now, with the recovered SSD NOT plugged in, \
-                 then click Start again"
-                    .to_string(),
-                Vec::new(),
-            ));
+            // Restarted since it was asked for, and Windows says so still: a
+            // restart that a restart does not clear (a failed update leaves
+            // one), which would otherwise stop Start here for good.
+            let asked = lock(app).setting("restart_asked_at").trim().parse::<u64>().ok();
+            if crate::winset::restarted_since(asked, crate::winset::started_at()) {
+                lines.push(
+                    "Windows still says it is waiting to restart, though the PC has restarted since: taken as one that \
+                     does not clear (a failed update leaves that), and Start carries on."
+                        .to_string(),
+                );
+            } else {
+                {
+                    let mut a = lock(app);
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                    a.settings.insert("restart_asked_at".to_string(), now.to_string());
+                    a.save();
+                }
+                return Ok(End::Stop(
+                    "Windows is waiting to restart (an update). Restart the PC now, with the recovered SSD NOT plugged in, \
+                     then click Start again"
+                        .to_string(),
+                    Vec::new(),
+                ));
+            }
         }
         if real_ssd && crate::winset::restarts_after_crash() == Some(true) {
             lines.push(

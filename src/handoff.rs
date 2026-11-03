@@ -114,6 +114,12 @@ fn copy_whole(from: &Path, to: &Path) -> std::io::Result<u64> {
 
 /// Remove a copy `copy_whole` left half-made.
 fn remove_copying(p: &Path) {
+    // (Writable first: Windows deletes no read-only file, and a copy the power
+    // cut stopped before it was made writable keeps the mark it came with -
+    // left there, the next copy would fail on it.)
+    if std::fs::symlink_metadata(p).is_ok() {
+        repair::make_writable(p);
+    }
     match std::fs::symlink_metadata(p) {
         Ok(m) if m.is_dir() => {
             let _ = std::fs::remove_dir_all(p);
@@ -955,6 +961,31 @@ mod tests {
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         let _ = std::fs::set_permissions(&f, perm);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Half a copy a power cut left, with a read-only mark it came with (the
+    /// stop came before it was made writable): taken away all the same, and
+    /// the copy made. (Windows deletes no read-only file: left there, the
+    /// next copy failed on it, and Bring back with it.)
+    #[test]
+    fn a_read_only_half_copy_is_taken_away_too() {
+        let base = std::env::temp_dir().join(format!("arp-bring-ro-half-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let returned_here = repair.join(repair::REPAIRED).join(RETURNED);
+        let half = returned_here.join(repair::COPYING_NAME);
+        std::fs::create_dir_all(&half).unwrap();
+        std::fs::write(half.join("Index.zip"), b"half").unwrap();
+        let mut perm = std::fs::metadata(half.join("Index.zip")).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(half.join("Index.zip"), perm).unwrap();
+        let stick = base.join("stick");
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(stick.join("a [R0001].jpg"), b"repaired").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!(o.repaired.len(), 1, "{o:?}");
+        assert!(std::fs::symlink_metadata(&half).is_err(), "the half copy went");
+        assert_eq!(std::fs::read(returned_here.join("a [R0001].jpg")).unwrap(), b"repaired");
         let _ = std::fs::remove_dir_all(&base);
     }
 

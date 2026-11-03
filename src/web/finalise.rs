@@ -103,10 +103,18 @@ pub(super) fn copy_tree(
             replacing = true;
         }
         let tmp = dst.join(TEMP_NAME);
+        crate::repair::make_writable(&tmp);
         let _ = std::fs::remove_file(&tmp);
         std::fs::copy(&s, &tmp).map_err(|err| format!("could not copy {}: {err}", s.display()))?;
+        // (Never read-only in the second copy - a mark copied with a file
+        // would stop it being made safe on the drive, and Finalise from
+        // putting it right again: Windows replaces no read-only file.)
+        crate::repair::make_writable(&tmp);
         if let Ok(f) = std::fs::OpenOptions::new().write(true).open(&tmp) {
             let _ = f.sync_all();
+        }
+        if replacing {
+            crate::repair::make_writable(&d);
         }
         let _ = std::fs::remove_file(&d);
         std::fs::rename(&tmp, &d).map_err(|err| format!("could not put {} in place: {err}", d.display()))?;
@@ -478,6 +486,27 @@ mod tests {
         let (c, _) = copy(&|_| false, true);
         assert_eq!((c.files, c.replaced), (1, 1));
         assert!(same_time(None, None) && !same_time(Some(old), None));
+        // A file in WORK marked read-only: its copy in the second copy is not
+        // (Windows would replace no read-only file there), and it is put right
+        // there all the same when it differs.
+        let ro = a.join("locked.txt");
+        std::fs::write(&ro, b"locked").unwrap();
+        let mut perm = std::fs::metadata(&ro).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&ro, perm).unwrap();
+        let (c, _) = copy(&|_| false, true);
+        assert_eq!(c.files, 1);
+        assert!(!std::fs::metadata(b.join("locked.txt")).unwrap().permissions().readonly(), "the copy is writable");
+        let mut perm = std::fs::metadata(b.join("locked.txt")).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(b.join("locked.txt"), perm).unwrap();
+        std::fs::File::options().write(true).open(a.join("b.txt")).unwrap().set_modified(old).unwrap();
+        crate::repair::make_writable(&ro);
+        std::fs::write(&ro, b"LOCKED").unwrap();
+        std::fs::File::options().write(true).open(&ro).unwrap().set_modified(old + std::time::Duration::from_secs(60)).unwrap();
+        let (c, _) = copy(&|_| false, true);
+        assert_eq!((c.files, c.replaced), (1, 1), "replaced, read-only as it was there");
+        assert_eq!(std::fs::read(b.join("locked.txt")).unwrap(), b"LOCKED");
         let _ = std::fs::remove_dir_all(&base);
     }
 

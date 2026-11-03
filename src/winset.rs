@@ -39,6 +39,12 @@ mod imp {
 
     extern "system" {
         fn SetThreadExecutionState(flags: u32) -> u32;
+        fn GetTickCount64() -> u64;
+    }
+
+    /// Milliseconds since Windows started (a restart starts it again).
+    pub fn up_ms() -> Option<u64> {
+        Some(unsafe { GetTickCount64() })
     }
 
     const HKLM: isize = 0x8000_0002u32 as i32 as isize;
@@ -104,6 +110,9 @@ mod imp {
         Err("only on Windows".to_string())
     }
     pub fn keep_awake(_on: bool) {}
+    pub fn up_ms() -> Option<u64> {
+        None
+    }
 }
 
 /// Ask Windows not to sleep while this thread works (and stop asking).
@@ -120,6 +129,19 @@ pub fn restart_pending() -> Option<bool> {
         imp::key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending")
             || imp::key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"),
     )
+}
+
+/// When Windows last started, in seconds since 1970 (None: not known).
+pub fn started_at() -> Option<u64> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some(now.saturating_sub(imp::up_ms()? / 1000))
+}
+
+/// Has Windows started again since `asked` (seconds since 1970) - is a
+/// restart asked for then done? (A minute's margin: the two clocks read
+/// at different moments.)
+pub fn restarted_since(asked: Option<u64>, started: Option<u64>) -> bool {
+    matches!((asked, started), (Some(a), Some(s)) if s > a + 60)
 }
 
 const CRASH_KEY: &str = r"SYSTEM\CurrentControlSet\Control\CrashControl";
@@ -230,6 +252,24 @@ pub fn is_excluded(exclusions: &[String], folder: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A restart asked for, done, and Windows still waiting for one: Start
+    /// carries on (before, it stopped there for good). Not done: it stops.
+    #[test]
+    fn a_restart_done_since_it_was_asked_for_is_told() {
+        assert!(restarted_since(Some(1_000_000), Some(1_000_100)));
+        assert!(!restarted_since(Some(1_000_000), Some(1_000_030)), "the same start, read a little later");
+        assert!(!restarted_since(Some(1_000_000), Some(900_000)), "started before it was asked for");
+        assert!(!restarted_since(None, Some(1_000_000)), "never asked");
+        assert!(!restarted_since(Some(1_000_000), None), "not known");
+        if cfg!(windows) {
+            let s = started_at().expect("Windows says when it started");
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            assert!(s <= now && s > 1_600_000_000, "{s}");
+        } else {
+            assert_eq!(started_at(), None);
+        }
+    }
 
     #[test]
     fn exclusions_cover_folders_below_them() {

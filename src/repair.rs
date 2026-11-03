@@ -624,7 +624,13 @@ fn copy_any(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// Remove something the program itself left half-made (its own temporary copy).
+/// (Writable first: a copy stopped before it was made writable keeps the
+/// read-only mark it came with, and Windows deletes no read-only file - left
+/// there, the next put back of that file failed on it.)
 fn remove_own_temp(p: &Path) {
+    if std::fs::symlink_metadata(p).is_ok() {
+        make_writable(p);
+    }
     match std::fs::symlink_metadata(p) {
         Ok(m) if m.is_dir() => {
             let _ = std::fs::remove_dir_all(p);
@@ -1489,6 +1495,27 @@ pub fn put_back(work: &Path, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> 
     Ok(o)
 }
 
+/// Why the file in WORK could not be moved out of the way, in words that say
+/// what to do. (Before, every time: "REPAIR must be on the same drive as
+/// WORK" - which it always is, beside WORK - when the file was open in
+/// another program, a photo viewer or Explorer's preview, as it mostly is.)
+fn not_moved(e: &std::io::Error) -> String {
+    #[cfg(windows)]
+    let (other_drive, in_use): (&[i32], &[i32]) = (&[17], &[5, 32, 33]);
+    #[cfg(not(windows))]
+    let (other_drive, in_use): (&[i32], &[i32]) = (&[18], &[16, 26]);
+    match e.raw_os_error() {
+        Some(c) if other_drive.contains(&c) => {
+            format!("could not move the file in WORK out of the way ({e}): REPAIR must be on the same drive as WORK")
+        }
+        Some(c) if in_use.contains(&c) => format!(
+            "could not move the file in WORK out of the way ({e}): it is open in another program - close it (a photo \
+             viewer, say, or Explorer's preview pane), and put back again"
+        ),
+        _ => format!("could not move the file in WORK out of the way ({e})"),
+    }
+}
+
 /// Put one repaired version back. Some(true): done; Some(false): it is
 /// already there; None: stopped.
 fn put_one(
@@ -1633,9 +1660,7 @@ fn put_one(
     if let Some(to) = &moved_to {
         if let Err(e) = std::fs::rename(&target, to) {
             remove_own_temp(&tmp);
-            return Err(format!(
-                "could not move the file in WORK out of the way ({e}); REPAIR must be on the same drive as WORK"
-            ));
+            return Err(not_moved(&e));
         }
     }
     if let Err(e) = std::fs::rename(&tmp, &target) {
@@ -2480,6 +2505,19 @@ mod tests {
         assert!(ev.files.iter().any(|f| f.0 == "Photos\\IMG_0003.JPG" && f.1 == STATE_WAITING), "{:?}", ev.files);
         assert!(repair.join(EVALUATION_NAME).is_file());
         let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_file_in_work_that_will_not_move_is_said_why() {
+        #[cfg(windows)]
+        let (other_drive, in_use) = (17, 32);
+        #[cfg(not(windows))]
+        let (other_drive, in_use) = (18, 16);
+        assert!(not_moved(&std::io::Error::from_raw_os_error(other_drive)).contains("same drive"));
+        let m = not_moved(&std::io::Error::from_raw_os_error(in_use));
+        assert!(m.contains("open in another program") && !m.contains("same drive"), "{m}");
+        let m = not_moved(&std::io::Error::other("something else"));
+        assert!(!m.contains("same drive") && !m.contains("open in another"), "{m}");
     }
 
     #[test]

@@ -1170,6 +1170,41 @@ bug fixes don't break other things." (23:39: "automatically continue after
   branch version-2026-11-02-1. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (later): read-only marks, a restart that does not clear, what put back says
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Read-only marks** (a file a Mac had locked, a repaired version brought
+  back before 2026-11-02 (1) made copies writable): Windows deletes and
+  replaces no read-only file.
+  - Half a copy a power cut left under the temporary name, read-only still
+    (the stop came before it was made writable), was never taken away, and
+    the next copy into that folder failed on it - Bring back, or the
+    hand-off, with it. Made writable before it is taken away now.
+  - The same with put back's own temporary copy beside the file in WORK: the
+    next put back of that file failed on it ("could not copy it into WORK").
+  - Finalise copied a read-only mark into the second copy: the next
+    Finalise could not put that file right there ("could not put ... in
+    place"). The second copy's files are made writable as they are copied
+    (and one there already, before it is replaced).
+- **A restart that does not clear**: Start stops before the image while
+  Windows says it is waiting to restart (an update), and asks for a restart.
+  A failed update can leave that said after a restart (known on some PCs),
+  and Start stopped there for good, with no way past. The time it asked is
+  kept now: once Windows has started again since then and says so still,
+  that is taken as stuck, and Start carries on (and says so).
+- **Put back, when the file in WORK could not be moved out of the way, said
+  every time "REPAIR must be on the same drive as WORK"** - which it always is,
+  beside WORK - when the file was open in another program (a photo viewer,
+  Explorer's preview pane), as it mostly is. It says which now: open in
+  another program (close it and put back again), on another drive, or just
+  what Windows said.
+- Version 2026-11-03 (2); the 2026-11-03 (1) checklist text is known
+  (2385918400417608721).
+- Tests here: unit tests 190, test_mapcheck 94/94, auto_check 96/96,
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check (seed
+  41, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
@@ -1182,6 +1217,13 @@ bug fixes don't break other things." (23:39: "automatically continue after
 - The repairs try again, each time the stage runs, every file not repaired
   yet (FFmpeg plays big videos through again): they could skip a file tried
   before with the same tools, the same copy and the same places to look in.
+- Bring back takes any file with a number like [R12] (short forms are taken
+  on purpose, for numbers typed by hand) whose kind matches: a file of the
+  person's own on the stick ("Contract [R2].pdf", a revision) whose number is
+  a damaged PDF's would be taken as its repaired version and put back over it
+  (the original kept in REPAIR\originals). A short number could be taken only
+  where the name also holds the original's name, or only in "returned" and
+  the hand-off's folders.
 - A temperature reading stuck at a value an SSD can have (85 °C, say) keeps
   reading paused for good: "it has not cooled at all in an hour" could be
   said, with a way to carry on.
