@@ -1919,7 +1919,7 @@ fn try_format(env: &Env, item: &Item, src: &Path, tmp: &Path, lost: Option<Vec<(
 
 const LOG_HEADER: [&str; 9] = ["when", "id", "path_in_work", "result", "how", "tool", "output", "next", "note"];
 
-fn append_log(repair: &Path, rows: &[Attempt]) -> Result<PathBuf, String> {
+pub(crate) fn append_log(repair: &Path, rows: &[Attempt]) -> Result<PathBuf, String> {
     use std::io::Write;
     let p = repair.join(LOG_NAME);
     let new = !p.exists();

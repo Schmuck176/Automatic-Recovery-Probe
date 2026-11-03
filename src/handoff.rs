@@ -512,6 +512,9 @@ pub struct Brought {
     /// Files with a number written short ("[R12]") outside "returned" and the
     /// hand-off's folders: left (a file of the person's own, it may be).
     pub short_elsewhere: Vec<String>,
+    /// Of those salvaged: for files restored from an intact copy already (the
+    /// file as it was), so kept beside it rather than put in its place.
+    pub beside_intact: usize,
 }
 
 fn is_mac_housekeeping(name: &str) -> bool {
@@ -638,6 +641,22 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         };
         stick.push(OnStick { p, name, id, sha, len });
     }
+    // Restored from an intact copy already - the file as it was, found in
+    // WORK or among the older copies - and that version still there: what
+    // comes back for it is kept beside it, in salvaged, never put in its
+    // place (before, a repair from the Mac, say, made it make way).
+    let intact: HashSet<String> = {
+        let mut latest: HashMap<String, autorepair::Attempt> = HashMap::new();
+        for a in autorepair::read_log(&repair) {
+            latest.insert(a.id.clone(), a);
+        }
+        latest
+            .into_values()
+            .filter(|a| a.fate == Fate::Repaired && a.how.starts_with("an intact copy") && !a.output.is_empty())
+            .filter(|a| under(&repair, &a.output).exists())
+            .map(|a| a.id)
+            .collect()
+    };
     for s in &stick {
         let (p, name, id, sha, len) = (&s.p, &s.name, &s.id, &s.sha, s.len);
         let item = by_id[id.as_str()];
@@ -646,7 +665,12 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             continue;
         }
         let orig_name = item.path.rsplit('\\').next().unwrap_or(&item.path);
-        let same_kind = repair::same_kind(orig_name, name) && (item.package == p.is_dir());
+        let restored = intact.contains(id.as_str());
+        if restored && versions_of(&repair.join(repair::REPAIRED), id).iter().any(|(v, d)| is_these(v, *d, sha, len)) {
+            o.unchanged += 1; // the intact copy itself
+            continue;
+        }
+        let same_kind = !restored && repair::same_kind(orig_name, name) && (item.package == p.is_dir());
         let dest_rel = if same_kind {
             format!("{}\\{RETURNED}\\{name}", repair::REPAIRED)
         } else {
@@ -708,6 +732,9 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             o.repaired.push(row);
         } else {
             o.salvaged.push(row);
+            if restored {
+                o.beside_intact += 1;
+            }
         }
     }
     Ok(o)
@@ -865,6 +892,13 @@ pub fn brought_summary(o: &Brought) -> Vec<String> {
             commas(o.salvaged.len() as u64)
         ));
     }
+    if o.beside_intact > 0 {
+        t.push(format!(
+            "{} of those salvaged came back for files restored from an intact copy already (each the file as it was): they \
+             are kept in REPAIR\\salvaged, not put in its place.",
+            commas(o.beside_intact as u64)
+        ));
+    }
     if o.superseded > 0 {
         t.push(format!("{} earlier versions made way for them (kept in REPAIR\\replaced).", commas(o.superseded as u64)));
     }
@@ -1009,6 +1043,50 @@ mod tests {
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         let _ = std::fs::set_permissions(&f, perm);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// What comes back (from the Mac, say) for a file restored from an
+    /// intact copy since it was handed off - the file as it was, found among
+    /// older copies named later - is kept beside it, in salvaged: the intact
+    /// copy stays, in REPAIR and in WORK. (Before, it made way for the Mac's
+    /// version, which was then put back in its place.)
+    #[test]
+    fn what_comes_back_for_a_file_restored_exactly_is_kept_beside_it() {
+        let base = std::env::temp_dir().join(format!("arp-bring-intact-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let own = repair.join(repair::REPAIRED).join(autorepair::AUTO_DIR);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join("a [R0001].jpg"), b"as it was").unwrap();
+        let restored = autorepair::Attempt {
+            id: "R0001".to_string(),
+            path: "Pics\\a.jpg".to_string(),
+            group: String::new(),
+            fate: Fate::Repaired,
+            how: "an intact copy of the same file was found at D:\\Old photos\\a.jpg".to_string(),
+            tool: "Automatic Recovery Probe".to_string(),
+            output: format!("{}\\{}\\a [R0001].jpg", repair::REPAIRED, autorepair::AUTO_DIR),
+            next: Next::Done,
+            note: String::new(),
+        };
+        autorepair::append_log(&repair, &[restored]).unwrap();
+        // (The copying's list, as put back needs it.)
+        std::fs::write(work.join(crate::rescue::LOG_NAME), "").unwrap();
+        assert_eq!(repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap().returned.len(), 1);
+        let stick = base.join("stick");
+        std::fs::create_dir_all(stick.join(RETURNED)).unwrap();
+        std::fs::write(stick.join(RETURNED).join("a [R0001].jpg"), b"the Mac's repair").unwrap();
+        // (And the intact copy itself, on the stick too: nothing to bring.)
+        std::fs::write(stick.join("a [R0001] (2).jpg"), b"as it was").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert!(o.repaired.is_empty() && o.salvaged.len() == 1 && o.beside_intact == 1 && o.superseded == 0, "{o:?}");
+        assert_eq!(o.unchanged, 1, "{o:?}");
+        assert!(brought_summary(&o).iter().any(|l| l.contains("restored from an intact copy")), "{:?}", brought_summary(&o));
+        assert_eq!(std::fs::read(own.join("a [R0001].jpg")).unwrap(), b"as it was");
+        assert_eq!(std::fs::read(repair.join(repair::SALVAGED).join(RETURNED).join("a [R0001].jpg")).unwrap(), b"the Mac's repair");
+        let pb = repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap();
+        assert!(pb.returned.is_empty() && pb.skipped.is_empty() && pb.already == 1, "{pb:?}");
+        assert_eq!(std::fs::read(work.join("Pics").join("a.jpg")).unwrap(), b"as it was");
         let _ = std::fs::remove_dir_all(&base);
     }
 

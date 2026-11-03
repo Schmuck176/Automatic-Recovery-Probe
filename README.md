@@ -186,6 +186,10 @@ same results folder, so Recovery Probe can carry on from anything this one did.
   put-back) stays undone - Start and Bring back leave that version out of
   WORK, and say so; only step 8's Put the repaired files back, clicked, puts
   it back after all. A new version of that number goes back as any other.
+- A file restored from an intact copy (the file as it was) stays so: what
+  Bring back brings for it later - a repair from the Mac, say, of the copy
+  handed off before the intact one was found - is kept beside it, in
+  `REPAIR\salvaged`, not put in its place.
 - A damaged volume cannot run the program away: a cluster chain that loops
   is read once (and said), a boot sector whose sizes do not fit gives way to
   its backup, a record claiming more than the whole volume is not believed,

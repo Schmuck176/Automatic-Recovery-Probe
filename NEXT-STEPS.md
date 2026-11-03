@@ -1833,6 +1833,28 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-15. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (just after midnight): what comes back for a file restored exactly
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **A file restored from an intact copy, then Bring back**: a file handed
+  off to the Mac (a RAW, say), restored exactly since from an intact copy
+  (older copies named later, round 16): the Mac's repair of the copy it had
+  been given, brought back, made the intact copy make way (it went to
+  REPAIR\replaced) and was put back in its place - a repair over the file
+  as it was. Now what comes back for a file restored from an intact copy
+  (its version still there) is kept beside it, in REPAIR\salvaged, and Bring
+  back says so; the intact copy itself on the stick is nothing to bring.
+  Tests: what_comes_back_for_a_file_restored_exactly_is_kept_beside_it
+  (fails without the fix); auto_check (the RAW, only its preview salvaged
+  before, restored exactly from the backup named later; the Mac's version
+  of it brought back after: kept beside it - the delivered version fails).
+- Version 2026-11-03 (17); the 2026-11-03 (16) checklist text is known
+  (3025390160873123167).
+- Tests here: unit tests 215 (and 215 with overflow checks), auto_check
+  113/113, auto_ui_check 36/36 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 109, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

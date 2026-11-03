@@ -689,6 +689,8 @@ def main():
         os.makedirs(old, exist_ok=True)
         with open(os.path.join(old, "track.flac"), "wb") as f:
             f.write(media["track.flac"])
+        with open(os.path.join(old, "IMG_0100.CR2"), "wb") as f:
+            f.write(media["IMG_0100.CR2"])
         r = prog.do(action="set", auto_search=old)
         st = {x["key"]: x["state"] for x in prog.get("api/state")["auto"]["stages"]}
         check(r.get("ok") and st["isolate"] == "done" and st["repair"] == "pending" and st["handoff"] == "pending",
@@ -701,6 +703,21 @@ def main():
               and later["Music/track.flac"]["how"].startswith("an intact copy"),
               "the FLAC is restored exactly from the older copy, in place of FFmpeg's (%s)" % later["Music/track.flac"]["how"][:90])
         check(prog.get("api/state")["settings"].get("finalise_again"), "and the second copy waits for Finalise again")
+        check(open(os.path.join(w, "RAW", "IMG_0100.CR2"), "rb").read() == media["IMG_0100.CR2"],
+              "the RAW too (only its preview was salvaged before)")
+        # What comes back later for a file restored exactly - the Mac's repair
+        # of the copy handed off before the backup was found: kept beside it,
+        # never put in its place (before, the intact copy made way for it).
+        mac = "IMG_0100 [%s].CR2" % raw["id"]
+        with open(os.path.join(ret, mac), "wb") as f:
+            f.write(media["IMG_0100.CR2"][:2000] + b"the Mac's repair")
+        r = prog.do(action="bring-back", **{"from": ""})
+        s3 = prog.wait()
+        said3 = " ".join(s3["job"].get("summary") or [])
+        check(s3["job"]["state"] == "done" and "restored from an intact copy" in said3
+              and open(os.path.join(w, "RAW", "IMG_0100.CR2"), "rb").read() == media["IMG_0100.CR2"]
+              and os.path.isfile(os.path.join(repair, "salvaged", "returned", mac)),
+              "what comes back for the RAW restored exactly is kept beside it, not put in its place (%s)" % said3[:160])
     finally:
         prog.close()
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))
