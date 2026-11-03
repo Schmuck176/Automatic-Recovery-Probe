@@ -1426,12 +1426,13 @@ fn stage_isolate(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
     Ok(End::Done(o.summary))
 }
 
-/// The folders of older copies (`search`) that the repairs have not looked
-/// in yet ("repair_searched": where they last looked).
+/// The folders of older copies (`search`) there now that the repairs have
+/// not looked in yet ("repair_searched": where they last looked, of those
+/// that were there). One on a drive not plugged in is new once it is.
 fn older_copies_new(app: &Arc<Mutex<App>>, search: &[PathBuf]) -> Vec<String> {
     let searched = lock(app).setting("repair_searched");
     let before: std::collections::HashSet<String> = searched.lines().map(folder_key).filter(|k| !k.is_empty()).collect();
-    search.iter().map(|p| p.display().to_string()).filter(|p| !before.contains(&folder_key(p))).collect()
+    search.iter().filter(|p| p.is_dir()).map(|p| p.display().to_string()).filter(|p| !before.contains(&folder_key(p))).collect()
 }
 
 /// Older copies named after the repairs ran (in 3. The folders): the
@@ -1490,8 +1491,10 @@ fn stage_repair(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, St
     let stop = ctx.stop.clone();
     let o = autorepair::run(&home, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &move || stop.load(Ordering::Relaxed))?;
     if !o.stopped {
+        // (Only those that were there: one on a drive not plugged in is
+        // looked in once it is.)
         let mut a = lock(app);
-        let searched = plan.search.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
+        let searched = plan.search.iter().filter(|p| p.is_dir()).map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
         a.settings.insert("repair_searched".to_string(), searched);
         a.save();
     }

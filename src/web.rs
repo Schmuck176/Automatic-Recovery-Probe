@@ -1359,6 +1359,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 auto::work_change_ok(app, w)?;
             }
             let mut a = lock(app);
+            let copy2_before = a.setting("auto_copy2");
             for (k, v) in &f {
                 if k != "action" {
                     a.settings.insert(k.clone(), v.clone());
@@ -1367,8 +1368,14 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             // The second copy's folder chosen (again, it may be): what is
             // there - or a new second copy - is the second copy from now on
             // (finalise.rs no longer looks for the one made before).
-            if f.contains_key("auto_copy2") {
+            if let Some(c) = f.get("auto_copy2") {
                 a.settings.remove("copy2_made");
+                // Another folder after a Finalise: there is no second copy
+                // there yet - 6. Finalise says to run it again (it said Done).
+                if !a.setting("finalised").is_empty() && !c.trim().is_empty() && !auto::same_folder(c, &copy2_before) {
+                    a.settings.insert("finalise_again".to_string(), local_now());
+                    a.settings.insert("finalise_again_why".to_string(), "folder".to_string());
+                }
             }
             a.save();
             if let Some(m) = f.get("mapfile") {
@@ -3038,27 +3045,59 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The second copy's folder changed after a Finalise (another drive, say):
+    /// there is no second copy there until Finalise runs again, and the page
+    /// says so (6. Finalise said Done). The same folder, written another way,
+    /// or before any Finalise: nothing to say.
+    #[test]
+    fn another_second_copy_folder_after_finalise_asks_for_finalise_again() {
+        let dir = std::env::temp_dir().join(format!("arp-copy2-moved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.clone(),
+            settings: HashMap::from([("auto_copy2".to_string(), r"D:\COPY 2".to_string()), ("copy2_made".to_string(), r"D:\COPY 2".to_string())]),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let again = || lock(&app).setting("finalise_again_why");
+        assert!(act(&app, &form(&[("action", "set"), ("auto_copy2", r"E:\COPY 2")])).contains("\"ok\":true"));
+        assert_eq!(again(), "", "no Finalise yet: nothing to say");
+        lock(&app).settings.insert("finalised".to_string(), "2026-11-03 23:00".to_string());
+        assert!(act(&app, &form(&[("action", "set"), ("auto_copy2", r"e:/copy 2\")])).contains("\"ok\":true"));
+        assert_eq!(again(), "", "the same folder, written another way");
+        assert!(act(&app, &form(&[("action", "set"), ("auto_copy2", r"F:\COPY 2")])).contains("\"ok\":true"));
+        assert_eq!(again(), "folder");
+        assert!(!lock(&app).setting("finalise_again").is_empty(), "6. Finalise asks to be run again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Older copies named after the repairs ran (a backup found later): the
     /// repairs and the stages after them are to run again - Start carries on
     /// from them - so the copies there are looked in. Not when the repairs
-    /// have not run yet (they look there anyway), nor for a folder looked in.
+    /// have not run yet (they look there anyway), nor for a folder looked in,
+    /// nor for one not there (a drive not plugged in) until it is.
     #[test]
     fn older_copies_named_after_the_repairs_ran_bring_start_back_to_them() {
         let dir = std::env::temp_dir().join(format!("arp-older-copies-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let (photos, backup) = (dir.join("Old photos"), dir.join("Backup from 2019"));
+        std::fs::create_dir_all(&photos).unwrap();
         let mut st = auto::State::new();
         for s in st.stages.iter_mut() {
             s.state = "done".to_string();
             s.summary = vec!["done before".to_string()];
         }
+        let shown = |p: &Path| p.display().to_string();
         let app = Arc::new(Mutex::new(App {
             elevated: false,
             home: dir.clone(),
             results: dir.clone(),
-            settings: HashMap::from([
-                ("auto_search".to_string(), r"D:\Old photos".to_string()),
-                ("repair_searched".to_string(), r"D:\Old photos".to_string()),
-            ]),
+            settings: HashMap::from([("auto_search".to_string(), shown(&photos)), ("repair_searched".to_string(), shown(&photos))]),
             job: None,
             last: HashMap::new(),
             next_id: 1,
@@ -3067,17 +3106,31 @@ mod tests {
         }));
         assert_eq!(auto::older_copies_added(&app), None, "looked in already");
         let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
-        let r = act(&app, &form(&[("action", "set"), ("auto_search", "D:\\Old photos\nF:\\Backup from 2019")]));
+        let both = format!("{}\n{}", shown(&photos), shown(&backup));
+        let state = |k: &str| lock(&app).auto.stages.iter().find(|s| s.key == k).unwrap().state.clone();
+        // The backup's drive not plugged in: nothing to look in yet.
+        let r = act(&app, &form(&[("action", "set"), ("auto_search", &both)]));
         assert!(r.contains("\"ok\":true"), "{r}");
+        assert_eq!(state("repair"), "done", "not there: nothing changes");
+        // Plugged in: Start, clicked, carries on from the repairs.
+        std::fs::create_dir_all(&backup).unwrap();
+        assert_eq!(auto::older_copies_added(&app), Some(vec![shown(&backup)]));
+        assert_eq!((state("isolate"), state("repair"), state("handoff")), ("done".to_string(), "pending".to_string(), "pending".to_string()));
         {
             let a = lock(&app);
-            let state = |k: &str| a.auto.stages.iter().find(|s| s.key == k).unwrap().state.clone();
-            assert_eq!((state("isolate"), state("repair"), state("handoff")), ("done".to_string(), "pending".to_string(), "pending".to_string()));
             assert_eq!(a.auto.resume_at(), auto::STAGES.iter().position(|s| s.0 == "repair").unwrap(), "Start carries on from the repairs");
             assert!(a.setting("auto_state").contains("repair\u{1f}pending"), "and that is kept");
         }
         // (The repairs not run yet: they look there anyway.)
         assert_eq!(auto::older_copies_added(&app), None);
+        // Named while the backup is there: at once.
+        let mut a = lock(&app);
+        for s in a.auto.stages.iter_mut() {
+            s.state = "done".to_string();
+        }
+        drop(a);
+        let r = act(&app, &form(&[("action", "set"), ("auto_search", &both)]));
+        assert!(r.contains("\"ok\":true") && state("repair") == "pending", "{r}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

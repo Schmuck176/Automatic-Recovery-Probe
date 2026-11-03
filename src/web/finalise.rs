@@ -450,8 +450,10 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
         {
             let mut a = lock(app);
             a.settings.insert("copy2_made".to_string(), copy2.clone());
-            if work_ok {
+            // (A second copy made afresh in a folder chosen since holds it all.)
+            if work_ok || a.setting("finalise_again_why") == "folder" {
                 a.settings.remove("finalise_again");
+                a.settings.remove("finalise_again_why");
             }
             a.save();
         }

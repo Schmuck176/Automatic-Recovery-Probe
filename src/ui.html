@@ -2773,7 +2773,9 @@ function renderAuto() {
   const fi = lastOf("finalise");
   const again = setting("finalise_again") && !(fi && fi.state === "running") ? setting("finalise_again") : "";
   h = noteHtml("final");
-  if (again) h += msg("warn", `Since the last Finalise, files were brought back or put back (${esc(again)}): the second copy does not have them yet. Click <b>Finalise</b> again.`);
+  if (again) h += msg("warn", setting("finalise_again_why") === "folder"
+    ? `The second copy's folder was changed after the last Finalise (${esc(again)}): there is no second copy there yet. Click <b>Finalise</b> again.`
+    : `Since the last Finalise, files were brought back or put back (${esc(again)}): the second copy does not have them yet. Click <b>Finalise</b> again.`);
   if (fi && fi.state !== "running") h += msg(fi.state === "done" ? "ok" : fi.state === "stopped" ? "warn" : "err", lines(fi.summary || [fi.error]).replace(/\n/g, "<br>"));
   put($("ar-final"), h);
   $("b-finalise").disabled = running;

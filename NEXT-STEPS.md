@@ -1867,6 +1867,31 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-16. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (after midnight): a backup on a drive not plugged in; the second copy moved
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Older copies on a drive not plugged in** (round 16): a folder named
+  while its drive was not there was counted as looked in when the repairs
+  ran, so once plugged in nothing looked in it again. Now only a folder
+  that was there counts as looked in; one plugged in later brings Start
+  back to the repairs when Start is clicked (and at once, when it is named
+  with its drive plugged in). Test:
+  older_copies_named_after_the_repairs_ran_bring_start_back_to_them (a
+  folder not there, then there: fails with the old count).
+- **Another folder for the second copy after Finalise** (another drive,
+  say): there is no second copy there until Finalise runs again, and 6.
+  Finalise still said "Done". Now it says the folder was changed and there
+  is no second copy there yet (Run it again) until Finalise has made it.
+  Tests: another_second_copy_folder_after_finalise_asks_for_finalise_again
+  (the same folder written another way, or no Finalise yet: nothing said;
+  fails without the fix); auto_ui_check (the words).
+- Version 2026-11-03 (18); the 2026-11-03 (17) checklist text is known
+  (1805865021611363616).
+- Tests here: unit tests 216 (and 216 with overflow checks), auto_check
+  113/113, auto_ui_check 37/37 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 113, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

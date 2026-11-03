@@ -220,13 +220,18 @@ function iconsWithoutWords(page) {
       S.settings.finalise_again = "2026-11-03 21:30";
       renderAuto();
       const r = { state: document.getElementById("ast-final").textContent, says: document.getElementById("ar-final").textContent };
+      S.settings.finalise_again_why = "folder";
+      renderAuto();
+      r.folder = document.getElementById("ar-final").textContent;
       delete S.settings.finalise_again;
+      delete S.settings.finalise_again_why;
       renderAuto();
       r.after = document.getElementById("ast-final").textContent;
       return r;
     });
     check(/Run it again/.test(again.state) && /second copy does not have them yet/.test(again.says) && /Done/.test(again.after),
       "after something is brought back, 6. Finalise asks to be run again (" + again.state + "; then " + again.after + ")");
+    check(/no second copy there yet/.test(again.folder), "and after its folder is changed, says there is no second copy there yet");
     // Every icon on the page comes with words saying what it is for.
     check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
     // 7. Put Windows back: its own part, after Finalise (here nothing was changed).
