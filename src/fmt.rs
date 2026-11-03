@@ -102,8 +102,9 @@ pub fn local_datetime(ts: f64) -> String {
     }
 }
 
-/// This PC's offset from UTC at a moment (seconds since 1970), in seconds.
-fn offset_at(secs: i64) -> i64 {
+/// This PC's offset from UTC at a moment (seconds since 1970), in seconds:
+/// with summer time, or without, as it was then.
+pub fn offset_at(secs: i64) -> i64 {
     match crate::sys::local_time(secs) {
         Some(t) => {
             crate::exfat::days_from_civil(t[0] as i64, t[1] as u32, t[2] as u32) * 86_400

@@ -521,10 +521,12 @@ pub struct Drive {
     pub slow: u64,
     pub bad_places: u64,
     pub bad_bytes: u64,
-    /// °C now, the warmest seen, and where reading pauses (None: not known).
+    /// °C now, the warmest seen, where reading pauses and where, paused, it
+    /// carries on (None: not known).
     pub temp: Option<i16>,
     pub temp_max: Option<i16>,
     pub temp_limit: Option<i16>,
+    pub temp_resume: Option<i16>,
     /// Why there is no temperature, or "".
     pub temp_note: String,
     /// Reading paused while the SSD cools down; how many times it was.
@@ -673,7 +675,8 @@ impl Drive {
         let opt = |v: Option<i16>| v.map(|t| t.to_string()).unwrap_or_else(|| "null".to_string());
         format!(
             "{{\"size\":{},\"pos\":{},\"cells\":{},\"speeds\":[{}],\"every\":{},\"slow\":{},\"bad_places\":{},\"bad_bytes\":{},\
-             \"temp\":{},\"temp_max\":{},\"temp_limit\":{},\"temp_note\":{},\"paused\":{},\"pauses\":{},\"check\":{}}}",
+             \"temp\":{},\"temp_max\":{},\"temp_limit\":{},\"temp_resume\":{},\"temp_note\":{},\"paused\":{},\"pauses\":{},\
+             \"check\":{}}}",
             self.size,
             self.pos,
             json_str(&cells),
@@ -685,6 +688,7 @@ impl Drive {
             opt(self.temp),
             opt(self.temp_max),
             opt(self.temp_limit),
+            opt(self.temp_resume),
             json_str(&self.temp_note),
             self.paused,
             self.pauses,
@@ -723,6 +727,7 @@ pub fn drive_begin(size: u64, start: u64, bad: &[(u64, u64)]) {
         d.temp = old.temp;
         d.temp_max = old.temp_max;
         d.temp_limit = old.temp_limit;
+        d.temp_resume = old.temp_resume;
         d.temp_note = old.temp_note;
     }
     *DRIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(d);
@@ -745,14 +750,16 @@ pub fn drive_check(done: u64, total: u64) {
     });
 }
 
-/// The SSD's temperature (None: not known, and why), and where reading pauses.
-pub fn drive_temp(t: Option<i16>, limit: Option<i16>, note: &str) {
+/// The SSD's temperature (None: not known, and why), where reading pauses,
+/// and where, paused, it carries on.
+pub fn drive_temp(t: Option<i16>, limit: Option<i16>, resume: Option<i16>, note: &str) {
     with_drive(|d| {
         d.temp = t;
         if let Some(t) = t {
             d.temp_max = Some(d.temp_max.map_or(t, |m| m.max(t)));
         }
         d.temp_limit = limit;
+        d.temp_resume = resume;
         d.temp_note = note.to_string();
         Vec::new()
     });

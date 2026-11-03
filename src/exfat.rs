@@ -1203,25 +1203,26 @@ pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// This PC's offset from UTC right now, in seconds.
-fn local_offset_now() -> i64 {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-    match crate::sys::local_time(now) {
-        Some(t) => {
-            let local = days_from_civil(t[0] as i64, t[1] as u32, t[2] as u32) * 86_400
-                + t[3] as i64 * 3600
-                + t[4] as i64 * 60
-                + t[5] as i64;
-            local - now
-        }
-        None => 0,
-    }
+/// A local time (seconds since 1970 as if it were UTC) as the moment it
+/// was, with the offset in force on that day (`offset_at`: the offset at a
+/// moment). A photo taken at 14:00 in July, in summer time, was taken at
+/// 13:00 UTC, whenever it is copied. (Before, the offset of the day of the
+/// copying was taken for every date: files from the other side of a clock
+/// change came out an hour out.) An hour the clocks skip or go through twice
+/// is taken one way or the other. (As fmt::instant finds the offset.)
+fn local_to_utc(local: i64, offset_at: &dyn Fn(i64) -> i64) -> i64 {
+    local.saturating_sub(offset_at(local.saturating_sub(offset_at(local))))
 }
 
 /// An exFAT timestamp (with its 10 ms part and UTC offset byte) as Unix
 /// seconds and nanoseconds. exFAT stores local time; with a valid UTC
-/// offset the result is exact, without one this PC's offset is assumed.
+/// offset the result is exact, without one this PC's offset on that date
+/// is assumed (as a camera keeps its clock: the time of day where it is).
 pub fn timestamp_to_unix(ts: u32, ms10: u8, utc: u8) -> Option<(i64, u32)> {
+    timestamp_to_unix_with(ts, ms10, utc, &crate::fmt::offset_at)
+}
+
+fn timestamp_to_unix_with(ts: u32, ms10: u8, utc: u8, offset_at: &dyn Fn(i64) -> i64) -> Option<(i64, u32)> {
     let sec = ((ts & 0x1F) * 2) as i64;
     let min = ((ts >> 5) & 0x3F) as i64;
     let hour = ((ts >> 11) & 0x1F) as i64;
@@ -1237,7 +1238,7 @@ pub fn timestamp_to_unix(ts: u32, ms10: u8, utc: u8) -> Option<(i64, u32)> {
         let quarters = if v & 0x40 != 0 { v - 128 } else { v };
         t -= quarters * 15 * 60;
     } else {
-        t -= local_offset_now();
+        t = local_to_utc(t, offset_at);
     }
     Some((t, (ms10 % 100) as u32 * 10_000_000))
 }
@@ -1260,6 +1261,48 @@ mod tests {
         let (t2, _) = timestamp_to_unix(ts, 0, 0x80 | (128 - 20) as u8).unwrap();
         assert_eq!(t2, days_from_civil(2023, 7, 14) * 86_400 + 15 * 3600 + 30 * 60);
         assert_eq!(timestamp_to_unix(0, 0, 0x80), None);
+    }
+
+    /// A date stored without its offset from UTC (a camera's, or written by
+    /// a system that does not keep one) is taken with the offset of its own
+    /// day: a July photo is in summer time whenever it is copied (before, the
+    /// offset of the day of the copying was taken: in November, an hour out).
+    #[test]
+    fn a_date_without_an_offset_is_taken_with_the_summer_time_of_its_day() {
+        // The UK's clocks in 2023: an hour forward from 26 March 01:00 UTC to
+        // 29 October 01:00 UTC.
+        let (spring, autumn) = (days_from_civil(2023, 3, 26) * 86_400 + 3600, days_from_civil(2023, 10, 29) * 86_400 + 3600);
+        let uk = |utc: i64| if (spring..autumn).contains(&utc) { 3600 } else { 0 };
+        let stamp = |y: u32, m: u32, d: u32, h: u32| ((y - 1980) << 25) | (m << 21) | (d << 16) | (h << 11);
+        let july = timestamp_to_unix_with(stamp(2023, 7, 14, 14), 0, 0, &uk).unwrap().0;
+        assert_eq!(july, days_from_civil(2023, 7, 14) * 86_400 + 13 * 3600, "14:00 summer time is 13:00 UTC");
+        let january = timestamp_to_unix_with(stamp(2023, 1, 14, 14), 0, 0, &uk).unwrap().0;
+        assert_eq!(january, days_from_civil(2023, 1, 14) * 86_400 + 14 * 3600);
+        // Either side of the changes.
+        let before = timestamp_to_unix_with(stamp(2023, 3, 26, 0), 0, 0, &uk).unwrap().0;
+        assert_eq!(before, days_from_civil(2023, 3, 26) * 86_400);
+        let after = timestamp_to_unix_with(stamp(2023, 3, 26, 3), 0, 0, &uk).unwrap().0;
+        assert_eq!(after, days_from_civil(2023, 3, 26) * 86_400 + 2 * 3600);
+        let late = timestamp_to_unix_with(stamp(2023, 10, 29, 3), 0, 0, &uk).unwrap().0;
+        assert_eq!(late, days_from_civil(2023, 10, 29) * 86_400 + 3 * 3600);
+        // The hour skipped and the hour gone through twice: one way or the
+        // other, never further.
+        for (d, m) in [(26, 3), (29, 10)] {
+            let t = timestamp_to_unix_with(stamp(2023, m, d, 1) | (30 << 5), 0, 0, &uk).unwrap().0;
+            let local = days_from_civil(2023, m, d) * 86_400 + 3600 + 30 * 60;
+            assert!(t == local || t == local - 3600, "{d}/{m}: {t}");
+        }
+        // With its offset stored, the PC's is not asked.
+        let never = |_: i64| -> i64 { panic!("asked") };
+        assert_eq!(
+            timestamp_to_unix_with(stamp(2023, 7, 14, 14), 0, 0x80 | 4, &never).unwrap().0,
+            days_from_civil(2023, 7, 14) * 86_400 + 13 * 3600
+        );
+        // The PC's own offset, asked of it as before: a fixed one is applied.
+        assert_eq!(
+            timestamp_to_unix_with(stamp(2023, 7, 14, 14), 0, 0, &|_| -18_000).unwrap().0,
+            days_from_civil(2023, 7, 14) * 86_400 + 19 * 3600
+        );
     }
 
     /// Damage the self-test disk's volume and count what is found.

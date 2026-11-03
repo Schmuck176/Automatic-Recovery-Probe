@@ -1218,6 +1218,75 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-1. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (evening): numbers typed short, a temperature that does not fall, summer time, the Mac run twice
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **The Mac script, run a second time, deleted every video it had repaired**
+  (stopped halfway and started again, or run again to be sure): avconvert
+  writes over no file unless told to (`--replace`, its man page), so it failed
+  on the video already in returned/repaired - and on a failure the script
+  removed what was there, and said "not repaired". The same removal took away
+  a version the person had saved there by hand (Preview, as the READ ME says)
+  of a photo the Mac could not decode. And avconvert leaves out
+  "privacy-sensitive" metadata unless told otherwise
+  (`--disableMetadataFilter`): a video repaired on the Mac lost when and where
+  it was recorded. Now each is made in a work folder of its own in "returned"
+  (`~recovery-probe-copying.tmp`, the one name Bring back passes over) and
+  moved into place once made; nothing in "returned" is ever taken away;
+  avconvert is asked to keep the metadata (and, if the Mac's avconvert does
+  not know the option, the video is made without it). New in CI (Linux):
+  tools/mac_script_check.py runs the script with zsh, with stand-ins for sips,
+  avconvert (one that writes over no file, and an older one), caffeinate and
+  the Mac's mktemp - three runs, every kind of file it tries. (zsh is not
+  in this workspace: CI runs it.)
+- **Bring back took a file of the person's own for a repaired version**: any
+  file with a number like [R12] (short forms are taken on purpose, for
+  numbers typed by hand) whose kind matched - "Contract [R1].jpg" anywhere on
+  the stick, a revision - was put back over the damaged photo R0001 (the
+  original kept in REPAIR\originals). A number written short (the program
+  always writes four digits) is taken now only in "returned" and the
+  hand-off's folders; elsewhere it is left, and said ("written short ... give
+  it its whole number, or put it into returned"). The hand-off harness now
+  types numbers short too (400 rounds).
+- **A temperature reading that does not fall kept the image paused for
+  good**: a sensor or USB case stuck at a value an SSD can have (85 °C), or an
+  SSD as cool as it gets where it is but above where reading carries on (a
+  warm room, a closed case). After 45 minutes paused with the reading not a
+  degree below its lowest (an SSD at rest that can cool, cools by a degree
+  within minutes), reading carries on - said in "what just happened" and as a
+  notification (the reading may be stuck; if the SSD really feels hot, Stop
+  and give it air) - and pauses again only on a real rise (5 °C above); once
+  it has cooled to where reading carries on, the usual limit applies again.
+  An SSD cooling slowly (a degree every three minutes) is waited for as
+  before: the first version of this fix ("the reading now is the lowest")
+  took it as stuck at 45 minutes, caught by a test before delivery. The page
+  says where reading pauses now, and where it carries on (it said the limit
+  less 10 °C even after a quarter of an hour, when it carries on at the limit
+  less 5); the image's line, when reading carries on, says why (it said "The
+  SSD has cooled down" also when its temperature could not be read).
+- **The copies' dates, an hour out for half the year**: for a file whose
+  folder record holds no offset from UTC (a camera's card, a system that
+  writes none), the offset of the day of the copying was taken for every
+  date - a photo taken at 14:00 in July, copied in November, showed 15:00;
+  a copying resumed after a clock change gave files copied before and after
+  it different offsets. Now the offset in force on the file's own date
+  (summer time or not), as fmt::instant already finds it. Checked end to end
+  here too: a test disk with no offsets, copied with TZ=Europe/London (before,
+  the July file an hour out). With it, a video untrunc rebuilt gets the date
+  inside it the way its pattern has it: for a camera that keeps local time,
+  that was the pattern's offset for every video (a July pattern made a
+  January video an hour out); a pattern whose date inside is its file's by
+  this PC's offset on its day is taken as such a camera's, and the video gets
+  its own day's (a pattern from a day without summer time says nothing of
+  which it is: UTC, as the format has it).
+- Version 2026-11-03 (3); the 2026-11-03 (2) checklist text is known
+  (11124203054699240154).
+- Tests here: unit tests 196, test_mapcheck 94/94, auto_check 96/96,
+  auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check (seed
+  43, 20 interruptions) 17/17; the hand-off harness, 400 rounds with numbers
+  typed short; mac_script_check runs in CI only (no zsh here).
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
@@ -1230,16 +1299,9 @@ The user, as before: keep hunting for bugs, without breaking anything.
 - The repairs try again, each time the stage runs, every file not repaired
   yet (FFmpeg plays big videos through again): they could skip a file tried
   before with the same tools, the same copy and the same places to look in.
-- Bring back takes any file with a number like [R12] (short forms are taken
-  on purpose, for numbers typed by hand) whose kind matches: a file of the
-  person's own on the stick ("Contract [R2].pdf", a revision) whose number is
-  a damaged PDF's would be taken as its repaired version and put back over it
-  (the original kept in REPAIR\originals). A short number could be taken only
-  where the name also holds the original's name, or only in "returned" and
-  the hand-off's folders.
-- A temperature reading stuck at a value an SSD can have (85 °C, say) keeps
-  reading paused for good: "it has not cooled at all in an hour" could be
-  said, with a way to carry on.
+- The Mac script has only run with stand-ins for the Mac's tools (CI, zsh on
+  Linux: tools/mac_script_check.py): its first run with the real sips and
+  avconvert is on the person's Mac.
 - If a video's verdict still changes from one run to the next (FFmpeg's
   threads: more than the margin of one error in ten), decode just the
   damaged copy and the rebuilt one on one thread when the counts are close.

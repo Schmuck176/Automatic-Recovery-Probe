@@ -1433,7 +1433,7 @@ function driveHtml(D, compact) {
   if (D.pauses) facts.push(fact("warn", "pause", `Paused ${D.pauses === 1 ? "once" : D.pauses === 2 ? "twice" : D.pauses + " times"} to let it cool down`));
   if (D.check && live) facts.push(fact("act", "badge-check", `All of it read: now reading the image back to check it (<b>${esc(gb(D.check[0]))}</b> of ${esc(gb(D.check[1]))})`));
   if (facts.length) h += `<div class="facts">${facts.join("")}</div>`;
-  if (D.paused && reading) h += msg("warn pause", `<b>Paused while the SSD cools down.</b> It is at ${D.temp} °C; reading carries on by itself at ${D.temp_limit - 10} °C. Give it air: take it out of a closed space, or point a fan at it.`);
+  if (D.paused && reading) h += msg("warn pause", `<b>Paused while the SSD cools down.</b> It is at ${D.temp} °C; reading carries on by itself at ${D.temp_resume != null ? D.temp_resume : D.temp_limit - 10} °C. Give it air: take it out of a closed space, or point a fan at it.`);
   else if (D.temp == null && D.temp_note && !compact) h += `<p class="small soft" style="margin:0">${ic("thermometer")} ${esc(D.temp_note)}</p>`;
   return h + `</div>`;
 }

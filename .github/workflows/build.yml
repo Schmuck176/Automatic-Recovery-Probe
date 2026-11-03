@@ -263,6 +263,13 @@ jobs:
           sudo modprobe exfat && echo "exfat module loaded" || echo "the exfat module could not be loaded"
           sudo python3 tools/kernel_check.py "$RUNNER_TEMP/kc" 16 2>&1 | tee "$RUNNER_TEMP/report/45-linux-kernel.txt"
           echo "::notice title=Linux kernel::$(tail -n 1 "$RUNNER_TEMP/report/45-linux-kernel.txt")"
+      - name: The hand-off's Mac script, run by zsh with stand-ins for the Mac's tools
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          sudo apt-get install -y -qq zsh > /dev/null
+          python3 tools/mac_script_check.py "$RUNNER_TEMP/mac" 2>&1 | tee "$RUNNER_TEMP/report/50-mac-script.txt"
+          echo "::notice title=Mac script::$(tail -n 1 "$RUNNER_TEMP/report/50-mac-script.txt")"
       - name: The step-by-step page, in a real browser
         if: ${{ !cancelled() }}
         run: |

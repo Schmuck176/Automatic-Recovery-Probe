@@ -675,14 +675,14 @@ pub fn make(
                         o.stopped = true;
                         quit.store(true, Ordering::Relaxed);
                     }
-                    let paused = opts.pause.as_ref().is_some_and(|p| p.load(Ordering::Relaxed));
+                    let paused = opts.pause.as_ref().is_some_and(|p| p.load(Ordering::SeqCst));
                     if paused != was_paused {
                         was_paused = paused;
                         crate::live::drive_paused(paused);
                         progress(if paused {
                             "Paused while the SSD cools down: reading carries on by itself when it has."
                         } else {
-                            "The SSD has cooled down: reading carries on."
+                            crate::cooling::carried_on_because()
                         });
                     }
                     if careful_on.load(Ordering::Relaxed) && last_told.elapsed() >= TELL_EVERY {
@@ -714,10 +714,10 @@ pub fn make(
                 Piece::Data { data, bad, secs } => {
                     // (A piece read with the pause lifted: it is over. A piece
                     // the SSD was reading as the pause began still arrives.)
-                    if was_paused && !opts.pause.as_ref().is_some_and(|p| p.load(Ordering::Relaxed)) {
+                    if was_paused && !opts.pause.as_ref().is_some_and(|p| p.load(Ordering::SeqCst)) {
                         was_paused = false;
                         crate::live::drive_paused(false);
-                        progress("The SSD has cooled down: reading carries on.");
+                        progress(crate::cooling::carried_on_because());
                     }
                     let bad_ranges: Vec<(u64, u64)> = bad.iter().map(|b| (b.0, b.1)).collect();
                     crate::live::drive_piece(pos, data.len() as u64, secs, &bad_ranges);

@@ -393,13 +393,17 @@ pub const MAC_SCRIPT_TEXT: &str = r#"#!/bin/zsh
 # Automatic Recovery Probe - repairs on the Mac.
 # Tries every file in this folder with the Mac's own decoders. It never changes
 # them: what it repairs goes into "returned" beside this script, each file's
-# [R....] number kept, ready for "Bring back" on the PC.
+# [R....] number kept, ready for "Bring back" on the PC. Each is made in a
+# folder of its own first (which Bring back passes over) and moved into
+# "returned" only once it is made, so nothing in "returned" is taken away: run
+# again, it keeps what an earlier run - or you - put there.
 setopt null_glob extended_glob
 here="${0:A:h}"
 cd "$here" || exit 1
 out="$here/returned"
 mkdir -p "$out/repaired" "$out/salvaged"
 log="$out/mac-repair-log.txt"
+w="$out/~recovery-probe-copying.tmp"
 print "Repairs on the Mac, $(date)" >> "$log"
 caffeinate -i -w $$ &
 
@@ -409,6 +413,19 @@ decodes() {  # $1 file: does sips decode it?
     rm -f "$m" "$t" "$t.err"; return 0
   fi
   rm -f "$m" "$t" "$t.err"; return 1
+}
+
+keep() {  # $1 made in the work folder, $2 its place in "returned"
+  [[ -s "$1" ]] && mv -f "$1" "$2"
+}
+
+# The Mac's video framework copies a video into a new file, asked to keep the
+# video's own notes (when and where it was recorded: it leaves them out
+# otherwise) - and without that, if this Mac's avconvert does not know how.
+video() {  # $1 file, $2 the new file
+  avconvert --source "$1" --output "$2" --preset PresetPassthrough --disableMetadataFilter >/dev/null 2>&1 && return 0
+  rm -f "$2"
+  avconvert --source "$1" --output "$2" --preset PresetPassthrough >/dev/null 2>&1
 }
 
 repaired=0; salvaged=0; failed=0; byhand=0
@@ -424,44 +441,37 @@ for f in **/*(.D); do
   ext="${name:e:l}"; stem="${name:r}"
   print -n "$name ... "
   ok=""
+  rm -rf "$w"; mkdir -p "$w"
   case "$ext" in
     heic|heif|hif|avif)
-      if decodes "$f" && sips -s format heic "$f" --out "$out/repaired/$name" >/dev/null 2>&1 && [[ -s "$out/repaired/$name" ]] && ! cmp -s "$f" "$out/repaired/$name"; then
+      if decodes "$f" && sips -s format heic "$f" --out "$w/$name" >/dev/null 2>&1 && [[ -s "$w/$name" ]] && ! cmp -s "$f" "$w/$name" && keep "$w/$name" "$out/repaired/$name"; then
         ok="repaired: saved again by the Mac's own decoder"
         repaired=$((repaired+1))
-      elif sips -s format jpeg "$f" --out "$out/salvaged/$stem (as JPEG).jpg" >/dev/null 2>&1 && [[ -s "$out/salvaged/$stem (as JPEG).jpg" ]]; then
-        rm -f "$out/repaired/$name"
+      elif sips -s format jpeg "$f" --out "$w/$stem (as JPEG).jpg" >/dev/null 2>&1 && keep "$w/$stem (as JPEG).jpg" "$out/salvaged/$stem (as JPEG).jpg"; then
         ok="salvaged: what decodes saved as a JPEG"
         salvaged=$((salvaged+1))
-      else
-        rm -f "$out/repaired/$name" "$out/salvaged/$stem (as JPEG).jpg"
       fi ;;
     dng|cr2|cr3|crw|nef|nrw|arw|srf|sr2|raf|orf|rw2|raw|pef|ptx|srw|3fr|erf|mef|mos|mrw|x3f|iiq|k25|kdc|dcr|rwl|fff)
-      if sips -s format tiff "$f" --out "$out/salvaged/$stem (as TIFF).tif" >/dev/null 2>&1 && [[ -s "$out/salvaged/$stem (as TIFF).tif" ]]; then
+      if sips -s format tiff "$f" --out "$w/$stem (as TIFF).tif" >/dev/null 2>&1 && keep "$w/$stem (as TIFF).tif" "$out/salvaged/$stem (as TIFF).tif"; then
         ok="salvaged: what the Mac decodes saved as a TIFF (a RAW can't be saved as RAW again)"
         salvaged=$((salvaged+1))
-      else
-        rm -f "$out/salvaged/$stem (as TIFF).tif"
       fi ;;
     jpg|jpeg|jpe|png|tif|tiff|gif|bmp)
       fmt="$ext"; [[ "$ext" == jpg || "$ext" == jpe ]] && fmt=jpeg; [[ "$ext" == tif ]] && fmt=tiff
-      if decodes "$f" && sips -s format "$fmt" "$f" --out "$out/repaired/$name" >/dev/null 2>&1 && [[ -s "$out/repaired/$name" ]] && ! cmp -s "$f" "$out/repaired/$name"; then
+      if decodes "$f" && sips -s format "$fmt" "$f" --out "$w/$name" >/dev/null 2>&1 && [[ -s "$w/$name" ]] && ! cmp -s "$f" "$w/$name" && keep "$w/$name" "$out/repaired/$name"; then
         ok="repaired: saved again by the Mac's own decoder"
         repaired=$((repaired+1))
-      else
-        rm -f "$out/repaired/$name"
       fi ;;
     mov|mp4|m4v|m4a)
-      if command -v avconvert >/dev/null && avconvert --source "$f" --output "$out/repaired/$name" --preset PresetPassthrough >/dev/null 2>&1 && [[ -s "$out/repaired/$name" ]]; then
+      if command -v avconvert >/dev/null && video "$f" "$w/$name" && keep "$w/$name" "$out/repaired/$name"; then
         ok="repaired: copied into a new file by the Mac's own video framework"
         repaired=$((repaired+1))
-      else
-        rm -f "$out/repaired/$name"
       fi ;;
     *)
       ok="by hand: open it in its own app, and if it opens save a copy into returned/repaired with the same name"
       byhand=$((byhand+1)) ;;
   esac
+  rm -rf "$w"
   if [[ -z "$ok" ]]; then ok="not repaired: the Mac could not decode it either"; failed=$((failed+1)); fi
   print "$ok"
   print "$name: $ok" >> "$log"
@@ -494,6 +504,9 @@ pub struct Brought {
     /// Files that could not be read (in use, or the stick unplugged): not
     /// brought back.
     pub unreadable: Vec<String>,
+    /// Files with a number written short ("[R12]") outside "returned" and the
+    /// hand-off's folders: left (a file of the person's own, it may be).
+    pub short_elsewhere: Vec<String>,
 }
 
 fn is_mac_housekeeping(name: &str) -> bool {
@@ -599,6 +612,16 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             o.unknown.push(p.display().to_string());
             continue;
         }
+        // A number written short ("[R12]": the program writes four digits)
+        // is taken only where repaired files are put - in "returned", or in
+        // the hand-off's folders. Elsewhere on a stick it may be a file of the
+        // person's own ("Contract [R2].pdf", a revision), and taken for a
+        // repaired version it would be put back over the damaged file of that
+        // number.
+        if repair::tag_is_short(&name) && !in_a_place_for_repaired(&p) {
+            o.short_elsewhere.push(p.display().to_string());
+            continue;
+        }
         let (sha, len) = if p.is_dir() {
             (repair::hash_of(&p, &|| false).ok().flatten().map(|h| h.1), None)
         } else {
@@ -683,6 +706,17 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
         }
     }
     Ok(o)
+}
+
+/// Is this inside "returned", or one of the hand-off's folders - where
+/// repaired files are put?
+fn in_a_place_for_repaired(p: &Path) -> bool {
+    p.parent().is_some_and(|d| {
+        d.components().any(|c| {
+            let c = c.as_os_str().to_string_lossy();
+            [RETURNED, HANDOFF_DIR, FOR_MAC, FOR_PAID, FOR_OWN].iter().any(|n| n.eq_ignore_ascii_case(c.trim()))
+        })
+    })
 }
 
 /// WORK, or a copy of it (COPY 2): a folder with the copying's list at its top.
@@ -839,6 +873,15 @@ pub fn brought_summary(o: &Brought) -> Vec<String> {
             o.unknown.first().cloned().unwrap_or_default()
         ));
     }
+    if !o.short_elsewhere.is_empty() {
+        t.push(format!(
+            "{} files have a number written short ([R12], not [R0012]) and are not in \"returned\", so they were left - a \
+             file of your own, it may be, for example {}. To bring one back, give it its whole number ([R0012]), or put it \
+             into \"returned\".",
+            commas(o.short_elsewhere.len() as u64),
+            o.short_elsewhere.first().cloned().unwrap_or_default()
+        ));
+    }
     if !o.unreadable.is_empty() {
         t.push(format!(
             "{} files could not be read, so they were not brought back (open in another program, or the USB stick was \
@@ -961,6 +1004,32 @@ mod tests {
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         let _ = std::fs::set_permissions(&f, perm);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A file of the person's own on the stick whose name only looks like a
+    /// number ("Contract [R1].jpg", a revision), not where repaired files go:
+    /// left, and said (before: taken for R0001's repaired version, and put
+    /// back over its photo). Typed short in "returned", it is taken.
+    #[test]
+    fn a_short_number_outside_returned_is_left() {
+        let base = std::env::temp_dir().join(format!("arp-bring-short-{}", std::process::id()));
+        let (work, _repair) = one_copied_out(&base);
+        let stick = base.join("stick");
+        std::fs::create_dir_all(stick.join("Holiday")).unwrap();
+        std::fs::write(stick.join("Holiday").join("Contract [R1].jpg"), b"someone's own photo").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert!(o.repaired.is_empty(), "{o:?}");
+        assert_eq!(o.short_elsewhere.len(), 1, "{o:?}");
+        assert!(brought_summary(&o).iter().any(|l| l.contains("written short")), "{:?}", brought_summary(&o));
+        // Its whole number, anywhere: taken; short, in "returned": taken too.
+        std::fs::create_dir_all(stick.join("returned")).unwrap();
+        std::fs::write(stick.join("returned").join("a [r1] fixed by hand.jpg"), b"repaired").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert_eq!((o.repaired.len(), o.short_elsewhere.len()), (1, 1), "{o:?}");
+        assert!(o.repaired[0].1.contains("returned"), "{o:?}");
+        assert!(repair::tag_is_short("Contract [R1].jpg") && repair::tag_is_short("x [r123].jpg"));
+        assert!(!repair::tag_is_short("x [R0001].jpg") && !repair::tag_is_short("x [R12345].jpg") && !repair::tag_is_short("x.jpg"));
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -1148,6 +1217,37 @@ mod tests {
         assert!(second_loop.lines().nth(1).is_some_and(|l| l.trim() == "[[ \"$d\" == returned/* ]] && continue"), "{second_loop}");
         // decodes() takes away the empty file mktemp makes, not only its own.
         assert!(MAC_SCRIPT_TEXT.contains("rm -f \"$m\" \"$t\" \"$t.err\"; return 0"));
+        // Run again, it takes nothing out of "returned" (before: avconvert,
+        // which writes over no file without being told to, failed on the
+        // video an earlier run had made there - and the script then deleted
+        // it; a photo it could not decode took away a version saved there by
+        // hand): each is made in a folder of its own, the one name Bring back
+        // passes over, and moved into "returned" only once it is made.
+        assert!(MAC_SCRIPT_TEXT.contains(&format!("w=\"$out/{}\"", repair::COPYING_NAME)), "{MAC_SCRIPT_TEXT}");
+        for line in MAC_SCRIPT_TEXT.lines() {
+            let l = line.trim();
+            assert!(!(l.contains("rm ") && l.contains("\"$out/")), "takes something out of returned: {l}");
+            assert!(!l.contains("--out \"$out") && !l.contains("--output \"$out"), "made straight into returned: {l}");
+        }
+        // The video keeps when and where it was recorded (avconvert leaves
+        // that out unless told otherwise), on a Mac whose avconvert knows how.
+        assert_eq!(MAC_SCRIPT_TEXT.matches("avconvert --source").count(), 2);
+        assert_eq!(MAC_SCRIPT_TEXT.matches("--disableMetadataFilter").count(), 1);
+        assert!(MAC_SCRIPT_TEXT.contains("--disableMetadataFilter >/dev/null 2>&1 && return 0\n  rm -f \"$2\"\n  avconvert"));
+    }
+
+    /// What the Mac script leaves half made (in its work folder in
+    /// "returned", the stick pulled out halfway): never brought back.
+    #[test]
+    fn what_the_mac_left_half_made_is_not_brought_back() {
+        let base = std::env::temp_dir().join(format!("arp-bring-mac-half-{}", std::process::id()));
+        let (work, _repair) = one_copied_out(&base);
+        let half = base.join("stick").join(FOR_MAC).join(RETURNED).join(repair::COPYING_NAME);
+        std::fs::create_dir_all(&half).unwrap();
+        std::fs::write(half.join("a [R0001].jpg"), b"half made").unwrap();
+        let o = bring_back(&work, &base.join("stick"), &mut |_| {}).unwrap();
+        assert!(o.repaired.is_empty() && o.salvaged.is_empty() && o.unknown.is_empty(), "{o:?}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// WORK with one damaged photo copied out as R0001 (Pics\a.jpg); REPAIR.

@@ -8,7 +8,7 @@
 //! reliability counter (winset.rs). Many USB cases answer neither: the page
 //! then says so, and the image is made without watching.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -25,6 +25,27 @@ pub const COOLER_BY: i16 = 10;
 const EVERY: Duration = Duration::from_secs(30);
 /// Paused this long, it carries on a little sooner (at 5 °C below the limit).
 const LONG_PAUSE: Duration = Duration::from_secs(15 * 60);
+/// Paused this long without the reading going any lower, the reading is
+/// taken as stuck (a sensor or USB case that keeps saying the same), or the
+/// SSD as cool as it gets where it is: an SSD at rest cools by a degree
+/// within minutes, until it is as cool as the air around it lets it be.
+const STUCK_AFTER: Duration = Duration::from_secs(45 * 60);
+/// A reading taken as stuck pauses reading again only when it rises this
+/// much above where it stuck.
+const STUCK_RISE: i16 = 5;
+
+/// Why reading last carried on after a pause: cooled (0), not read for a
+/// while (1), not cooled in STUCK_AFTER (2).
+static WHY: AtomicU8 = AtomicU8::new(0);
+
+/// What the image's line says when reading carries on after a pause.
+pub fn carried_on_because() -> &'static str {
+    match WHY.load(Ordering::SeqCst) {
+        1 => "The SSD's temperature could not be read for a while: reading carries on.",
+        2 => "The SSD has not cooled in 45 minutes - its temperature reading may be stuck: reading carries on.",
+        _ => "The SSD has cooled down: reading carries on.",
+    }
+}
 
 /// Where reading pauses for this SSD, from the levels it reports itself.
 pub fn limit_for(warning: Option<i16>, critical: Option<i16>) -> i16 {
@@ -49,6 +70,9 @@ pub enum Change {
     Resume(i16),
     /// Paused, and it could not be read for a while: reading carries on.
     ResumeUnknown,
+    /// Paused for long, the reading not gone any lower (the lowest it has
+    /// been, here): taken as stuck, reading carries on.
+    ResumeStuck(i16),
 }
 
 /// Pause or carry on, reading by reading.
@@ -60,15 +84,49 @@ pub struct Cooling {
     first: bool,
     warned: bool,
     misses: u32,
+    /// The lowest reading since the pause began, and when it was first that
+    /// low.
+    lowest: i16,
+    lowest_since: Option<Instant>,
+    /// The reading taken as stuck (see STUCK_AFTER), until the SSD has
+    /// cooled to where reading carries on.
+    pub stuck_at: Option<i16>,
 }
 
 impl Cooling {
     pub fn new(limit: i16) -> Cooling {
-        Cooling { limit, paused_since: None, pauses: 0, first: true, warned: false, misses: 0 }
+        Cooling {
+            limit,
+            paused_since: None,
+            pauses: 0,
+            first: true,
+            warned: false,
+            misses: 0,
+            lowest: i16::MAX,
+            lowest_since: None,
+            stuck_at: None,
+        }
+    }
+
+    /// Where reading pauses: the limit - or, a reading taken as stuck, only a
+    /// real rise above it.
+    pub fn pause_at(&self) -> i16 {
+        match self.stuck_at {
+            Some(s) => self.limit.max(s.saturating_add(STUCK_RISE)),
+            None => self.limit,
+        }
     }
 
     pub fn resume_at(&self) -> i16 {
         self.limit - COOLER_BY
+    }
+
+    /// Where reading carries on now (paused long, a little sooner).
+    pub fn carries_on_at(&self, now: Instant) -> i16 {
+        match self.paused_since {
+            Some(since) if now.duration_since(since) >= LONG_PAUSE => self.limit - 5,
+            _ => self.resume_at(),
+        }
     }
 
     /// A reading (None: it could not be read this time).
@@ -87,11 +145,18 @@ impl Cooling {
             self.first = false;
             out.push(Change::First(t));
         }
+        // Cooled to where reading carries on: whatever was taken as stuck
+        // was not.
+        if t <= self.resume_at() {
+            self.stuck_at = None;
+        }
         match self.paused_since {
-            None if t >= self.limit => {
+            None if t >= self.pause_at() => {
                 self.paused_since = Some(now);
                 self.pauses += 1;
                 self.warned = true;
+                self.lowest = t;
+                self.lowest_since = Some(now);
                 out.push(Change::Pause(t));
             }
             None => {
@@ -101,10 +166,23 @@ impl Cooling {
                 }
             }
             Some(since) => {
+                if t < self.lowest {
+                    self.lowest = t;
+                    self.lowest_since = Some(now);
+                }
                 let long = now.duration_since(since) >= LONG_PAUSE;
+                let low_for = now.duration_since(self.lowest_since.unwrap_or(since));
                 if t <= self.resume_at() || (long && t <= self.limit - 5) {
                     self.paused_since = None;
                     out.push(Change::Resume(t));
+                } else if low_for >= STUCK_AFTER {
+                    // Not a degree lower in all that time at rest: the
+                    // reading is stuck (a sensor or USB case that keeps
+                    // saying the same), or the SSD as cool as it gets where
+                    // it is - waiting on it would wait for good.
+                    self.paused_since = None;
+                    self.stuck_at = Some(t);
+                    out.push(Change::ResumeStuck(self.lowest));
                 }
             }
         }
@@ -176,6 +254,7 @@ pub fn watch(n: Option<u32>, pause: Arc<AtomicBool>, done: Arc<AtomicBool>) -> s
                 crate::live::drive_temp(
                     None,
                     None,
+                    None,
                     "This SSD (or its USB case) does not tell Windows its temperature, so it cannot be watched. Keep \
                      it where air can get to it.",
                 );
@@ -191,10 +270,12 @@ pub fn watch(n: Option<u32>, pause: Arc<AtomicBool>, done: Arc<AtomicBool>) -> s
             if done.load(Ordering::Relaxed) {
                 break;
             }
+            let now = Instant::now();
+            let changes = c.reading(t, now);
             if t.is_some() {
-                crate::live::drive_temp(t, Some(c.limit), "");
+                crate::live::drive_temp(t, Some(c.pause_at()), Some(c.carries_on_at(now)), "");
             }
-            for ch in c.reading(t, Instant::now()) {
+            for ch in changes {
                 match ch {
                     Change::First(t) => crate::live::event(
                         "info",
@@ -220,14 +301,38 @@ pub fn watch(n: Option<u32>, pause: Arc<AtomicBool>, done: Arc<AtomicBool>) -> s
                         }
                     }
                     Change::Resume(t) => {
-                        pause.store(false, Ordering::Relaxed);
+                        WHY.store(0, Ordering::SeqCst);
+                        pause.store(false, Ordering::SeqCst);
                         crate::live::drive_paused(false);
                         crate::live::event("good", &format!("The SSD has cooled to {t} °C: reading carries on"));
                     }
                     Change::ResumeUnknown => {
-                        pause.store(false, Ordering::Relaxed);
+                        WHY.store(1, Ordering::SeqCst);
+                        pause.store(false, Ordering::SeqCst);
                         crate::live::drive_paused(false);
                         crate::live::event("warn", "The SSD's temperature could not be read for a while: reading carries on");
+                    }
+                    Change::ResumeStuck(low) => {
+                        WHY.store(2, Ordering::SeqCst);
+                        pause.store(false, Ordering::SeqCst);
+                        crate::live::drive_paused(false);
+                        crate::live::event(
+                            "warn",
+                            &format!(
+                                "The SSD has not cooled below {low} °C in 45 minutes at rest - its temperature reading may \
+                                 be stuck, or it is as cool as it can get where it is. Reading carries on, and pauses again \
+                                 if it gets to {} °C. If the SSD really feels hot, click Stop and give it air.",
+                                c.pause_at()
+                            ),
+                        );
+                        crate::notify::toast(
+                            "The SSD has not cooled in 45 minutes: reading carries on",
+                            &format!(
+                                "It has stayed at {low} °C or more at rest - its temperature reading may be stuck. If the \
+                                 SSD really feels hot, click Stop and give it air."
+                            ),
+                            true,
+                        );
                     }
                 }
             }
@@ -277,6 +382,83 @@ mod tests {
         // A long pause carries on a little sooner.
         assert_eq!(c.reading(Some(65), at(270 + 14 * 60)), vec![]);
         assert_eq!(c.reading(Some(65), at(270 + 15 * 60)), vec![Change::Resume(65)]);
+    }
+
+    /// A reading that stays at one value while reading is paused (a sensor or
+    /// USB case that keeps saying the same): after 45 minutes at rest with not
+    /// a degree lower it is taken as stuck, and reading carries on - pausing
+    /// again only on a real rise. (Before, the pause lasted for good.)
+    #[test]
+    fn a_reading_stuck_hot_does_not_pause_for_good() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut c = Cooling::new(70);
+        assert_eq!(c.reading(Some(85), at(0)), vec![Change::First(85), Change::Pause(85)]);
+        for m in 1..45 {
+            assert_eq!(c.reading(Some(85), at(m * 60)), vec![], "minute {m}");
+            assert!(c.paused_since.is_some());
+        }
+        assert_eq!(c.reading(Some(85), at(45 * 60)), vec![Change::ResumeStuck(85)]);
+        assert!(c.paused_since.is_none());
+        assert_eq!(c.pause_at(), 90);
+        // The same reading again: reading goes on.
+        assert_eq!(c.reading(Some(85), at(46 * 60)), vec![]);
+        assert_eq!(c.reading(Some(89), at(47 * 60)), vec![]);
+        // A real rise: paused again.
+        assert_eq!(c.reading(Some(90), at(48 * 60)), vec![Change::Pause(90)]);
+        // Cooled to where reading carries on: not stuck after all, and it
+        // pauses at the limit again.
+        assert_eq!(c.reading(Some(60), at(49 * 60)), vec![Change::Resume(60)]);
+        assert_eq!((c.stuck_at, c.pause_at()), (None, 70));
+        assert_eq!(c.reading(Some(70), at(50 * 60)), vec![Change::Pause(70)]);
+
+        // A sensor that wavers by a degree, stuck all the same: taken as
+        // stuck 45 minutes after its lowest.
+        let mut w = Cooling::new(70);
+        w.reading(Some(85), at(0));
+        for m in 1..46 {
+            assert_eq!(w.reading(Some(if m % 2 == 1 { 84 } else { 85 }), at(m * 60)), vec![], "minute {m}");
+        }
+        assert_eq!(w.reading(Some(85), at(46 * 60)), vec![Change::ResumeStuck(84)]);
+    }
+
+    /// An SSD that cools, however slowly, is waited for: a degree every three
+    /// minutes from 90 °C is still 75 °C after 45 minutes, and reading
+    /// carries on only once it has cooled (before this was right, it was taken
+    /// as stuck there). One that stops cooling above where reading carries on
+    /// - as cool as it gets where it is - is not waited for for good.
+    #[test]
+    fn an_ssd_cooling_slowly_is_waited_for() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut c = Cooling::new(70);
+        assert_eq!(c.reading(Some(90), at(0)), vec![Change::First(90), Change::Pause(90)]);
+        let mut resumed = None;
+        for half in 1..=200u64 {
+            let t = 90 - (half / 6) as i16;
+            let ch = c.reading(Some(t), at(half * 30));
+            assert!(!ch.iter().any(|c| matches!(c, Change::ResumeStuck(_))), "at {} s ({t} °C): {ch:?}", half * 30);
+            if ch == vec![Change::Resume(t)] {
+                resumed = Some((half * 30, t));
+                break;
+            }
+        }
+        // Paused 15 minutes and more, it carries on at 5 °C below the limit.
+        assert_eq!(resumed, Some((75 * 60, 65)));
+
+        // Cooled to 72 °C in ten minutes, and no lower: 45 minutes after that,
+        // reading carries on; it pauses again on a rise of 5 °C.
+        let mut p = Cooling::new(70);
+        p.reading(Some(80), at(0));
+        for m in 1..=10u64 {
+            assert_eq!(p.reading(Some(80 - (m as i16 * 8) / 10), at(m * 60)), vec![], "minute {m}");
+        }
+        for m in 11..55 {
+            assert_eq!(p.reading(Some(72), at(m * 60)), vec![], "minute {m}");
+        }
+        assert_eq!(p.reading(Some(72), at(55 * 60)), vec![Change::ResumeStuck(72)]);
+        assert_eq!(p.reading(Some(76), at(56 * 60)), vec![]);
+        assert_eq!(p.reading(Some(77), at(57 * 60)), vec![Change::Pause(77)]);
     }
 
     #[test]

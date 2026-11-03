@@ -898,11 +898,29 @@ fn file_moment(p: &Path) -> Option<i64> {
 /// turns its file's date into its own (cameras differ: UTC or local time),
 /// to the quarter hour. Says what it did, for the note.
 fn own_moments(original: &Path, pattern: &Path, made: &Path) -> String {
+    own_moments_with(original, pattern, made, &crate::fmt::offset_at)
+}
+
+/// `own_moments`, with this PC's offset from UTC at a moment (`offset_at`).
+/// A camera that keeps local time writes it inside, summer time in summer:
+/// a pattern whose moment inside is its file's by this PC's offset on its
+/// day is such a camera's, and the video gets its own day's offset (a
+/// pattern from July and a video from January are an hour apart that way,
+/// not two). A pattern whose offset that day is none says nothing of which
+/// it is: the moment is taken as UTC, as the format has it.
+fn own_moments_with(original: &Path, pattern: &Path, made: &Path, offset_at: &dyn Fn(i64) -> i64) -> String {
     let (Some(own), Some(now)) = (file_moment(original), crate::mp4time::made(made)) else {
         return String::new();
     };
     let way = match (crate::mp4time::made(pattern), file_moment(pattern)) {
-        (Some(inside), Some(file)) if (inside - file).abs() <= 14 * 3600 + 60 => (inside - file + 450).div_euclid(900) * 900,
+        (Some(inside), Some(file)) if (inside - file).abs() <= 14 * 3600 + 60 => {
+            let way = (inside - file + 450).div_euclid(900) * 900;
+            if way != 0 && way == offset_at(file) {
+                offset_at(own)
+            } else {
+                way
+            }
+        }
         _ => 0,
     };
     let target = own + way;
@@ -2793,6 +2811,59 @@ mod tests {
         video(&made, made_p);
         own_moments(&original, &pattern, &made);
         assert_eq!(crate::mp4time::made(&made), Some(file_d));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A camera that keeps local time (summer time in summer) writes it
+    /// inside: a video rebuilt from a July pattern gets its own day's local
+    /// time - in January, the hour less (before: July's offset for every
+    /// video, an hour out on the other side of a clock change, now that the
+    /// copies' dates are the moments they were). A camera that writes UTC
+    /// inside gets UTC, whatever the day.
+    #[test]
+    fn a_rebuilt_video_gets_the_summer_time_of_its_own_day() {
+        let dir = std::env::temp_dir().join(format!("own-moments-dst-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let qt = |unix: i64| ((unix + 2_082_844_800) as u32).to_be_bytes();
+        let video = |p: &Path, made: i64| {
+            let mut mvhd = vec![0u8; 4];
+            mvhd.extend_from_slice(&qt(made));
+            mvhd.extend_from_slice(&qt(made));
+            mvhd.extend(vec![0u8; 88]);
+            let mut moov = ((mvhd.len() + 8) as u32).to_be_bytes().to_vec();
+            moov.extend_from_slice(b"mvhd");
+            moov.extend(mvhd);
+            let mut file = ((moov.len() + 8) as u32).to_be_bytes().to_vec();
+            file.extend_from_slice(b"moov");
+            file.extend(moov);
+            std::fs::write(p, file).unwrap();
+        };
+        let dated = |p: &Path, unix: i64| {
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix as u64);
+            std::fs::OpenOptions::new().write(true).open(p).unwrap().set_times(std::fs::FileTimes::new().set_modified(t)).unwrap();
+        };
+        // The UK's clocks in 2023 (an hour forward from 26 March to 29 October).
+        let day = |y, m, d| crate::exfat::days_from_civil(y, m, d) * 86_400;
+        let (spring, autumn) = (day(2023, 3, 26) + 3600, day(2023, 10, 29) + 3600);
+        let uk = |utc: i64| if (spring..autumn).contains(&utc) { 3600 } else { 0 };
+        let (pattern, made, original) = (dir.join("p.mov"), dir.join("made.mov"), dir.join("d.mov"));
+        let july = day(2023, 7, 15) + 9 * 3600; // 09:00 UTC, 10:00 on the camera's clock
+        let january = day(2023, 1, 20) + 15 * 3600; // 15:00 UTC and on the camera's clock
+        std::fs::write(&original, b"the damaged video").unwrap();
+        for (camera_local, own, want) in [
+            (true, january, january),
+            (true, day(2023, 8, 1) + 12 * 3600, day(2023, 8, 1) + 13 * 3600),
+            (false, january, january),
+            (false, day(2023, 8, 1) + 12 * 3600, day(2023, 8, 1) + 12 * 3600),
+        ] {
+            video(&pattern, if camera_local { july + 3600 } else { july });
+            dated(&pattern, july);
+            video(&made, if camera_local { july + 3600 } else { july });
+            dated(&original, own);
+            own_moments_with(&original, &pattern, &made, &uk);
+            assert_eq!(crate::mp4time::made(&made), Some(want), "camera keeps local time: {camera_local}, own {own}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

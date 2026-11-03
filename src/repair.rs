@@ -423,6 +423,28 @@ fn id_of(n: u64) -> String {
     format!("R{n:04}")
 }
 
+/// Whether the number in a name is written short ("[R12]", not "[R0012]"):
+/// the program writes every number with four digits at least, so a short one
+/// was typed by someone - by hand for a repaired file, or in a name of their
+/// own that only looks like one ("Contract [R2].pdf", a revision).
+pub fn tag_is_short(name: &str) -> bool {
+    let b = name.as_bytes();
+    let mut i = 0;
+    while i + 3 < b.len() {
+        if b[i] == b'[' && (b[i + 1] == b'R' || b[i + 1] == b'r') {
+            let mut j = i + 2;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 2 && j < b.len() && b[j] == b']' {
+                return j - (i + 2) < 4;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 fn id_number(id: &str) -> u64 {
     id.trim_start_matches(['R', 'r']).parse().unwrap_or(0)
 }
