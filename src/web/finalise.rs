@@ -309,12 +309,12 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
         // Windows has been put back as it was: it would check every file,
         // and take a recovered file it flags out of both copies); what it is
         // asked for now is taken off again at the end, whatever the end is.
-        let (said, added) = places::defender_for_finalise(&app2, &plan.image_dir, &plan.work, &plan.copy2);
+        let (said, added) = places::defender_for_run(&app2, &plan.image_dir, &plan.work, &plan.copy2, "Finalise");
         for l in &said {
             ctx.line(l);
         }
         let r = run(&app2, ctx, &plan);
-        for l in places::defender_take_off(&app2, &added) {
+        for l in places::defender_take_off(&app2, &added, "Finalise") {
             ctx.line(&l);
         }
         crate::winset::keep_awake(false);

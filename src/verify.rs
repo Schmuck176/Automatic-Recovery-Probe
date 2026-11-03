@@ -16,6 +16,12 @@ use crate::fmt::{commas, csv_row, json_str, size};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+/// Where a copy that went missing may be: Windows' antivirus takes a file
+/// it flags (an old download, a cracked program) into quarantine - from
+/// where it can be put back.
+const MISSING_HINT: &str = " (A copy can go missing into Windows Defender's quarantine, if it flagged it: Windows \
+                            Security, Virus & threat protection, Protection history names it, and can put it back.)";
+
 /// What the map check (step 5) found on the SSD, from map-check.json in its
 /// results folder.
 #[derive(Debug, Clone, PartialEq)]
@@ -443,6 +449,9 @@ pub fn summary(r: &Report) -> Vec<String> {
         for p in r.missing.iter().take(10) {
             t.push(format!("  missing: {p}"));
         }
+        if !r.missing.is_empty() {
+            t.push(MISSING_HINT.trim().to_string());
+        }
         for p in r.unreadable.iter().take(10) {
             t.push(format!("  could not be read: {p}"));
         }
@@ -621,12 +630,13 @@ fn here_stage(r: &Report, problems: &mut Vec<String>) -> Stage {
     if gone > 0 {
         problems.push(format!(
             "{} of the copies {} not what was copied: {} changed, {} missing (they are named below). Something changed \
-             or deleted {} after step 6: stop, and find out what before going on.",
+             or deleted {} after step 6: stop, and find out what before going on.{}",
             commas(gone as u64),
             if gone == 1 { "is" } else { "are" },
             commas(r.changed.len() as u64),
             commas(r.missing.len() as u64),
-            if gone == 1 { "it" } else { "them" }
+            if gone == 1 { "it" } else { "them" },
+            if r.missing.is_empty() { "" } else { MISSING_HINT }
         ));
     }
     if !r.unreadable.is_empty() {
@@ -942,6 +952,12 @@ mod tests {
         assert_eq!(r.changed, vec!["Photos\\a.jpg".to_string()]);
         assert_eq!(r.missing, vec!["c.txt".to_string()]);
         assert_eq!(r.extra, vec!["new.txt".to_string()]);
+        // A copy missing: where it may be, Defender's quarantine, is said
+        // (in the summary, and in the safety check's verdict).
+        let t = super::summary(&r);
+        assert!(t.iter().any(|l| l.contains("Defender's quarantine") && l.contains("Protection history")), "{t:?}");
+        let s = super::safety(&r);
+        assert!(s.verdict.iter().any(|l| l.contains("Something changed") && l.contains("Defender's quarantine")), "{:?}", s.verdict);
         // A copy that is there but cannot be read is not called changed: it
         // is not known either way (a folder in its place stands for one held
         // open by another program).
@@ -959,6 +975,7 @@ mod tests {
         let s = super::safety(&r);
         assert!(!s.fine && s.verdict.iter().any(|l| l.starts_with("1 copy could not be read")), "{:?}", s.verdict);
         assert!(s.verdict.iter().all(|l| !l.contains("Something changed")), "{:?}", s.verdict);
+        assert!(t.iter().all(|l| !l.contains("quarantine")), "nothing missing: no word of it ({t:?})");
         std::fs::remove_dir_all(&dir).ok();
     }
 

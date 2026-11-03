@@ -1602,7 +1602,17 @@ pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64,
     let app2 = app.clone();
     start_job(app, "bringback", "Bringing back the repaired files", move |ctx| {
         crate::winset::keep_awake(true);
+        // (As Finalise: Defender leaves WORK alone while it is put back into
+        // and checked - Windows may have been put back as it was since - and
+        // what it is asked for now is taken off again at the end.)
+        let (said, added) = super::places::defender_for_run(&app2, &plan.image_dir, &plan.work, "", "Bring back");
+        for l in &said {
+            ctx.line(l);
+        }
         let r = bring_back_run(&app2, ctx, &plan, &from);
+        for l in super::places::defender_take_off(&app2, &added, "Bring back") {
+            ctx.line(&l);
+        }
         crate::winset::keep_awake(false);
         r
     })

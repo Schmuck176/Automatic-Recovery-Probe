@@ -157,20 +157,26 @@ pub(super) fn added_since(before: &[String], now: &[String]) -> Vec<String> {
     now.iter().filter(|n| !before.iter().any(|b| norm(b) == norm(n))).cloned().collect()
 }
 
-/// For Finalise: Defender leaves the copies alone while it reads them (it
-/// would check every file - and a recovered file it flags, it takes out of
-/// the copies: a file Finalise would then find missing in both); `added`
-/// is what is asked for this time, to be taken off again at the end
+/// For Finalise and Bring back (`who`): Defender leaves the copies alone
+/// while they are read (it would check every file - and a recovered file it
+/// flags, it takes out of the copies: a file then found missing); `added` is
+/// what is asked for this time, to be taken off again at the end
 /// (defender_take_off) - twice a year, Windows has been put back as it was.
-pub(super) fn defender_for_finalise(app: &Arc<Mutex<App>>, image_dir: &str, work: &str, copy2: &str) -> (Vec<String>, Vec<String>) {
+pub(super) fn defender_for_run(
+    app: &Arc<Mutex<App>>,
+    image_dir: &str,
+    work: &str,
+    copy2: &str,
+    who: &str,
+) -> (Vec<String>, Vec<String>) {
     let before = defender_added(app);
-    let lines = ensure(app, image_dir, work, copy2, "Finalise takes off again what it asked for, once it is done");
+    let lines = ensure(app, image_dir, work, copy2, &format!("{who} takes off again what it asked for, once it is done"));
     (lines, added_since(&before, &defender_added(app)))
 }
 
-/// Take off again what Finalise asked Defender for (`added`): Defender checks
-/// those folders again, as before Finalise.
-pub(super) fn defender_take_off(app: &Arc<Mutex<App>>, added: &[String]) -> Vec<String> {
+/// Take off again what Finalise or Bring back (`who`) asked Defender for
+/// (`added`): Defender checks those folders again, as before.
+pub(super) fn defender_take_off(app: &Arc<Mutex<App>>, added: &[String], who: &str) -> Vec<String> {
     if added.is_empty() || !cfg!(windows) {
         return Vec::new();
     }
@@ -187,11 +193,11 @@ pub(super) fn defender_take_off(app: &Arc<Mutex<App>>, added: &[String]) -> Vec<
                 a.save();
                 drop(a);
                 if there {
-                    lines.push(format!("Defender checks {f} again, as before Finalise."));
+                    lines.push(format!("Defender checks {f} again, as before {who}."));
                 }
             }
             Err(e) => lines.push(format!(
-                "Defender still leaves {f} alone (Finalise asked it to): {e}. 7. Put Windows back as it was takes it off."
+                "Defender still leaves {f} alone ({who} asked it to): {e}. 7. Put Windows back as it was takes it off."
             )),
         }
     }

@@ -105,6 +105,8 @@ The parts of the Automatic tab:
    version saved beside its damaged copy too); for the Mac, the USB stick is
    chosen. It refuses WORK, a drive or folder holding WORK, and REPAIR's own
    folders, and names any file it could not read rather than passing it by.
+   Run after Windows is put back as it was, it has Defender leave WORK alone
+   while it puts back and checks, as Finalise does (below).
 6. **Finalise** - `RECORDS` beside WORK, the second copy (resumable, dates
    kept), the final check of both copies and of the image. Run again twice a
    year: if the second copy's drive has another letter by then, the second

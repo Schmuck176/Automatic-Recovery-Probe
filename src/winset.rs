@@ -409,10 +409,11 @@ mod tests {
         let shown = dir.display().to_string();
         let listed = |l: &[String]| l.iter().any(|e| e.trim_end_matches('\\').eq_ignore_ascii_case(shown.trim_end_matches('\\')));
         assert!(!listed(&before), "{shown} is left alone already");
+        // (Defender answering, it must take one: Start, Finalise and 7. Put
+        // Windows back as it was rely on it.)
         if let Err(e) = set_defender_exclusion(&dir, true) {
-            eprintln!("(Defender here takes no folder to leave alone: {e})");
             let _ = std::fs::remove_dir_all(&dir);
-            return;
+            panic!("Defender took no folder to leave alone: {e}");
         }
         let during = defender_exclusions().unwrap_or_default();
         // (Taken off again whatever was listed.)

@@ -1648,6 +1648,32 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-10. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (night): a missing copy points to Defender's quarantine; Bring back as Finalise
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **A copy missing from WORK or the second copy:** the check said
+  "Something changed or deleted it after step 6: stop, and find out what" -
+  without a word of the likeliest deleter on Windows, Defender's quarantine
+  (a file it flags it takes out: Finalise run without administrator rights,
+  say, or the steps tab, without Start's exclusions). Now it says where to
+  look: Windows Security, Virus & threat protection, Protection history
+  names the file, and can put it back.
+- **Bring back after 7. Put Windows back as it was** (the Mac part done
+  months later, say): it puts the repaired files back into WORK and checks
+  every copy there - with Defender checking each file it reads. Now it has
+  Defender leave WORK alone for its run, as Finalise does, and takes off
+  again what it asked for.
+- The Windows test of Defender's add, list and remove (yesterday's) let
+  Defender refusing pass, unseen: it is strict now - Defender answering, it
+  must take the folder and give it back.
+- The README says so.
+- Version 2026-11-03 (12); the 2026-11-03 (11) checklist text is known
+  (9719358687685297542).
+- Tests here: unit tests 210 (and 210 with overflow checks), auto_check
+  99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 89, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
