@@ -1157,6 +1157,18 @@ bug fixes don't break other things." (23:39: "automatically continue after
 - Tests here: unit tests 187, test_mapcheck 94/94, auto_check 96/96,
   auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check (seed
   37, 20 interruptions) 17/17.
+- CI run 41547796113 (8727fc3), green on both systems. Windows: unit tests
+  190 (the database in a folder ending in a dot among them), map check tests
+  44/44, disk protection 21/21, unplugged 42/42, page 68/68, download 6/6,
+  automatic 104/104, Automatic tab 34/34, resume 17/17; Linux: unit tests 187
+  (and 187 with overflow checks), map check tests 94/94, Linux kernel 23/23,
+  page 67/67, automatic 103/103, Automatic tab 34/34, resume 17/17.
+- Delivered 3 Nov 2026, about 00:13 GMT: version 2026-11-03 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,021,632 bytes, SHA-256
+  98b4f05e39aad8375bb298ff805804e1e92df8a9e8e22d5e214ef2ae4461fa23 (staged
+  back and compared). main moved to it; the 2026-11-02 (1) main is kept as
+  branch version-2026-11-02-1. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
