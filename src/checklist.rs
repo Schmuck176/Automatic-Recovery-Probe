@@ -34,6 +34,12 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-11-03 (10): the recovered SSD is unplugged as it is once the image
+    // is made (it is switched off all along).
+    (
+        "When the page says *\"The image is made and checked\"*: in the program's steps tab, step 9 → **Switch it off**, then unplug the recovered SSD and put it back in its drawer. It is not needed again.",
+        "When the page says *\"The image is made and checked\"*: unplug the recovered SSD — it is switched off already (if the page says to switch it off first, step 9 of the program's steps does that) — and put it back in its drawer. It is not needed again.",
+    ),
     // 2026-10-28 (1): Bring back looks in the whole hand-off folder.
     (
         "**Bring back:** choose the USB stick (or `hand-off\\returned`) and click **Bring back**. It puts every repaired file back exactly where it belongs, and checks everything again.",
@@ -100,6 +106,7 @@ const KNOWN_CHECKLISTS: &[u64] = &[
     11082727040801275934, // 2026-11-03 (6)
     9335646703940176367,  // 2026-11-03 (7)
     1852546009502476488,  // 2026-11-03 (8)
+    704548269520606009,  // 2026-11-03 (9)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 

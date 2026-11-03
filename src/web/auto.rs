@@ -744,6 +744,15 @@ fn copies_attached(app: &Arc<Mutex<App>>) -> Vec<(u32, bool, bool, bool)> {
     out
 }
 
+/// What the image's folder holds of the image already: the image read and
+/// not yet checked, or the .partial a Stop or a power cut left (the image
+/// step carries on from it).
+fn image_made_bytes(dir: &Path) -> u64 {
+    let image = dir.join(crate::image::IMAGE_NAME);
+    let partial = dir.join(format!("{}.partial", crate::image::IMAGE_NAME));
+    std::fs::metadata(&image).or_else(|_| std::fs::metadata(&partial)).map(|m| m.len()).unwrap_or(0)
+}
+
 fn sleep_or_stop(ctx: &Ctx, secs: u64) -> bool {
     for _ in 0..(secs * 5) {
         if ctx.stopping() {
@@ -782,13 +791,19 @@ fn stage_ready(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
                     Vec::new(),
                 ));
             }
-            if d.free < (e - s) + (1 << 30) {
+            // (What is made of it already - a .partial a Stop or a power cut
+            // left, or the image read and not yet checked - takes its room
+            // already: only the rest is needed.)
+            let made = image_made_bytes(Path::new(plan.image_dir.trim()));
+            let need = (e - s).saturating_sub(made);
+            if d.free < need + (1 << 30) {
                 return Ok(End::Stop(
                     format!(
-                        "{} has {} free, and the image needs {}: choose a folder on a drive with more room",
+                        "{} has {} free, and the image needs {}{}: choose a folder on a drive with more room",
                         d.letter,
                         crate::fmt::size(d.free),
-                        crate::fmt::size(e - s)
+                        crate::fmt::size(need),
+                        if made > 0 { " more" } else { "" }
                     ),
                     Vec::new(),
                 ));
@@ -938,12 +953,22 @@ fn stage_image(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
     if let Some(p) = o.problem {
         return Ok(End::Stop(p, o.summary));
     }
-    banner(
-        app,
-        "The image is made and checked: the recovered SSD is not needed any more. Switch it off and unplug it, and put it \
-         back in its drawer (step 9 of the program's steps has Switch it off).",
-    );
+    banner(app, &after_image_words(physical_number(&disk).and_then(|n| crate::guard::state(n).ok()).map(|s| s.offline)));
     Ok(End::Done(o.summary))
+}
+
+/// What to do with the recovered SSD once the image is made: it stays
+/// switched off all along (it arrives so, and is only marked read-only), so
+/// it is unplugged as it is - step 9's Switch it off is there only for a
+/// disk that is on. (Before, the page said to switch it off with step 9,
+/// whose button is not there for a disk that is off.)
+fn after_image_words(offline: Option<bool>) -> String {
+    let what = "The image is made and checked: the recovered SSD is not needed any more.";
+    if offline == Some(false) {
+        format!("{what} Switch it off (step 9 of the program's steps), then unplug it, and put it back in its drawer.")
+    } else {
+        format!("{what} It is switched off (and read-only): unplug it, and put it back in its drawer.")
+    }
 }
 
 /// The image mounted read-only with AIM, dismounted when dropped.
@@ -1177,8 +1202,10 @@ fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> 
     let mut lines: Vec<String> = summary.iter().take(8).cloned().collect();
     lines.extend(crate::mapcheck::windows_lines(&report).into_iter().take(3));
     if let Some(n) = room_note {
+        // (After the map check's own first line, which the stage shows; and
+        // in "what just happened", as a warning.)
         crate::live::event("warn", &n);
-        lines.insert(0, n);
+        lines.insert(lines.len().min(1), n);
     }
     match problem {
         Some(p) => Ok(End::Stop(p, lines)),
@@ -2023,6 +2050,36 @@ mod tests {
         assert_eq!(repair_room_note(931 * GB, 931 * GB, (37, 40 * GB), "E:"), None, "the copies themselves do not fit: the copying says so");
         assert_eq!(repair_room_note(931 * GB, 925 * GB, (0, 0), "E:"), None, "no file lost data");
         assert!(repair_room_note(100 * GB, 90 * GB, (1, 5 * GB), "F:").unwrap().contains("the 1 file that lost data"));
+    }
+
+    /// The image made: the recovered SSD, switched off all along, is
+    /// unplugged as it is (before: "Switch it off" with step 9, whose button
+    /// a disk that is off does not have).
+    #[test]
+    fn the_recovered_ssd_is_unplugged_as_it_is_once_the_image_is_made() {
+        let off = after_image_words(Some(true));
+        assert!(off.contains("It is switched off (and read-only): unplug it") && !off.contains("step 9"), "{off}");
+        assert!(after_image_words(None).contains("unplug it") && !after_image_words(None).contains("step 9"));
+        let on = after_image_words(Some(false));
+        assert!(on.contains("Switch it off (step 9 of the program's steps), then unplug it"), "{on}");
+    }
+
+    /// Start over with the image half made (a Stop, a power cut): the room
+    /// it needs is the rest of it (before, the whole of it, on top of what
+    /// is made: "choose a folder on a drive with more room" - a new image,
+    /// the recovered SSD read all over again).
+    #[test]
+    fn what_is_made_of_the_image_takes_its_room_already() {
+        let base = std::env::temp_dir().join(format!("arp-image-made-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        assert_eq!(image_made_bytes(&base), 0);
+        std::fs::write(base.join(format!("{}.partial", crate::image::IMAGE_NAME)), vec![0u8; 4096]).unwrap();
+        assert_eq!(image_made_bytes(&base), 4096);
+        std::fs::write(base.join(crate::image::IMAGE_NAME), vec![0u8; 8192]).unwrap();
+        assert_eq!(image_made_bytes(&base), 8192, "read whole, not checked yet");
+        assert_eq!(image_made_bytes(&base.join("nowhere")), 0);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// Bring back offered the hand-off folder under SPARE's letter before

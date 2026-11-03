@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-11-03 (9) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-11-03 (10) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -65,7 +65,7 @@ very end, with every drive unplugged, you put back the Windows settings it chang
 
 - [ ] **4. Start.** It checks everything is ready, then asks you to plug in the recovered SSD.
 - [ ] When it asks: **plug in the recovered SSD** — the 2 TB one, exactly as rehearsed (in the case `SPARE` was in: take `SPARE` out first). The 4 TB SSD stays in its drawer. It arrives switched off and the program marks it read-only by itself; the image takes a few hours (it reads the SSD once, then reads the image back to check it).
-- [ ] When the page says *"The image is made and checked"*: in the program's steps tab, step 9 → **Switch it off**, then unplug the recovered SSD and put it back in its drawer. It is not needed again.
+- [ ] When the page says *"The image is made and checked"*: unplug the recovered SSD — it is switched off already (if the page says to switch it off first, step 9 of the program's steps does that) — and put it back in its drawer. It is not needed again.
 - [ ] If it asks for `SPARE` (because `SPARE` was in the case the SSD used): plug `SPARE` in. It goes on by itself.
 - [ ] **✅ Checkpoint** — Start checks every copy against its checksum by itself; this ticks when that check passes.
 - [ ] Start says **"Start is done"**. (If it stopped instead, it says why: a check that found something — ask Claude — or something to do, then **Carry on**.) Write down **Your numbers**:

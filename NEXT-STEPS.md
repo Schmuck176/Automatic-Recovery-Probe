@@ -1566,6 +1566,37 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-8. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (evening): Start over with the image half made, the SSD unplugged as it is
+
+The user, as before: keep hunting for bugs, without breaking anything; and
+(16:57) to resume by itself whenever usage runs out and comes back - hourly
+check-ins into this conversation, 18:05 today to 17:05 tomorrow (their ids
+in the scratchpad's checkins.txt), to be topped up while the rounds go on
+and deleted when they stop finding bugs.
+
+- **Start over with the image half made** (a Stop, a power cut: a .partial;
+  or read whole and not yet checked): the ready stage asked for room for the
+  whole image on top of what was made - "C: has X free, and the image needs
+  1 TB: choose a folder on a drive with more room" - which, followed, means
+  a new image, the recovered SSD read all over again. What is made already
+  takes its room now: only the rest is needed ("needs X more").
+- **Once the image is made**, the page said to switch the recovered SSD off
+  with step 9's Switch it off - a button step 9 shows only for a disk that
+  is on, and the SSD is switched off all along (it arrives so; the program
+  only marks it read-only). Now: "It is switched off (and read-only): unplug
+  it, and put it back in its drawer" (or, if it is on after all, switch it
+  off with step 9 first). The checklist's box says the same; its tick
+  carries over to the new wording.
+- The note that REPAIR may not have room beside the copies comes after the
+  map check's own line now (the stage shows its first line only: the map
+  check's result was hidden under "more"); "what just happened" has it as a
+  warning, as before.
+- Version 2026-11-03 (10); the 2026-11-03 (9) checklist text is known
+  (704548269520606009).
+- Tests here: unit tests 209 (and 209 with overflow checks), auto_check
+  99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 79, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
