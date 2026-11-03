@@ -1718,6 +1718,32 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-12. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (night, later still): an undone put-back stays undone
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Undo a put-back, then Bring back or Start over**: step 8's Undo a
+  put-back put the original back in WORK and said the repaired version was
+  in REPAIR\replaced - but the version itself stayed in REPAIR\repaired
+  too (the program's own in repaired\auto). The next put-back Start or
+  Bring back ran by itself put it back again without a word: the person's
+  choice reversed, and the second copy made with the version they had
+  taken out. Now Start's and Bring back's put-backs leave out the very
+  version whose put-back was undone (the original stays, and they say so;
+  not a problem, so Start does not stop on it); step 8's Put the repaired
+  files back, clicked, puts it back after all, and says so; a new version
+  of that number (the Mac's, say) goes back as any other. The undo says it
+  stays so; the README and REPAIR's READ ME say so too. Tests:
+  a_put_back_undone_stays_undone_when_start_or_bring_back_put_back (fails
+  with the old put-back); auto_check (the photo cut short undone, then
+  Bring back and Start over: it stays the original, and both say so; the
+  delivered version fails both).
+- Version 2026-11-03 (14); the 2026-11-03 (13) checklist text is known
+  (4643325384170468140).
+- Tests here: unit tests 211 (and 211 with overflow checks), auto_check
+  104/104, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 101, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

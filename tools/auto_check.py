@@ -543,6 +543,17 @@ def main():
                         ("id=%s&which=other" % cut["id"], "neither before nor after"),
                         ("id=%s&which=before" % raw["id"], "a RAW, which a browser can't show")]:
             check(picture(q)[0] == 404, "no picture for %s" % what)
+        # Undo a put-back (step 8): the person likes the photo cut short better
+        # as it was. It stays so: Bring back (below) and Start over leave its
+        # repaired version out of WORK - before, both put it back without a
+        # word (it is still in REPAIR\repaired).
+        r = prog.do(action="undo-put-back", folder=w, id=cut["id"])
+        check(r.get("ok"), "Undo a put-back begins: %s" % r.get("error", ""))
+        s = prog.wait()
+        said = " ".join(s["job"].get("summary") or [])
+        check(s["job"]["state"] == "done" and "It stays so" in said,
+              "the photo cut short is undone, and it says it stays so (%s)" % (said or s["job"].get("error")))
+        check(open(os.path.join(w, "DCIM", "IMG_0005.JPG"), "rb").read() == before, "WORK has its damaged original again")
         # Bring back: the Mac (say) repaired the photo with a hole.
         hole = [r for r in read_csv(os.path.join(repair, "repair-list.csv")) if r["path_in_work"].endswith("IMG_0007.JPG")][0]
         name = hole["copied_out_as"].split("\\")[-1]
@@ -568,6 +579,9 @@ def main():
         check(s["job"]["state"] == "done", "Bring back finishes (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
         check(open(os.path.join(w, "DCIM", "IMG_0007.JPG"), "rb").read() == media["IMG_0007.JPG"],
               "the brought-back photo is in WORK")
+        check(open(os.path.join(w, "DCIM", "IMG_0005.JPG"), "rb").read() == before
+              and "IMG_0005.JPG) stays as its original" in " ".join(s["job"].get("summary") or []),
+              "the photo undone is left as it is by Bring back's put-back, and it says so")
         # Finalise: RECORDS, the second copy, the final checks.
         r = prog.do(action="finalise")
         check(r.get("ok"), "Finalise begins: %s" % r.get("error", ""))
@@ -644,6 +658,10 @@ def main():
               "the photo brought back is still in WORK after Start over")
         check(not any(n.startswith("IMG_0007 (") for n in os.listdir(os.path.join(w, "DCIM"))),
               "and no damaged copy of it was put beside it")
+        stages = {x["key"]: x for x in s["auto"]["stages"]}
+        check(open(os.path.join(w, "DCIM", "IMG_0005.JPG"), "rb").read() == before
+              and "stays as its original" in " ".join(stages["putback"]["summary"] or []),
+              "the photo undone stays as it is after Start over too, and its put-back stage says so")
     finally:
         prog.close()
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))

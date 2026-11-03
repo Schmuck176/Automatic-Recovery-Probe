@@ -1487,7 +1487,7 @@ fn stage_putback(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
     if crate::repair::read_list(&repair)?.is_empty() {
         return Ok(End::Skipped(vec!["Nothing was copied out, so nothing goes back.".to_string()]));
     }
-    let o = step(app, ctx, prepare_repair_step(app, "put-back", &plan.work, "")?)?;
+    let o = step(app, ctx, prepare_repair_step(app, "put-back-auto", &plan.work, "")?)?;
     if o.stopped {
         return Ok(End::Stopped);
     }
@@ -1637,9 +1637,16 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
         return Ok(Outcome { summary, problem: unread, ..Default::default() });
     }
     // The same as after Start: put back, check, check every file, evaluate.
-    let o = step(app, ctx, prepare_repair_step(app, "put-back", &plan.work, "")?)?;
+    let o = step(app, ctx, prepare_repair_step(app, "put-back-auto", &plan.work, "")?)?;
     // (Every "Not put back" line: none is cut off.)
-    summary.extend(o.summary.iter().enumerate().filter(|(i, l)| *i < 3 || l.starts_with("Not put back") || l.starts_with("...and")).map(|(_, l)| l.clone()));
+    // (And what the person undid, left out.)
+    summary.extend(
+        o.summary
+            .iter()
+            .enumerate()
+            .filter(|(i, l)| *i < 3 || l.starts_with("Not put back") || l.starts_with("...and") || l.contains("stays as its original"))
+            .map(|(_, l)| l.clone()),
+    );
     if o.stopped {
         return Ok(Outcome { summary, stopped: true, ..Default::default() });
     }

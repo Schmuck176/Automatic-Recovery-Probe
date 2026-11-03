@@ -2339,7 +2339,7 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
                 .to_string(),
         );
     }
-    if step == "put-back" {
+    if step == "put-back" || step == "put-back-auto" {
         // Put back is the one step that changes WORK: not while the last safety
         // check of it found something nobody has sorted out.
         let results = lock(app).results.clone();
@@ -2358,7 +2358,8 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
     }
     let (kind, title) = match step {
         "isolate" => ("isolate", "Copying the damaged files out"),
-        "put-back" => ("put-back", "Putting the repaired files back"),
+        // (Start's and Bring back's own: a version the person undid stays out.)
+        "put-back" | "put-back-auto" => ("put-back", "Putting the repaired files back"),
         "undo" => ("put-back", "Undoing a put-back"),
         _ => ("evaluate", "Evaluating what is damaged"),
     };
@@ -2390,8 +2391,12 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
                     problem: (!o.problems.is_empty()).then(|| "some damaged files could not be copied out".to_string()),
                 })
             }
-            "put-back" => {
-                let o = crate::repair::put_back(&work, &mut |s| ctx.line(s), &stop)?;
+            "put-back" | "put-back-auto" => {
+                let o = if step == "put-back" {
+                    crate::repair::put_back(&work, &mut |s| ctx.line(s), &stop)?
+                } else {
+                    crate::repair::put_back_by_itself(&work, &mut |s| ctx.line(s), &stop)?
+                };
                 let back: Vec<String> = o
                     .returned
                     .iter()
@@ -2402,6 +2407,7 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
                     .n("already", o.already as u64)
                     .n("skipped", o.skipped.len() as u64)
                     .n("waiting", o.waiting as u64)
+                    .n("undone", o.undone.len() as u64)
                     .raw("back", &arr(back))
                     .s("repair", &repair_s)
                     .end();

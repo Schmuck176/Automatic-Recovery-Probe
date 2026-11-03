@@ -176,6 +176,10 @@ same results folder, so Recovery Probe can carry on from anything this one did.
   over one set aside before in the same minute.
 - Start over never undoes a repair: the copying, run into WORK again, leaves
   every repaired version put back as it is.
+- Nor redoes one the person undid: a put-back undone (step 8's Undo a
+  put-back) stays undone - Start and Bring back leave that version out of
+  WORK, and say so; only step 8's Put the repaired files back, clicked, puts
+  it back after all. A new version of that number goes back as any other.
 - A damaged volume cannot run the program away: a cluster chain that loops
   is read once (and said), a boot sector whose sizes do not fit gives way to
   its backup, a record claiming more than the whole volume is not believed,

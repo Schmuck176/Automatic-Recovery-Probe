@@ -1115,7 +1115,8 @@ const README: &str = "This folder is for repairing the damaged files, without ev
    original is in WORK, with the original's dates - but only if the file there is still
    the damaged original. The original moves into the folder \"originals\" here (the same
    folders as in WORK): nothing is deleted. WORK\\repair-returns.csv lists every file put
-   back, so checking the copies later knows about it. A put-back can be undone.
+   back, so checking the copies later knows about it. A put-back can be undone (step 8),
+   and then stays undone: Start and Bring back leave that version out of WORK.
 
 4. EVALUATE (Automatic Recovery Probe does it by itself; or step 8): what is damaged inside each package (a Photos library,
    an app, a Pages document...), what has been put back, and what is still damaged:
@@ -1355,6 +1356,12 @@ pub struct PutBack {
     pub skipped: Vec<(String, String)>,
     /// Copied out and not repaired yet (nothing for them in "repaired").
     pub waiting: usize,
+    /// Left out, by Start or Bring back: the very version whose put-back the
+    /// person undid (id, path in WORK). The original stays, as chosen.
+    pub undone: Vec<(String, String)>,
+    /// Put back again by the person's own Put back, its put-back undone
+    /// before (id, path in WORK).
+    pub again: Vec<(String, String)>,
     pub stopped: bool,
 }
 
@@ -1436,14 +1443,46 @@ pub fn same_kind(original: &str, candidate: &str) -> bool {
     a == b || SAME_KINDS.iter().any(|k| k.contains(&a.as_str()) && k.contains(&b.as_str()))
 }
 
-/// Step 3: put every repaired file back where its original is.
+/// Step 3: put every repaired file back where its original is - the
+/// person's own Put back (step 8's button, the command line): a version
+/// whose put-back was undone goes back too, as asked.
 pub fn put_back(work: &Path, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> bool) -> Result<PutBack, String> {
+    put_back_as(work, true, progress, stop)
+}
+
+/// The same, as Start and Bring back do it by themselves: a version whose
+/// put-back the person undid (Undo a put-back) stays out of WORK - the
+/// original is what they chose. (Before, the next Start over or Bring back
+/// put it back again without a word: the repaired version was still in
+/// "repaired".) A new version of that number goes back as any other.
+pub fn put_back_by_itself(work: &Path, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> bool) -> Result<PutBack, String> {
+    put_back_as(work, false, progress, stop)
+}
+
+/// Every version whose put-back was undone, by its path in WORK (in lower
+/// case) - for the paths whose latest line in repair-returns.csv is an undo.
+fn undone_versions(work: &Path) -> HashMap<String, HashSet<String>> {
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut latest_undone: HashMap<String, bool> = HashMap::new();
+    for r in read_returns(work) {
+        let key = r.path.to_lowercase();
+        latest_undone.insert(key.clone(), r.action == "UNDONE");
+        if r.action == "UNDONE" {
+            out.entry(key).or_default().insert(r.sha_before);
+        }
+    }
+    out.retain(|k, _| latest_undone.get(k).copied().unwrap_or(false));
+    out
+}
+
+fn put_back_as(work: &Path, undone_too: bool, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> bool) -> Result<PutBack, String> {
     let repair = repair_dir(work)?;
     let items = read_list(&repair)?;
     if items.is_empty() {
         return Err("Nothing has been copied out to repair yet: copy the damaged files out first.".to_string());
     }
     let by_id: HashMap<&str, &Item> = items.iter().map(|i| (i.id.as_str(), i)).collect();
+    let undone = undone_versions(work);
     let mut o = PutBack::default();
     let (found, untagged) = candidates(&repair);
     for u in untagged {
@@ -1496,13 +1535,18 @@ pub fn put_back(work: &Path, progress: &mut dyn FnMut(&str), stop: &dyn Fn() -> 
             o.skipped.push((shown.clone(), format!("it is a folder, and {name} is a file: not put back")));
             continue;
         }
-        match put_one(work, &repair, item, cand, shown, stop) {
-            Ok(Some(true)) => {
+        let undone_here = undone.get(&item.path.to_lowercase());
+        match put_one(work, &repair, item, cand, shown, undone_here, undone_too, stop) {
+            Ok(Put::Done { again }) => {
                 progress(&format!("Put back {}  {}", item.id, item.path));
                 o.returned.push((item.id.clone(), item.path.clone(), shown.clone()));
+                if again {
+                    o.again.push((item.id.clone(), item.path.clone()));
+                }
             }
-            Ok(Some(false)) => o.already += 1,
-            Ok(None) => {
+            Ok(Put::Already) => o.already += 1,
+            Ok(Put::Undone) => o.undone.push((item.id.clone(), item.path.clone())),
+            Ok(Put::Stopped) => {
                 o.stopped = true;
                 break;
             }
@@ -1538,18 +1582,34 @@ fn not_moved(e: &std::io::Error) -> String {
     }
 }
 
-/// Put one repaired version back. Some(true): done; Some(false): it is
-/// already there; None: stopped.
+/// What became of one repaired version.
+enum Put {
+    /// Put back (`again`: this very version's put-back was undone before).
+    Done { again: bool },
+    /// It is already there.
+    Already,
+    /// The very version whose put-back the person undid, the original in
+    /// WORK as the undo left it: left out (Start, Bring back).
+    Undone,
+    Stopped,
+}
+
+/// Put one repaired version back. `undone`: the versions whose put-back was
+/// undone, when that is the latest done to this file; `undone_too`: put one
+/// of those back as well (the person's own Put back).
+#[allow(clippy::too_many_arguments)]
 fn put_one(
     work: &Path,
     repair: &Path,
     item: &Item,
     cand: &Path,
     shown: &str,
+    undone: Option<&HashSet<String>>,
+    undone_too: bool,
     stop: &dyn Fn() -> bool,
-) -> Result<Option<bool>, String> {
+) -> Result<Put, String> {
     let read = |p: &Path| hash_of(p, stop).map_err(|e| format!("could not read {}: {e}", p.display()));
-    let Some((cand_size, cand_sha)) = read(cand)? else { return Ok(None) };
+    let Some((cand_size, cand_sha)) = read(cand)? else { return Ok(Put::Stopped) };
     if cand_sha == item.sha256 {
         return Err(format!(
             "it is exactly the damaged original of {}: nothing was repaired, so there is nothing to put back",
@@ -1563,10 +1623,14 @@ fn put_one(
     let current = match std::fs::symlink_metadata(&target) {
         Ok(_) => match read(&target)? {
             Some(h) => Some(h),
-            None => return Ok(None),
+            None => return Ok(Put::Stopped),
         },
         Err(_) => None,
     };
+    let again = undone.is_some_and(|u| u.contains(&cand_sha));
+    if again && !undone_too && current.as_ref().is_some_and(|(_, sha)| *sha == item.sha256) {
+        return Ok(Put::Undone);
+    }
     // What happens to what is in WORK now.
     enum Then {
         KeepOriginal,
@@ -1575,7 +1639,7 @@ fn put_one(
     }
     let (then, size_before, sha_before) = match &current {
         Some((_, sha)) if *sha == cand_sha && last_returned.as_deref() == Some(cand_sha.as_str()) => {
-            return Ok(Some(false))
+            return Ok(Put::Already)
         }
         Some((size, sha)) if *sha == cand_sha => {
             // In place, but not in repair-returns.csv: a put-back the PC never
@@ -1584,7 +1648,7 @@ fn put_one(
             // it; if not, the program did not put it there.
             match read(&kept) {
                 Ok(Some((_, s))) if s == item.sha256 => {}
-                Ok(None) => return Ok(None),
+                Ok(None) => return Ok(Put::Stopped),
                 _ => {
                     return Err(format!(
                         "{} in WORK is already this repaired version, but not put there by the program (the damaged \
@@ -1612,7 +1676,7 @@ fn put_one(
                     from: format!("{shown} (a put-back the PC never finished, listed now)"),
                 },
             )?;
-            return Ok(Some(true));
+            return Ok(Put::Done { again });
         }
         Some((size, sha)) if *sha == item.sha256 => (Then::KeepOriginal, *size, sha.clone()),
         Some((size, sha)) if last_returned.as_ref() == Some(sha) => (Then::SetAside, *size, sha.clone()),
@@ -1625,7 +1689,7 @@ fn put_one(
         None => match read(&kept) {
             // Moved out by a put-back that never finished (the PC stopped).
             Ok(Some((size, sha))) if sha == item.sha256 => (Then::Nothing, size, sha),
-            Ok(None) => return Ok(None),
+            Ok(None) => return Ok(Put::Stopped),
             _ => return Err(format!("{} is not in WORK", item.path)),
         },
     };
@@ -1653,7 +1717,7 @@ fn put_one(
         Ok(Some((_, h))) if h == cand_sha => {}
         Ok(None) => {
             remove_own_temp(&tmp);
-            return Ok(None);
+            return Ok(Put::Stopped);
         }
         _ => {
             remove_own_temp(&tmp);
@@ -1715,7 +1779,7 @@ fn put_one(
             from: shown.to_string(),
         },
     )?;
-    Ok(Some(true))
+    Ok(Put::Done { again })
 }
 
 pub fn put_back_summary(o: &PutBack, repair: &Path) -> Vec<String> {
@@ -1732,6 +1796,19 @@ pub fn put_back_summary(o: &PutBack, repair: &Path) -> Vec<String> {
     }
     if o.already > 0 {
         t.push(format!("{} repaired files were already back.", commas(o.already as u64)));
+    }
+    if let Some((id, path)) = o.undone.first() {
+        let more = match o.undone.len() {
+            1 => String::new(),
+            n => format!(" (and {} more)", commas(n as u64 - 1)),
+        };
+        t.push(format!(
+            "{id} ({path}){more} stays as its original, as chosen: its put-back was undone, so its repaired version is left \
+             out of WORK. (Step 8's Put the repaired files back puts it back after all.)"
+        ));
+    }
+    for (id, path) in o.again.iter().take(12) {
+        t.push(format!("{id} ({path}) is back in WORK again, as asked: its put-back had been undone (Undo a put-back takes it out again)."));
     }
     if o.waiting > 0 {
         t.push(format!(
@@ -1799,7 +1876,8 @@ pub fn undo(work: &Path, id: &str) -> Result<String, String> {
         },
     )?;
     Ok(format!(
-        "{id}: the original of {} is back in WORK; the repaired version is in {}.",
+        "{id}: the original of {} is back in WORK; the repaired version is in {}. It stays so: Start and Bring back leave \
+         it out of WORK (Put the repaired files back puts it back after all).",
         item.path,
         aside.display()
     ))
@@ -2688,6 +2766,57 @@ mod tests {
         std::fs::write(&fixed, b"damaged photo").unwrap();
         let pb = put_back(&work, &mut |_| {}, &no).unwrap();
         assert!(pb.returned.is_empty() && pb.skipped.iter().any(|s| s.1.contains("nothing was repaired")), "{pb:?}");
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_put_back_undone_stays_undone_when_start_or_bring_back_put_back() {
+        let top = std::env::temp_dir().join(format!("rp-repair-undone-{}", std::process::id()));
+        let (work, scan) = setup(&top);
+        let no = || false;
+        isolate(&work, &[scan], &mut |_| {}, &no).unwrap();
+        let repair = top.join(REPAIR_DIR);
+        let photo = under(&work, "Photos\\IMG_0003.JPG");
+        // The automatic repair's version, put back (as Start does).
+        let own = repair.join(REPAIRED).join(crate::autorepair::AUTO_DIR);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join("IMG_0003 [R0003].JPG"), b"repaired photo").unwrap();
+        assert_eq!(put_back_by_itself(&work, &mut |_| {}, &no).unwrap().returned.len(), 1);
+        assert_eq!(std::fs::read(&photo).unwrap(), b"repaired photo");
+        // The person likes the original better: undone, and it says it stays so.
+        let msg = undo(&work, "R0003").unwrap();
+        assert!(msg.contains("It stays so") && msg.contains("Bring back"), "{msg}");
+        assert_eq!(std::fs::read(&photo).unwrap(), b"damaged photo");
+        // Start over, or Bring back (with another file): the version is left
+        // out, said, and no problem (the program's own version: before, it
+        // went back in without a word).
+        let pb = put_back_by_itself(&work, &mut |_| {}, &no).unwrap();
+        assert!(pb.returned.is_empty() && pb.skipped.is_empty(), "{pb:?}");
+        assert_eq!(pb.undone, vec![("R0003".to_string(), "Photos\\IMG_0003.JPG".to_string())]);
+        assert_eq!(pb.problem(), None);
+        assert_eq!(pb.waiting, 2, "the two with no version yet, not the one undone: {pb:?}");
+        let said = put_back_summary(&pb, &repair).join("\n");
+        assert!(said.contains("R0003 (Photos\\IMG_0003.JPG) stays as its original"), "{said}");
+        assert_eq!(std::fs::read(&photo).unwrap(), b"damaged photo");
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &no).unwrap();
+        assert!(r.changed.is_empty() && r.missing.is_empty() && r.extra.is_empty(), "{r:?}");
+        // The person's own Put back puts it back after all, and says so.
+        let pb = put_back(&work, &mut |_| {}, &no).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert_eq!(pb.again, vec![("R0003".to_string(), "Photos\\IMG_0003.JPG".to_string())]);
+        assert!(put_back_summary(&pb, &repair).join("\n").contains("back in WORK again, as asked"));
+        assert_eq!(std::fs::read(&photo).unwrap(), b"repaired photo");
+        assert_eq!(put_back_by_itself(&work, &mut |_| {}, &no).unwrap().already, 1, "then it is simply back");
+        // Undone again, then a new version of that number (the Mac's, say,
+        // brought back): that one goes back by itself, as any other.
+        undo(&work, "R0003").unwrap();
+        std::fs::write(own.join("IMG_0003 [R0003].JPG"), b"repaired photo, from the Mac").unwrap();
+        let pb = put_back_by_itself(&work, &mut |_| {}, &no).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert!(pb.undone.is_empty() && pb.again.is_empty(), "{pb:?}");
+        assert_eq!(std::fs::read(&photo).unwrap(), b"repaired photo, from the Mac");
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &no).unwrap();
+        assert!(r.changed.is_empty() && r.missing.is_empty() && r.extra.is_empty(), "{r:?}");
         let _ = std::fs::remove_dir_all(&top);
     }
 }
