@@ -305,7 +305,18 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     let app2 = app.clone();
     start_job(app, "finalise", "Finalising: the second copy and the final checks", move |ctx| {
         crate::winset::keep_awake(true);
+        // Defender leaves the copies alone while they are read (twice a year,
+        // Windows has been put back as it was: it would check every file,
+        // and take a recovered file it flags out of both copies); what it is
+        // asked for now is taken off again at the end, whatever the end is.
+        let (said, added) = places::defender_for_finalise(&app2, &plan.image_dir, &plan.work, &plan.copy2);
+        for l in &said {
+            ctx.line(l);
+        }
         let r = run(&app2, ctx, &plan);
+        for l in places::defender_take_off(&app2, &added) {
+            ctx.line(&l);
+        }
         crate::winset::keep_awake(false);
         r
     })

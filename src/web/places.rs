@@ -71,8 +71,9 @@ fn may_exclude(folder: &str, system_drive: &str) -> bool {
 
 /// The folders Defender should leave alone: the image's folder, and SPARE -
 /// the whole drive when WORK is on SPARE (WORK, REPAIR and RECORDS are all
-/// there), otherwise WORK and REPAIR themselves.
-pub(super) fn defender_targets(image_dir: &str, work: &str, spare_letter: &str, system_drive: &str) -> Vec<String> {
+/// there), otherwise WORK and REPAIR themselves; for Finalise, the second
+/// copy's folder too (`copy2`, "" for Start).
+pub(super) fn defender_targets(image_dir: &str, work: &str, copy2: &str, spare_letter: &str, system_drive: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut add = |p: String| {
         if !out.iter().any(|o| norm(o) == norm(&p)) {
@@ -100,6 +101,10 @@ pub(super) fn defender_targets(image_dir: &str, work: &str, spare_letter: &str, 
                 add(r);
             }
         }
+    }
+    let copy2 = copy2.trim().trim_end_matches('\\');
+    if !copy2.is_empty() && may_exclude(copy2, system_drive) {
+        add(copy2.to_string());
     }
     out
 }
@@ -133,8 +138,65 @@ fn system_drive() -> String {
 /// The folders Defender should leave alone, from the folders chosen (or
 /// suggested, before any is chosen).
 pub(super) fn targets_now(app: &Arc<Mutex<App>>, image_dir: &str, work: &str) -> Vec<String> {
+    targets_with(app, image_dir, work, "")
+}
+
+fn targets_with(app: &Arc<Mutex<App>>, image_dir: &str, work: &str, copy2: &str) -> Vec<String> {
     let image = lock(app).setting("image");
-    defender_targets(&image_folder(&image, image_dir), work, &spare_letter(app), &system_drive())
+    defender_targets(&image_folder(&image, image_dir), work, copy2, &spare_letter(app), &system_drive())
+}
+
+/// What the program has had Defender leave alone (its own, which 7. Put
+/// Windows back as it was takes off).
+pub(super) fn defender_added(app: &Arc<Mutex<App>>) -> Vec<String> {
+    lock(app).setting("defender_added").lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// What is in `now` and was not in `before` (as Windows writes a folder).
+pub(super) fn added_since(before: &[String], now: &[String]) -> Vec<String> {
+    now.iter().filter(|n| !before.iter().any(|b| norm(b) == norm(n))).cloned().collect()
+}
+
+/// For Finalise: Defender leaves the copies alone while it reads them (it
+/// would check every file - and a recovered file it flags, it takes out of
+/// the copies: a file Finalise would then find missing in both); `added`
+/// is what is asked for this time, to be taken off again at the end
+/// (defender_take_off) - twice a year, Windows has been put back as it was.
+pub(super) fn defender_for_finalise(app: &Arc<Mutex<App>>, image_dir: &str, work: &str, copy2: &str) -> (Vec<String>, Vec<String>) {
+    let before = defender_added(app);
+    let lines = ensure(app, image_dir, work, copy2, "Finalise takes off again what it asked for, once it is done");
+    (lines, added_since(&before, &defender_added(app)))
+}
+
+/// Take off again what Finalise asked Defender for (`added`): Defender checks
+/// those folders again, as before Finalise.
+pub(super) fn defender_take_off(app: &Arc<Mutex<App>>, added: &[String]) -> Vec<String> {
+    if added.is_empty() || !cfg!(windows) {
+        return Vec::new();
+    }
+    let list = defender_list(true).unwrap_or_default();
+    let mut lines = Vec::new();
+    for f in added {
+        let there = list.iter().any(|e| norm(e) == norm(f));
+        match if there { crate::winset::set_defender_exclusion(Path::new(f), false) } else { Ok(()) } {
+            Ok(()) => {
+                let mut a = lock(app);
+                let l: Vec<String> =
+                    a.setting("defender_added").lines().filter(|s| !s.trim().is_empty() && norm(s) != norm(f)).map(String::from).collect();
+                a.settings.insert("defender_added".to_string(), l.join("\n"));
+                a.save();
+                drop(a);
+                if there {
+                    lines.push(format!("Defender checks {f} again, as before Finalise."));
+                }
+            }
+            Err(e) => lines.push(format!(
+                "Defender still leaves {f} alone (Finalise asked it to): {e}. 7. Put Windows back as it was takes it off."
+            )),
+        }
+    }
+    let _ = defender_list(true);
+    lines
 }
 
 /// The image's folder: where the image is, once it is made (the folder
@@ -152,13 +214,19 @@ fn image_folder(image: &str, image_dir: &str) -> String {
 /// confirm it took. What it says goes into Start's lines; nothing here
 /// stops Start (it is only slower with Defender scanning).
 pub(super) fn defender_ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str) -> Vec<String> {
+    ensure(app, image_dir, work, "", "7. Put Windows back as it was takes this off again")
+}
+
+/// The same, for these places (`copy2`: the second copy's folder, for
+/// Finalise), saying `after` of what is asked for now.
+fn ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str, copy2: &str, after: &str) -> Vec<String> {
     if !cfg!(windows) {
         return Vec::new();
     }
     if !lock(app).elevated {
         return vec!["Defender was not asked to leave the folders alone: that needs administrator rights.".to_string()];
     }
-    let targets = targets_now(app, image_dir, work);
+    let targets = targets_with(app, image_dir, work, copy2);
     if targets.is_empty() {
         return Vec::new();
     }
@@ -244,17 +312,14 @@ pub(super) fn defender_ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str
             if added.is_empty() {
                 format!("Defender leaves {what} alone (it did already): checked in its own list.")
             } else {
-                format!(
-                    "Defender now leaves {what} alone: checked in its own list (7. Put Windows back as it was takes this \
-                     off again)."
-                )
+                format!("Defender now leaves {what} alone: checked in its own list ({after}).")
             },
         );
     } else {
         let missing: Vec<&String> = targets.iter().filter(|t| !confirmed.contains(t)).collect();
         lines.push(format!(
-            "Defender's list does not show {} left alone, so it scans the files written there (2-3 times slower, and it could \
-             quarantine a recovered file). Start carries on.",
+            "Defender's list does not show {} left alone, so it checks the files there (2-3 times slower, and it could \
+             quarantine a recovered file). Nothing stops for that.",
             missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" and ")
         ));
     }
@@ -464,7 +529,7 @@ mod tests {
 
     #[test]
     fn defender_never_gets_told_to_skip_windows_or_a_whole_drive() {
-        let t = |img: &str, work: &str, spare: &str| defender_targets(img, work, spare, "C:");
+        let t = |img: &str, work: &str, spare: &str| defender_targets(img, work, "", spare, "C:");
         // The PC: the image on C:, WORK on SPARE (E:).
         assert_eq!(t(r"C:\IMAGE", r"E:\WORK", "E:"), vec![r"C:\IMAGE".to_string(), r"E:\".to_string()]);
         // SPARE switched off: its letter remembered from the rehearsal.
@@ -486,6 +551,21 @@ mod tests {
         assert_eq!(t(r"E:\IMAGE", r"E:\WORK", "E:"), vec![r"E:\IMAGE".to_string(), r"E:\".to_string()]);
     }
 
+    /// Finalise: the second copy's folder is left alone too while it reads
+    /// the copies (a folder, never Windows' own or a whole drive); what this
+    /// Finalise asked for is told from what was asked for before it.
+    #[test]
+    fn finalise_has_the_copies_left_alone_and_gives_back_what_it_asked_for() {
+        let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(defender_targets(r"C:\IMAGE", r"F:\WORK", r"C:\COPY 2\", "F:", "C:"), v(&[r"C:\IMAGE", r"F:\", r"C:\COPY 2"]));
+        assert_eq!(defender_targets(r"C:\IMAGE", r"F:\WORK", r"D:\", "F:", "C:"), v(&[r"C:\IMAGE", r"F:\"]), "never a whole drive");
+        assert_eq!(defender_targets(r"C:\IMAGE", r"F:\WORK", r"C:\Windows\COPY 2", "F:", "C:"), v(&[r"C:\IMAGE", r"F:\"]));
+        // Start's own, and what this Finalise added (twice a year, after 7. Put Windows back).
+        assert_eq!(added_since(&v(&[r"C:\IMAGE", r"F:\"]), &v(&[r"C:\IMAGE", r"f:\", r"C:\COPY 2"])), v(&[r"C:\COPY 2"]));
+        assert_eq!(added_since(&[], &v(&[r"C:\IMAGE", r"F:\"])), v(&[r"C:\IMAGE", r"F:\"]));
+        assert_eq!(added_since(&v(&[r"C:\IMAGE"]), &v(&[r"C:\IMAGE"])), Vec::<String>::new());
+    }
+
     /// SPARE left alone whole as E:, then given F: by Windows: E: is taken off
     /// again (before, it stayed left alone, whatever drive has E: now - the
     /// one promise was "never a whole drive other than SPARE"). Folders, and
@@ -493,7 +573,7 @@ mod tests {
     #[test]
     fn a_drive_that_was_spares_letter_is_scanned_again() {
         let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let targets = defender_targets(r"C:\IMAGE", r"F:\WORK", "F:", "C:");
+        let targets = defender_targets(r"C:\IMAGE", r"F:\WORK", "", "F:", "C:");
         assert_eq!(stale(&v(&[r"C:\IMAGE", r"E:\"]), &targets), v(&[r"E:\"]));
         // A folder chosen before another was (or WORK under SPARE's letter
         // before, E:\WORK): taken off too (before, left alone until 7. Put
@@ -503,13 +583,13 @@ mod tests {
             v(&[r"D:\RECOVERY\WORK", r"E:\WORK"])
         );
         // SPARE switched off, its letter remembered: still its own.
-        let remembered = defender_targets(r"C:\IMAGE", r"E:\WORK", "E:", "C:");
+        let remembered = defender_targets(r"C:\IMAGE", r"E:\WORK", "", "E:", "C:");
         assert_eq!(stale(&v(&[r"E:\"]), &remembered), Vec::<String>::new());
         // The image made, and its folder's setting changed since: where the
         // image is stays left alone (it is read again and again).
         assert_eq!(image_folder(r"C:\IMAGE\recovered-ssd.img", r"D:\Elsewhere"), r"C:\IMAGE");
         assert_eq!(image_folder("", r"C:\IMAGE"), r"C:\IMAGE", "not made yet: the folder chosen");
-        let made = defender_targets(&image_folder(r"C:\IMAGE\recovered-ssd.img", r"D:\Elsewhere"), r"F:\WORK", "F:", "C:");
+        let made = defender_targets(&image_folder(r"C:\IMAGE\recovered-ssd.img", r"D:\Elsewhere"), r"F:\WORK", "", "F:", "C:");
         assert_eq!(stale(&v(&[r"C:\IMAGE", r"F:\"]), &made), Vec::<String>::new());
     }
 }

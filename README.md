@@ -110,7 +110,11 @@ The parts of the Automatic tab:
    year: if the second copy's drive has another letter by then, the second
    copy is found there again; if it is not plugged in, Finalise says so rather
    than make a new second copy on whatever drive has its letter now (choosing
-   its folder again makes a new one). It leaves Windows' settings as they are.
+   its folder again makes a new one). While it reads the copies, Defender
+   leaves them alone, the second copy's folder too (it would check every
+   file, and a recovered file it flags it takes out of both copies); what
+   Finalise asks it for, it takes off again when it is done - otherwise it
+   leaves Windows' settings as they are.
 7. **Put Windows back as it was** - what the program changed in Windows (new
    disks arriving switched off, "Automatically restart" after a crash if it
    turned that off, Defender's exclusions it added), each with its Show me

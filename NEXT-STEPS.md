@@ -1609,6 +1609,32 @@ and deleted when they stop finding bugs.
   branch version-2026-11-03-9. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (evening, later): Defender leaves the copies alone while Finalise reads them
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Finalise twice a year, with Windows put back as it was:** Defender
+  checks every file Finalise reads (its real-time protection checks files
+  opened, not only written) - slower, and a recovered file it flags (an old
+  download, a cracked program, an infected attachment) it takes into
+  quarantine: out of WORK, then out of the second copy as its check reads it
+  - one file missing from both checked copies, which Finalise then names.
+  The second copy's folder (C:\COPY 2) was never left alone at all, at the
+  first Finalise either. Now Finalise asks Defender to leave the image's
+  folder, SPARE (WORK, REPAIR, RECORDS) and the second copy's folder alone
+  for its run, and takes off again what it asked for this time when it ends
+  (done, stopped or failed); killed, what is left shows in 7. Put Windows
+  back as it was. What Start asked for stays as it is.
+- Defender's add, list and remove are now checked on Windows itself (CI):
+  never run there before - the test machines' folders are left alone
+  already, so Start never asks for one there.
+- The README says so.
+- Version 2026-11-03 (11); the 2026-11-03 (10) checklist text is known
+  (1667883361219344533).
+- Tests here: unit tests 210 (and 210 with overflow checks), auto_check
+  99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 83, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

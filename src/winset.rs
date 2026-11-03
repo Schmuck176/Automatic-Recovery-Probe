@@ -392,4 +392,36 @@ mod tests {
             .unwrap();
         assert_eq!(r.out.trim(), "True", "{}", r.text());
     }
+
+    /// On Windows: Defender takes a folder to leave alone, lists it, and
+    /// takes it off again - the very commands Start, Finalise and 7. Put
+    /// Windows back as it was use. (The test machines' own folders are left
+    /// alone already, so Start never asks for one there.)
+    #[cfg(windows)]
+    #[test]
+    fn defender_takes_a_folder_to_leave_alone_and_gives_it_back() {
+        let Some(before) = defender_exclusions() else {
+            eprintln!("(Defender does not answer here: nothing to check)");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("arp-defender-check-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shown = dir.display().to_string();
+        let listed = |l: &[String]| l.iter().any(|e| e.trim_end_matches('\\').eq_ignore_ascii_case(shown.trim_end_matches('\\')));
+        assert!(!listed(&before), "{shown} is left alone already");
+        if let Err(e) = set_defender_exclusion(&dir, true) {
+            eprintln!("(Defender here takes no folder to leave alone: {e})");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let during = defender_exclusions().unwrap_or_default();
+        // (Taken off again whatever was listed.)
+        let off = set_defender_exclusion(&dir, false);
+        let after = defender_exclusions().unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(listed(&during), "not in Defender's list once asked for: {shown} ({during:?})");
+        assert!(is_excluded(&during, &dir.join("WORK")), "a folder inside it is left alone too");
+        off.unwrap();
+        assert!(!listed(&after), "still in Defender's list once taken off: {shown}");
+    }
 }
