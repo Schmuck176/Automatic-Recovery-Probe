@@ -569,6 +569,8 @@ pub(super) fn step(app: &Arc<Mutex<App>>, ctx: &Ctx, p: Prepared) -> Result<Outc
 }
 
 fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String> {
+    // (Older copies named while something else ran: looked in now.)
+    older_copies_added(app);
     let from = lock(app).auto.resume_at();
     if from >= STAGES.len() {
         return Ok(Outcome {
@@ -1424,6 +1426,46 @@ fn stage_isolate(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
     Ok(End::Done(o.summary))
 }
 
+/// The folders of older copies (`search`) that the repairs have not looked
+/// in yet ("repair_searched": where they last looked).
+fn older_copies_new(app: &Arc<Mutex<App>>, search: &[PathBuf]) -> Vec<String> {
+    let searched = lock(app).setting("repair_searched");
+    let before: std::collections::HashSet<String> = searched.lines().map(folder_key).filter(|k| !k.is_empty()).collect();
+    search.iter().map(|p| p.display().to_string()).filter(|p| !before.contains(&folder_key(p))).collect()
+}
+
+/// Older copies named after the repairs ran (in 3. The folders): the
+/// repairs, and the stages after them, are to run again - Start carries on
+/// from there - so an intact copy there is found, and restored. (Before,
+/// Start said every stage was done, and nothing looked in them.)
+pub(super) fn older_copies_added(app: &Arc<Mutex<App>>) -> Option<Vec<String>> {
+    let search: Vec<PathBuf> =
+        lock(app).setting("auto_search").lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+    let new = older_copies_new(app, &search);
+    {
+        let mut a = lock(app);
+        let from = a.auto.stages.iter().position(|s| s.key == "repair")?;
+        if new.is_empty() || a.auto.stages[from].state != "done" {
+            return None;
+        }
+        for s in a.auto.stages.iter_mut().skip(from) {
+            s.state = "pending".to_string();
+            s.summary.clear();
+            s.started_at.clear();
+            s.seconds = 0;
+        }
+    }
+    save_state(app);
+    crate::live::event(
+        "info",
+        &format!(
+            "Older copies to look in: {} - Start looks in them for undamaged copies of the damaged files: click Start",
+            new.join(", ")
+        ),
+    );
+    Some(new)
+}
+
 fn stage_repair(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
     let work = PathBuf::from(&plan.work);
     let repair = crate::repair::repair_dir(&work)?;
@@ -1441,9 +1483,18 @@ fn stage_repair(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, St
         work: work.clone(),
         search: plan.search.clone(),
         map_check: (!map_check.is_empty()).then(|| PathBuf::from(&map_check)),
+        // (Older copies named since the repairs last ran: what they repaired
+        // is looked for in them too.)
+        twins_again: !older_copies_new(app, &plan.search).is_empty(),
     };
     let stop = ctx.stop.clone();
     let o = autorepair::run(&home, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &move || stop.load(Ordering::Relaxed))?;
+    if !o.stopped {
+        let mut a = lock(app);
+        let searched = plan.search.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
+        a.settings.insert("repair_searched".to_string(), searched);
+        a.save();
+    }
     let summary = autorepair::summary(&o);
     let rows: Vec<String> = autorepair::read_log(&repair)
         .iter()

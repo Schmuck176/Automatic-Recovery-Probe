@@ -56,6 +56,11 @@ pub struct Options {
     pub search: Vec<PathBuf>,
     /// The map check's results folder (which bytes of each file were never read).
     pub map_check: Option<PathBuf>,
+    /// Folders of older copies named since the repairs last ran: every file
+    /// the program repaired before is looked for once more (an intact copy
+    /// is the file as it was - better than any repair - and takes the place
+    /// of the version made before, which is kept in REPAIR\replaced).
+    pub twins_again: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2019,16 +2024,16 @@ pub fn run(
     if items.is_empty() {
         return Ok(o);
     }
-    // What already has a repaired version, or was put back.
-    let mut has_version: HashSet<String> = HashSet::new();
+    // What already has a repaired version (and where each is), or was put back.
+    let mut versions: HashMap<String, Vec<PathBuf>> = HashMap::new();
     let root = repair.join(repair::REPAIRED);
-    crate::walk::walk(&root.display().to_string(), |_, dirs, files| {
+    crate::walk::walk(&root.display().to_string(), |dir, dirs, files| {
         for n in files.iter().chain(dirs.iter()) {
             if n.starts_with("._") {
                 continue;
             }
             if let Some(id) = repair::tag_in(n) {
-                has_version.insert(id);
+                versions.entry(id).or_default().push(PathBuf::from(crate::walk::join(dir, n)));
             }
         }
         true
@@ -2038,17 +2043,34 @@ pub fn run(
     let todo: Vec<&Item> = items
         .iter()
         .filter(|i| {
-            let done = has_version.contains(&i.id) || back.get(&i.path.to_lowercase()).is_some_and(|n| n.repaired);
+            let done = versions.contains_key(&i.id) || back.get(&i.path.to_lowercase()).is_some_and(|n| n.repaired);
             if done {
                 o.already += 1;
             }
             !done
         })
         .collect();
+    // Older copies named since: what the program repaired before (its own
+    // versions only, in repaired\auto - a version of the person's own is
+    // theirs), not restored from an intact copy already, is looked for again.
+    let key = |p: &str| p.replace('/', "\\").trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase();
+    let own_dir = format!("{}\\", key(&root.join(AUTO_DIR).display().to_string()));
+    let again: Vec<&Item> = if opts.twins_again {
+        items
+            .iter()
+            .filter(|i| {
+                !i.package
+                    && versions.get(&i.id).is_some_and(|v| v.iter().all(|p| key(&p.display().to_string()).starts_with(&own_dir)))
+                    && !previous.get(&i.id).is_some_and(|a| a.how.starts_with("an intact copy"))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     // Something salvaged before is not salvaged again.
     let salvaged_before: HashSet<String> =
         previous.values().filter(|a| a.fate == Fate::Salvaged && !a.output.is_empty()).map(|a| a.id.clone()).collect();
-    if todo.is_empty() {
+    if todo.is_empty() && again.is_empty() {
         return Ok(o);
     }
     let map_text = opts.map_check.as_ref().and_then(|d| std::fs::read_to_string(d.join(crate::join::TSV_NAME)).ok());
@@ -2086,7 +2108,8 @@ pub fn run(
     }
     // The twins: every file of a size some damaged file has, in WORK and in
     // the folders named.
-    let sizes: HashSet<u64> = todo.iter().filter(|i| !i.package && lost_ranges(&env, i).is_some()).map(|i| i.size).collect();
+    let sizes: HashSet<u64> =
+        todo.iter().chain(again.iter()).filter(|i| !i.package && lost_ranges(&env, i).is_some()).map(|i| i.size).collect();
     if !sizes.is_empty() {
         say(&format!(
             "Looking for intact copies of {} damaged files, in WORK{}...",
@@ -2094,7 +2117,6 @@ pub fn run(
             if opts.search.is_empty() { String::new() } else { format!(" and {} more folders", opts.search.len()) }
         ));
         // (REPAIR is not looked in: its copies are of the damaged files.)
-        let key = |p: &str| p.replace('/', "\\").trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase();
         let repair_key = key(&repair.display().to_string());
         for root in std::iter::once(work.clone()).chain(opts.search.iter().cloned()) {
             crate::walk::walk(&root.display().to_string(), |dir, dirs, files| {
@@ -2261,6 +2283,78 @@ pub fn run(
         o.attempts.push(a);
         crate::live::done(&item.path, item.size);
         amount(n as u64 + 1, total);
+    }
+    // Older copies named since the repairs ran: an intact copy of a file
+    // the program repaired before takes the place of its version (moved to
+    // REPAIR\replaced), and goes back into WORK at the put-back.
+    for item in &again {
+        if o.stopped || stop() {
+            o.stopped = true;
+            break;
+        }
+        let Some(lost) = lost_ranges(&env, item) else { continue };
+        let src = under(&repair, &item.copied_as);
+        if !src.exists() {
+            continue;
+        }
+        let Some(t) = find_twin(&env, item, &src, &lost) else { continue };
+        if stop() {
+            o.stopped = true;
+            break;
+        }
+        let copy_name = item.copied_as.rsplit('\\').next().unwrap_or(&item.copied_as).to_string();
+        let rel = format!("{}\\{AUTO_DIR}\\{copy_name}", repair::REPAIRED);
+        let dest = under(&repair, &rel);
+        let tmp = temp_root.join(&item.id);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::create_dir_all(&tmp);
+        let file = tmp.join("intact");
+        if let Err(e) = std::fs::copy(&t, &file) {
+            say(&format!("{}  an intact copy was found at {}, but it could not be copied ({e})", item.id, t.display()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            continue;
+        }
+        // The version made before makes way (nothing is ever deleted).
+        let _ = std::fs::create_dir_all(repair.join(repair::REPLACED));
+        let mut moved = true;
+        for v in versions.get(&item.id).map(|v| v.as_slice()).unwrap_or(&[]) {
+            let name = v.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if std::fs::rename(v, repair::aside(&repair, &item.id, &name)).is_err() {
+                moved = false;
+            }
+        }
+        if !moved || move_into(&file, &dest).is_err() {
+            say(&format!("{}  an intact copy was found at {}, but the version made before could not make way", item.id, t.display()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            continue;
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+        repair::give_dates(&under(work, &item.path), &dest);
+        let shown = repair::relative_to(work, &t.display().to_string().replace('/', "\\"))
+            .map(|r| format!("WORK\\{r}"))
+            .unwrap_or_else(|| t.display().to_string());
+        let a = Attempt {
+            id: item.id.clone(),
+            path: item.path.clone(),
+            group: item.group.clone(),
+            fate: Fate::Repaired,
+            how: format!(
+                "an intact copy of the same file was found at {shown}, among the older copies named since: identical in \
+                 every byte the old drive did give up, and holding the {} bytes it never did. This is the file as it was, \
+                 and it takes the place of the version repaired before (kept in REPAIR\\{})",
+                commas(lost.iter().map(|(a, b)| b - a).sum::<u64>()),
+                repair::REPLACED
+            ),
+            tool: OWN.to_string(),
+            output: rel,
+            next: Next::Done,
+            note: String::new(),
+        };
+        say(&format!("{}  {}  {}  (an intact copy, found among the older copies)", a.id, a.fate.word(), a.path));
+        o.log = Some(append_log(&repair, std::slice::from_ref(&a))?);
+        crate::live::repaired(&a.id, &a.path, a.fate.word(), &a.how, &a.output);
+        o.attempts.push(a);
+        o.already = o.already.saturating_sub(1);
     }
     let _ = std::fs::remove_dir_all(&temp_root);
     Ok(o)
@@ -2514,7 +2608,7 @@ mod tests {
         std::fs::create_dir_all(&mc).unwrap();
         std::fs::write(mc.join(crate::join::TSV_NAME), format!("{}\r\n", crate::join::TSV_HEADER)).unwrap();
         repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
-        let opts = Options { work: work.clone(), search: Vec::new(), map_check: Some(mc) };
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: Some(mc), twins_again: false };
         let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert_eq!(o.attempts.len(), 1);
         assert!(o.attempts[0].how.contains(READ_WHOLE), "{}", o.attempts[0].how);
@@ -2539,7 +2633,7 @@ mod tests {
         std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "IMG_0001.HEIC\r\n").unwrap();
         let iso = repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
         assert_eq!(iso.copied.len(), 1, "{:?}", iso.left);
-        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None };
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None, twins_again: false };
         // Stop clicked while the file is being tried (the second time Stop is
         // looked at: the first is before it starts).
         let asked = std::sync::atomic::AtomicUsize::new(0);
@@ -2551,6 +2645,116 @@ mod tests {
         let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert_eq!(o.attempts.len(), 1);
         assert_eq!(read_log(&repair).len(), 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Older copies named after the repairs ran (a backup found later): a
+    /// file the program repaired before is looked for in them, and an intact
+    /// copy takes the place of its version - which is kept in replaced - and
+    /// goes back into WORK. Not without being asked (twins_again), not twice,
+    /// and never over a version of the person's own.
+    #[test]
+    fn an_intact_copy_named_later_takes_the_place_of_the_repair() {
+        let base = std::env::temp_dir().join(format!("rp-ar-later-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Photos")).unwrap();
+        let mut rng = 0x2545_F491_4F6C_DD1Du64;
+        let mut original = |n: usize| -> Vec<u8> {
+            (0..n)
+                .map(|_| {
+                    rng ^= rng << 13;
+                    rng ^= rng >> 7;
+                    rng ^= rng << 17;
+                    rng as u8
+                })
+                .collect()
+        };
+        let (a_orig, b_orig) = (original(65536), original(65536));
+        // Each lost 4 KB the drive never gave up (zeros in the copies).
+        let damaged = |o: &[u8]| {
+            let mut d = o.to_vec();
+            d[16384..20480].fill(0);
+            d
+        };
+        let mut log = csv_row(&crate::rescue::LOG_HEADER);
+        let mut tsv = format!("{}\r\n", crate::join::TSV_HEADER);
+        for (name, o) in [("IMG_0001.JPG", &a_orig), ("IMG_0002.JPG", &b_orig)] {
+            let p = work.join("Photos").join(name);
+            std::fs::write(&p, damaged(o)).unwrap();
+            let sha = crate::sha256::file_hex(&p, &|| false).unwrap().unwrap();
+            log.push_str(&csv_row(&["FILE", &format!("Photos\\{name}"), "65536", "copied", &format!("Photos\\{name}"), "", &sha]));
+            tsv.push_str(&format!("DAMAGED\tPhotos\\{name}\t65536\t4096\t16384\t0\tzeros\t1\t16384-20480\r\n"));
+        }
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let mc = base.join("map-check");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join(crate::join::TSV_NAME), tsv).unwrap();
+        let repair = base.join(repair::REPAIR_DIR);
+        std::fs::create_dir_all(repair.join(repair::LISTS)).unwrap();
+        std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "Photos\\IMG_0001.JPG\r\nPhotos\\IMG_0002.JPG\r\n").unwrap();
+        let iso = repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
+        assert_eq!(iso.copied.len(), 2, "{:?}", iso.left);
+        let id_of = |name: &str| iso.copied.iter().find(|i| i.path.ends_with(name)).unwrap().id.clone();
+        let (a_id, b_id) = (id_of("IMG_0001.JPG"), id_of("IMG_0002.JPG"));
+        // Repaired before: the first by the program (its own version), the
+        // second by the person (a version of theirs, from the Mac); both put back.
+        let tool_made = |o: &[u8]| {
+            let mut d = o.to_vec();
+            d[16384..20480].fill(0x80);
+            d
+        };
+        let own = repair.join(repair::REPAIRED).join(AUTO_DIR);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join(format!("IMG_0001 [{a_id}].JPG")), tool_made(&a_orig)).unwrap();
+        let earlier = Attempt {
+            id: a_id.clone(),
+            path: "Photos\\IMG_0001.JPG".to_string(),
+            group: String::new(),
+            fate: Fate::Repaired,
+            how: "rebuilt by a tool".to_string(),
+            tool: "FFmpeg".to_string(),
+            output: format!("{}\\{AUTO_DIR}\\IMG_0001 [{a_id}].JPG", repair::REPAIRED),
+            next: Next::Done,
+            note: String::new(),
+        };
+        append_log(&repair, std::slice::from_ref(&earlier)).unwrap();
+        let theirs = repair.join(repair::REPAIRED).join("returned");
+        std::fs::create_dir_all(&theirs).unwrap();
+        std::fs::write(theirs.join(format!("IMG_0002 [{b_id}].JPG")), tool_made(&b_orig)).unwrap();
+        assert_eq!(repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap().returned.len(), 2);
+        // The backup found later, with both photos as they were.
+        let old = base.join("Old backup");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("IMG_0001.JPG"), &a_orig).unwrap();
+        std::fs::write(old.join("IMG_0002.JPG"), &b_orig).unwrap();
+        let opts = |again: bool| Options { work: work.clone(), search: vec![old.clone()], map_check: Some(mc.clone()), twins_again: again };
+        let o = run(&base, &opts(false), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(o.attempts.is_empty() && o.already == 2, "not asked: nothing again ({:?})", o.attempts);
+        let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(o.attempts.len(), 1, "{:?}", o.attempts);
+        let a = &o.attempts[0];
+        assert!(a.id == a_id && a.fate == Fate::Repaired && a.how.starts_with("an intact copy") && a.how.contains("older copies"), "{a:?}");
+        assert_eq!(o.already, 1, "the person's version stays theirs");
+        assert_eq!(std::fs::read(own.join(format!("IMG_0001 [{a_id}].JPG"))).unwrap(), a_orig);
+        let aside: Vec<Vec<u8>> = std::fs::read_dir(repair.join(repair::REPLACED))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&format!("{a_id} ")))
+            .map(|e| std::fs::read(e.path()).unwrap())
+            .collect();
+        assert_eq!(aside, vec![tool_made(&a_orig)], "the version made before is kept");
+        assert_eq!(std::fs::read(theirs.join(format!("IMG_0002 [{b_id}].JPG"))).unwrap(), tool_made(&b_orig));
+        // Put back: the photo as it was is in WORK, and the copies check agrees.
+        let pb = repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert_eq!(std::fs::read(work.join("Photos").join("IMG_0001.JPG")).unwrap(), a_orig);
+        assert_eq!(std::fs::read(work.join("Photos").join("IMG_0002.JPG")).unwrap(), tool_made(&b_orig));
+        let r = crate::verify::run(&work, None, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(r.changed.is_empty() && r.missing.is_empty() && r.extra.is_empty(), "{r:?}");
+        // Once restored, not looked for again.
+        let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(o.attempts.is_empty(), "{:?}", o.attempts);
         let _ = std::fs::remove_dir_all(&base);
     }
 

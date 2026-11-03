@@ -1377,6 +1377,13 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             if let Some(v) = f.get("notify") {
                 crate::notify::set_on(v != "off");
             }
+            // Older copies named after the repairs ran: Start carries on from
+            // the repairs, and looks in them (not under a job: Start itself
+            // looks when it next begins).
+            drop(a);
+            if f.contains_key("auto_search") && !lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
+                auto::older_copies_added(app);
+            }
             Ok(String::new())
         })(),
         "alarm-read" => {
@@ -3028,6 +3035,49 @@ mod tests {
         let said = finalise::changed_since(&app).unwrap();
         assert!(said.starts_with("Finalise again") && said.contains(r"D:\COPY 2"), "{said}");
         assert!(!lock(&app).setting("finalise_again").is_empty(), "and the page is told");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Older copies named after the repairs ran (a backup found later): the
+    /// repairs and the stages after them are to run again - Start carries on
+    /// from them - so the copies there are looked in. Not when the repairs
+    /// have not run yet (they look there anyway), nor for a folder looked in.
+    #[test]
+    fn older_copies_named_after_the_repairs_ran_bring_start_back_to_them() {
+        let dir = std::env::temp_dir().join(format!("arp-older-copies-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut st = auto::State::new();
+        for s in st.stages.iter_mut() {
+            s.state = "done".to_string();
+            s.summary = vec!["done before".to_string()];
+        }
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.clone(),
+            settings: HashMap::from([
+                ("auto_search".to_string(), r"D:\Old photos".to_string()),
+                ("repair_searched".to_string(), r"D:\Old photos".to_string()),
+            ]),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: st,
+        }));
+        assert_eq!(auto::older_copies_added(&app), None, "looked in already");
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let r = act(&app, &form(&[("action", "set"), ("auto_search", "D:\\Old photos\nF:\\Backup from 2019")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        {
+            let a = lock(&app);
+            let state = |k: &str| a.auto.stages.iter().find(|s| s.key == k).unwrap().state.clone();
+            assert_eq!((state("isolate"), state("repair"), state("handoff")), ("done".to_string(), "pending".to_string(), "pending".to_string()));
+            assert_eq!(a.auto.resume_at(), auto::STAGES.iter().position(|s| s.0 == "repair").unwrap(), "Start carries on from the repairs");
+            assert!(a.setting("auto_state").contains("repair\u{1f}pending"), "and that is kept");
+        }
+        // (The repairs not run yet: they look there anyway.)
+        assert_eq!(auto::older_copies_added(&app), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

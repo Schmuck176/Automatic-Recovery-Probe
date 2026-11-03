@@ -681,6 +681,26 @@ def main():
         check(open(os.path.join(w, "DCIM", "IMG_0005.JPG"), "rb").read() == before
               and "stays as its original" in " ".join(stages["putback"]["summary"] or []),
               "the photo undone stays as it is after Start over too, and its put-back stage says so")
+        # A backup found later, with the FLAC as it was: named in 3. The
+        # folders after the repairs ran, Start carries on from the repairs and
+        # restores it exactly (before, Start said every stage was done, and
+        # nothing looked there; the FLAC FFmpeg re-encoded stayed).
+        old = os.path.join(work, "Old backup")
+        os.makedirs(old, exist_ok=True)
+        with open(os.path.join(old, "track.flac"), "wb") as f:
+            f.write(media["track.flac"])
+        r = prog.do(action="set", auto_search=old)
+        st = {x["key"]: x["state"] for x in prog.get("api/state")["auto"]["stages"]}
+        check(r.get("ok") and st["isolate"] == "done" and st["repair"] == "pending" and st["handoff"] == "pending",
+              "older copies named after the repairs ran: Start is to carry on from the repairs (%s)" % st)
+        r = prog.do(action="auto-start")
+        s = prog.wait()
+        check(s["job"]["state"] == "done", "and it does (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
+        later = {r["path_in_work"].replace("\\", "/"): r for r in read_csv(os.path.join(repair, "auto-repair-log.csv"))}
+        check(open(os.path.join(w, "Music", "track.flac"), "rb").read() == media["track.flac"]
+              and later["Music/track.flac"]["how"].startswith("an intact copy"),
+              "the FLAC is restored exactly from the older copy, in place of FFmpeg's (%s)" % later["Music/track.flac"]["how"][:90])
+        check(prog.get("api/state")["settings"].get("finalise_again"), "and the second copy waits for Finalise again")
     finally:
         prog.close()
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))

@@ -78,7 +78,10 @@ The parts of the Automatic tab:
 3. **The folders** - suggested: the image in `IMAGE` on a drive of the PC
    with room for it (another than Windows' own, if one has room), the copies
    in `WORK` on SPARE, the second copy in `COPY 2` beside the image; and,
-   optionally, folders holding older copies of the files.
+   optionally, folders holding older copies of the files (named after the
+   repairs ran - a backup found later - Start carries on from the repairs
+   when clicked again, and an intact copy there takes the place of what a
+   tool made of the file).
 4. **Start** - runs by itself, stage by stage, and carries on where it stopped
    after Stop, a closed window or a power cut:
 

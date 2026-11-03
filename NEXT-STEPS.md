@@ -1793,6 +1793,34 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-14. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (late night): a backup found later, named after the repairs ran
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Older copies named after Start had repaired the files** (3. The
+  folders: a backup found later, photos downloaded from a phone): nothing
+  looked in them. Start said every stage was done, and even Start over left
+  every file a tool had repaired as it was (only those not repaired yet were
+  looked for) - though an undamaged copy there is the file exactly as it
+  was, better than any repair. Now a folder of older copies named after the
+  repairs ran brings Start back to the repairs (it carries on from there
+  when clicked; "what just happened" says so, and so does the folders
+  part); the repairs look for an intact copy of every file the program
+  repaired before (its own versions: one of the person's own stays theirs),
+  and one found takes the place of that version (kept in REPAIR\replaced)
+  and goes back into WORK, and the checks after it run again. Tests:
+  an_intact_copy_named_later_takes_the_place_of_the_repair (fails without
+  the look again); older_copies_named_after_the_repairs_ran_bring_start_back_to_them;
+  auto_check (a backup with the FLAC as it was, named after Start over:
+  Start carries on from the repairs and restores it exactly, in place of
+  FFmpeg's re-encoding; the second copy then waits for Finalise again -
+  the delivered version fails all three).
+- Version 2026-11-03 (16); the 2026-11-03 (15) checklist text is known
+  (13643387703275319482).
+- Tests here: unit tests 214 (and 214 with overflow checks), auto_check
+  111/111, auto_ui_check 36/36 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 107, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
