@@ -1688,6 +1688,24 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-11. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (night, later): Finalise says why the image was not checked
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Finalise with no image the program made** (the steps tab's way, say):
+  its first line said "(The image was not checked: see below.)", and
+  nothing below said why. Now it does: there is none the program made.
+- Looked through again, nothing found: every way Start stops and what it
+  says; the server's code for panics on what the page sends; two copies of
+  the program open at once (the second says so and closes); the restart
+  Windows may do by itself during the image (the SSD stays switched off and
+  read-only: both are remembered); the checklist's words against the page's.
+- Version 2026-11-03 (13); the 2026-11-03 (12) checklist text is known
+  (13971119826147467995).
+- Tests here: unit tests 210 (and 210 with overflow checks), auto_check
+  99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 97, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

@@ -487,6 +487,9 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
             }
             Err(e) => summary.push(format!("The image was not checked: {e}")),
         }
+    } else {
+        // (Said below, as the first line says.)
+        summary.push("The image was not checked: there is none the program made (Start, or step 4, makes it).".to_string());
     }
     // Windows' settings stay as they are: they go back only when the person
     // clicks for it, with every drive unplugged (back.rs).
