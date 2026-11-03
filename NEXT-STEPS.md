@@ -1423,6 +1423,37 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-5. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (midday): the second copy under another letter, Defender and SPARE's old letter
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Finalise, half a year on, with the second copy's drive under another
+  letter** (G: where it was F:): F:\COPY 2 was then whatever drive has F: now
+  - a whole new second copy made there (a USB stick too small for it:
+  Finalise failed for want of room), the real one left as it was. Now, once
+  Finalise has made the second copy, it is found again on another drive at
+  the same path when that is the one place holding it (its WORK's list), and
+  the folder setting follows; not plugged in, Finalise stops and says so; in
+  two places, it names both, to choose. Choosing its folder again (3. The
+  folders) makes a new second copy there (the drive lost, a new one given
+  its letter). The page's folder fields show the setting again once saved,
+  so a folder the program changes itself shows, and Start never sends the
+  old one back.
+- **Defender: SPARE left alone whole as E: stayed left alone** after Windows
+  gave SPARE another letter (F:) - E: then whatever drive has that letter (a
+  USB stick from the Mac, say), unscanned until 7. Put Windows back, where
+  the promise is "never a whole drive other than SPARE". Start (and Check
+  this PC) now take such a drive off again, and say so; the same when WORK
+  is no longer on SPARE (moved). One taken off by hand is only forgotten; a
+  folder on it (the image's) is then asked for by itself.
+- The repository's README says both, and that the Mac's video framework
+  keeps a video's tags when the Mac script copies it.
+- Version 2026-11-03 (7); the 2026-11-03 (6) checklist text is known
+  (11082727040801275934).
+- Tests here: unit tests 204 (and 204 with overflow checks), test_mapcheck
+  94/94, auto_check 96/96, auto_ui_check 35/35 and ui_check 67/67 with both
+  fonts, resume_check (seed 61, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

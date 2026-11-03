@@ -3214,10 +3214,15 @@ $("ar-rehearse").addEventListener("click", async (e) => {
 });
 const FOLDERS = [["af-image", "auto_image_dir", "IMAGE"], ["af-work", "auto_work", "WORK"], ["af-copy2", "auto_copy2", "COPY 2"]];
 // A folder saved - or, refused (a job runs, or Start has copied into WORK
-// already), put back as it was, with why.
+// already), put back as it was, with why. Saved, the field shows the setting
+// again from then on: one the program changes itself (the second copy found
+// under another drive letter) shows, and Start never sends the old one back.
 async function saveFolder(el, key, value) {
   note("folders", "", "");
-  try { await save({ [key]: value }); } catch (e) {
+  try {
+    await save({ [key]: value });
+    if (value) delete el.dataset.touched;
+  } catch (e) {
     el.value = setting(key); delete el.dataset.touched;
     note("folders", "err", e.message);
   }

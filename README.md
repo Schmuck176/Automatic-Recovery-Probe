@@ -48,13 +48,15 @@ check, then the copies), whether SPARE is switched off, and whether Defender
 leaves it alone. Start tells Defender itself to leave the image's folder and
 SPARE alone, and confirms it in Defender's own list; 7. Put Windows back as it
 was takes that off again. Never Windows' own drive or folders, nor a whole drive
-other than SPARE. Every setting the program changes has a **Show me** button
-beside it that opens Windows' own page for it (Windows Security at Exclusions,
-the "Automatically restart" setting, Windows Update, Disk Management, the
-notification settings), and **Show what Windows itself says** opens a window
-with Windows' own answers, read-only: Defender's exclusions, the policy for new
-disks (`diskpart san`), the disks and whether each is switched off, the crash
-setting, a restart waiting, what keeps the PC awake.
+other than SPARE (a drive left alone whole as SPARE that is not SPARE now -
+Windows gave SPARE another letter - is taken off again). Every setting the
+program changes has a **Show me** button beside it that opens Windows' own
+page for it (Windows Security at Exclusions, the "Automatically restart"
+setting, Windows Update, Disk Management, the notification settings), and
+**Show what Windows itself says** opens a window with Windows' own answers,
+read-only: Defender's exclusions, the policy for new disks (`diskpart san`),
+the disks and whether each is switched off, the crash setting, a restart
+waiting, what keeps the PC awake.
 
 The parts of the Automatic tab:
 
@@ -103,7 +105,10 @@ The parts of the Automatic tab:
    folders, and names any file it could not read rather than passing it by.
 6. **Finalise** - `RECORDS` beside WORK, the second copy (resumable, dates
    kept), the final check of both copies and of the image. Run again twice a
-   year. It leaves Windows' settings as they are.
+   year: if the second copy's drive has another letter by then, the second
+   copy is found there again; if it is not plugged in, Finalise says so rather
+   than make a new second copy on whatever drive has its letter now (choosing
+   its folder again makes a new one). It leaves Windows' settings as they are.
 7. **Put Windows back as it was** - what the program changed in Windows (new
    disks arriving switched off, "Automatically restart" after a crash if it
    turned that off, Defender's exclusions it added), each with its Show me
@@ -178,7 +183,8 @@ same results folder, so Recovery Probe can carry on from anything this one did.
   copy keeps them all. Inside the files: a video rebuilt by untrunc (which
   takes the index of a good video as its pattern) gets its own made date
   back, not the pattern's; FFmpeg keeps every tag of an MP4 or MOV it
-  rebuilds (an iPhone's creation date and place too); a PDF given a new
+  rebuilds (an iPhone's creation date and place too), and so does the Mac's
+  own video framework, when the Mac script copies a video; a PDF given a new
   trailer keeps its information dictionary (made and changed dates, title);
   a PNG saved again keeps its tIME, text, EXIF and colour profile.
 

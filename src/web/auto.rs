@@ -262,6 +262,12 @@ fn folder_key(p: &str) -> String {
     p.trim().trim_start_matches(r"\\?\").replace('/', "\\").trim_end_matches('\\').to_lowercase()
 }
 
+/// The same folder, however it is written ("E:\\COPY 2\\", "e:/copy 2").
+pub(super) fn same_folder(a: &str, b: &str) -> bool {
+    let k = folder_key(a);
+    !k.is_empty() && k == folder_key(b)
+}
+
 /// Is `inner` the folder `outer`, or inside it?
 fn within(inner: &str, outer: &str) -> bool {
     let (i, o) = (folder_key(inner), folder_key(outer));

@@ -134,7 +134,7 @@ pub(super) fn back_json(app: &Arc<Mutex<App>>) -> String {
 }
 
 /// "a, b and c".
-fn and_list(v: &[String]) -> String {
+pub(super) fn and_list(v: &[String]) -> String {
     match v {
         [] => String::new(),
         [a] => a.clone(),

@@ -1364,6 +1364,12 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                     a.settings.insert(k.clone(), v.clone());
                 }
             }
+            // The second copy's folder chosen (again, it may be): what is
+            // there - or a new second copy - is the second copy from now on
+            // (finalise.rs no longer looks for the one made before).
+            if f.contains_key("auto_copy2") {
+                a.settings.remove("copy2_made");
+            }
             a.save();
             if let Some(m) = f.get("mapfile") {
                 MAP_SIZE.store(mapfile_domain(m).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
@@ -3019,6 +3025,36 @@ mod tests {
         assert_eq!(a.setting("auto_search"), "D:\\Old photos\nF:\\Backup");
         assert_eq!(a.setting("note"), "\"as typed\"", "what is not a path is kept as it is");
         drop(a);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The second copy's folder chosen again (the drive it was on lost, say,
+    /// and a new one given its letter): Finalise makes a new second copy
+    /// there, rather than stop for want of the one it made before.
+    #[test]
+    fn choosing_the_second_copys_folder_again_makes_a_new_one_there() {
+        let dir = std::env::temp_dir().join(format!("arp-copy2-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let made = [("auto_copy2".to_string(), r"F:\COPY 2".to_string()), ("copy2_made".to_string(), r"F:\COPY 2".to_string())];
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.clone(),
+            settings: HashMap::from(made),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let r = act(&app, &form(&[("action", "set"), ("auto_videos", "1")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        assert_eq!(lock(&app).setting("copy2_made"), r"F:\COPY 2", "another setting changed: the second copy is still looked for");
+        let r = act(&app, &form(&[("action", "set"), ("auto_copy2", r"F:\COPY 2")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        assert_eq!(lock(&app).setting("copy2_made"), "", "its folder chosen again: no longer");
+        assert_eq!(lock(&app).setting("auto_copy2"), r"F:\COPY 2");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

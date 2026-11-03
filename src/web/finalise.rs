@@ -213,8 +213,62 @@ fn tree_bytes_counted(p: &Path, count: bool) -> u64 {
     n
 }
 
+/// Does this folder hold a second copy Finalise made (its copy of WORK, with
+/// the copying's list)?
+fn holds_second_copy(folder: &str) -> bool {
+    Path::new(folder.trim()).join("WORK").join(crate::rescue::LOG_NAME).is_file()
+}
+
+/// Where the second copy Finalise made is now (`made`: where it made it,
+/// `letters`: the drives there are). Ok(None): where it was - or none made
+/// yet, or another folder chosen since. Ok(Some): on another drive at the
+/// same path, the one place that holds it (Windows gave its drive another
+/// letter). Err: why Finalise stops - not found anywhere, though Finalise
+/// made it there, rather than a whole new second copy made on whatever drive
+/// has that letter now.
+fn second_copy_now(copy2: &str, made: &str, letters: &[String], holds: &dyn Fn(&str) -> bool) -> Result<Option<String>, String> {
+    let c = copy2.trim();
+    if c.is_empty() || !auto::same_folder(made, c) || holds(c) {
+        return Ok(None);
+    }
+    let rest = c.get(..2).filter(|l| l.ends_with(':')).and_then(|_| c.get(2..));
+    let found: Vec<String> = rest
+        .map(|rest| letters.iter().map(|l| format!("{l}{rest}")).filter(|p| !p.eq_ignore_ascii_case(c) && holds(p)).collect())
+        .unwrap_or_default();
+    match found.len() {
+        1 => Ok(found.into_iter().next()),
+        0 => Err(format!(
+            "The second copy is not in {c} (Finalise made it there): plug in the drive it is on - under another letter, it \
+             is found by itself. To make a new second copy instead (there, or on another drive), choose its folder again in 3. \
+             The folders."
+        )),
+        _ => Err(format!(
+            "The second copy is not in {c} (Finalise made it there), and {} each hold one: choose which is the second copy, \
+             in 3. The folders.",
+            super::back::and_list(&found)
+        )),
+    }
+}
+
 pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
-    let plan = auto::plan_of(app)?;
+    let mut plan = auto::plan_of(app)?;
+    // The second copy's drive plugged in under another letter than at the
+    // last Finalise (Windows gives a drive the first free one; the next
+    // Finalise may be half a year on): found there again by its copy of
+    // WORK's list.
+    let made = lock(app).setting("copy2_made");
+    let letters: Vec<String> = crate::win::drives().into_iter().map(|d| d.letter).collect();
+    if let Some(now) = second_copy_now(&plan.copy2, &made, &letters, &holds_second_copy)? {
+        crate::live::event(
+            "info",
+            &format!("The second copy is {now} now ({} before): Windows gave its drive another letter", plan.copy2.trim()),
+        );
+        let mut a = lock(app);
+        a.settings.insert("auto_copy2".to_string(), now.clone());
+        a.settings.insert("copy2_made".to_string(), now.clone());
+        a.save();
+        plan.copy2 = now;
+    }
     auto::check_folders(&plan.image_dir, &plan.work, &plan.copy2, !lock(app).test_disks.is_empty())?;
     check_destination(app, &plan.work)?;
     if !plan.copy2.trim().is_empty() {
@@ -345,6 +399,13 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
                 summary.push("Stopped while making the second copy: Finalise again carries on where it stopped.".to_string());
                 return Ok(Outcome { summary, stopped: true, ..Default::default() });
             }
+        }
+        // (Made: the next Finalise looks for it, and never makes a new one
+        // on another drive that has its letter then.)
+        {
+            let mut a = lock(app);
+            a.settings.insert("copy2_made".to_string(), copy2.clone());
+            a.save();
         }
         summary.push(format!(
             "The second copy is in {copy2}: {} files ({}) copied this time, the rest were there already.",
@@ -528,6 +589,32 @@ mod tests {
         assert_eq!((c.files, c.replaced), (1, 1), "replaced, read-only as it was there");
         assert_eq!(std::fs::read(b.join("locked.txt")).unwrap(), b"LOCKED");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The second copy's drive given another letter by the next Finalise
+    /// (half a year on, other drives plugged in): found there again, if it is
+    /// the one place that holds it (before, the second copy was made anew on
+    /// whatever drive had the old letter, or Finalise failed for want of
+    /// room there).
+    #[test]
+    fn the_second_copy_is_found_under_another_letter() {
+        let letters: Vec<String> = ["C:", "D:", "E:", "F:", "G:"].iter().map(|s| s.to_string()).collect();
+        let on = |list: &'static [&'static str]| move |p: &str| list.iter().any(|x| x.eq_ignore_ascii_case(p));
+        let c2 = r"F:\COPY 2";
+        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"G:\COPY 2"])), Ok(Some(r"G:\COPY 2".to_string())));
+        assert_eq!(second_copy_now(c2, r"f:/copy 2\", &letters, &on(&[r"G:\COPY 2"])), Ok(Some(r"G:\COPY 2".to_string())));
+        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"F:\COPY 2", r"G:\COPY 2"])), Ok(None), "where it was");
+        // Nowhere: stopped, not made anew on whatever drive is F: now.
+        let e = second_copy_now(c2, c2, &letters, &on(&[])).unwrap_err();
+        assert!(e.contains(r"not in F:\COPY 2") && e.contains("plug in the drive") && e.contains("choose its folder again"), "{e}");
+        let e = second_copy_now(c2, c2, &letters, &on(&[r"D:\COPY 2", r"G:\COPY 2"])).unwrap_err();
+        assert!(e.contains(r"D:\COPY 2 and G:\COPY 2 each hold one"), "two: not known which ({e})");
+        assert!(second_copy_now(r"\\server\share\COPY 2", r"\\server\share\COPY 2", &letters, &on(&[r"G:\COPY 2"])).is_err());
+        // None made yet, or another folder chosen since: nothing to look for.
+        assert_eq!(second_copy_now(c2, "", &letters, &on(&[])), Ok(None));
+        assert_eq!(second_copy_now(c2, r"H:\COPY 2", &letters, &on(&[])), Ok(None));
+        assert_eq!(second_copy_now("", c2, &letters, &on(&[r"G:\COPY 2"])), Ok(None), "no second copy chosen");
+        assert!(!holds_second_copy(&std::env::temp_dir().join("arp-no-such-copy").display().to_string()));
     }
 
     /// A newer repaired version brought back under the same name as the one
