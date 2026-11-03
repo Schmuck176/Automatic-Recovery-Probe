@@ -1433,12 +1433,14 @@ The user, as before: keep hunting for bugs, without breaking anything.
   Finalise failed for want of room), the real one left as it was. Now, once
   Finalise has made the second copy, it is found again on another drive at
   the same path when that is the one place holding it (its WORK's list), and
-  the folder setting follows; not plugged in, Finalise stops and says so; in
-  two places, it names both, to choose. Choosing its folder again (3. The
-  folders) makes a new second copy there (the drive lost, a new one given
-  its letter). The page's folder fields show the setting again once saved,
-  so a folder the program changes itself shows, and Start never sends the
-  old one back.
+  the folder setting follows - only where a second copy may be, by the
+  folders' rules (never WORK's own folder on SPARE, E:\Recovery for a second
+  copy in F:\Recovery, which holds WORK and its list too); not plugged in,
+  Finalise stops and says so; in two places, it names both, to choose.
+  Choosing its folder again (3. The folders) makes a new second copy there
+  (the drive lost, a new one given its letter). The page's folder fields
+  show the setting again once saved, so a folder the program changes itself
+  shows, and Start never sends the old one back.
 - **Defender: SPARE left alone whole as E: stayed left alone** after Windows
   gave SPARE another letter (F:) - E: then whatever drive has that letter (a
   USB stick from the Mac, say), unscanned until 7. Put Windows back, where

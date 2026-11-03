@@ -220,20 +220,30 @@ fn holds_second_copy(folder: &str) -> bool {
 }
 
 /// Where the second copy Finalise made is now (`made`: where it made it,
-/// `letters`: the drives there are). Ok(None): where it was - or none made
-/// yet, or another folder chosen since. Ok(Some): on another drive at the
-/// same path, the one place that holds it (Windows gave its drive another
-/// letter). Err: why Finalise stops - not found anywhere, though Finalise
-/// made it there, rather than a whole new second copy made on whatever drive
-/// has that letter now.
-fn second_copy_now(copy2: &str, made: &str, letters: &[String], holds: &dyn Fn(&str) -> bool) -> Result<Option<String>, String> {
+/// `letters`: the drives there are; `fits`: a folder the second copy may be
+/// in, by the folders' rules - never WORK's own folder on SPARE, which holds
+/// WORK and its list too). Ok(None): where it was - or none made yet, or
+/// another folder chosen since. Ok(Some): on another drive at the same path,
+/// the one place that holds it (Windows gave its drive another letter). Err:
+/// why Finalise stops - not found anywhere, though Finalise made it there,
+/// rather than a whole new second copy made on whatever drive has that
+/// letter now.
+fn second_copy_now(
+    copy2: &str,
+    made: &str,
+    letters: &[String],
+    holds: &dyn Fn(&str) -> bool,
+    fits: &dyn Fn(&str) -> bool,
+) -> Result<Option<String>, String> {
     let c = copy2.trim();
     if c.is_empty() || !auto::same_folder(made, c) || holds(c) {
         return Ok(None);
     }
     let rest = c.get(..2).filter(|l| l.ends_with(':')).and_then(|_| c.get(2..));
     let found: Vec<String> = rest
-        .map(|rest| letters.iter().map(|l| format!("{l}{rest}")).filter(|p| !p.eq_ignore_ascii_case(c) && holds(p)).collect())
+        .map(|rest| {
+            letters.iter().map(|l| format!("{l}{rest}")).filter(|p| !p.eq_ignore_ascii_case(c) && holds(p) && fits(p)).collect()
+        })
         .unwrap_or_default();
     match found.len() {
         1 => Ok(found.into_iter().next()),
@@ -256,9 +266,14 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
     // last Finalise (Windows gives a drive the first free one; the next
     // Finalise may be half a year on): found there again by its copy of
     // WORK's list.
-    let made = lock(app).setting("copy2_made");
+    let (made, one_drive_ok) = {
+        let a = lock(app);
+        (a.setting("copy2_made"), !a.test_disks.is_empty())
+    };
     let letters: Vec<String> = crate::win::drives().into_iter().map(|d| d.letter).collect();
-    if let Some(now) = second_copy_now(&plan.copy2, &made, &letters, &holds_second_copy)? {
+    let fits = |p: &str| auto::check_folders(&plan.image_dir, &plan.work, p, one_drive_ok).is_ok();
+    let moved = second_copy_now(&plan.copy2, &made, &letters, &holds_second_copy, &fits)?;
+    if let Some(now) = moved {
         crate::live::event(
             "info",
             &format!("The second copy is {now} now ({} before): Windows gave its drive another letter", plan.copy2.trim()),
@@ -269,7 +284,7 @@ pub(super) fn start(app: &Arc<Mutex<App>>) -> Result<u64, String> {
         a.save();
         plan.copy2 = now;
     }
-    auto::check_folders(&plan.image_dir, &plan.work, &plan.copy2, !lock(app).test_disks.is_empty())?;
+    auto::check_folders(&plan.image_dir, &plan.work, &plan.copy2, one_drive_ok)?;
     check_destination(app, &plan.work)?;
     if !plan.copy2.trim().is_empty() {
         check_destination(app, &plan.copy2)?;
@@ -601,19 +616,27 @@ mod tests {
         let letters: Vec<String> = ["C:", "D:", "E:", "F:", "G:"].iter().map(|s| s.to_string()).collect();
         let on = |list: &'static [&'static str]| move |p: &str| list.iter().any(|x| x.eq_ignore_ascii_case(p));
         let c2 = r"F:\COPY 2";
-        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"G:\COPY 2"])), Ok(Some(r"G:\COPY 2".to_string())));
-        assert_eq!(second_copy_now(c2, r"f:/copy 2\", &letters, &on(&[r"G:\COPY 2"])), Ok(Some(r"G:\COPY 2".to_string())));
-        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"F:\COPY 2", r"G:\COPY 2"])), Ok(None), "where it was");
+        let any = |_: &str| true;
+        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"G:\COPY 2"]), &any), Ok(Some(r"G:\COPY 2".to_string())));
+        assert_eq!(second_copy_now(c2, r"f:/copy 2\", &letters, &on(&[r"G:\COPY 2"]), &any), Ok(Some(r"G:\COPY 2".to_string())));
+        assert_eq!(second_copy_now(c2, c2, &letters, &on(&[r"F:\COPY 2", r"G:\COPY 2"]), &any), Ok(None), "where it was");
         // Nowhere: stopped, not made anew on whatever drive is F: now.
-        let e = second_copy_now(c2, c2, &letters, &on(&[])).unwrap_err();
+        let e = second_copy_now(c2, c2, &letters, &on(&[]), &any).unwrap_err();
         assert!(e.contains(r"not in F:\COPY 2") && e.contains("plug in the drive") && e.contains("choose its folder again"), "{e}");
-        let e = second_copy_now(c2, c2, &letters, &on(&[r"D:\COPY 2", r"G:\COPY 2"])).unwrap_err();
+        let e = second_copy_now(c2, c2, &letters, &on(&[r"D:\COPY 2", r"G:\COPY 2"]), &any).unwrap_err();
         assert!(e.contains(r"D:\COPY 2 and G:\COPY 2 each hold one"), "two: not known which ({e})");
-        assert!(second_copy_now(r"\\server\share\COPY 2", r"\\server\share\COPY 2", &letters, &on(&[r"G:\COPY 2"])).is_err());
+        assert!(second_copy_now(r"\\server\share\COPY 2", r"\\server\share\COPY 2", &letters, &on(&[r"G:\COPY 2"]), &any).is_err());
         // None made yet, or another folder chosen since: nothing to look for.
-        assert_eq!(second_copy_now(c2, "", &letters, &on(&[])), Ok(None));
-        assert_eq!(second_copy_now(c2, r"H:\COPY 2", &letters, &on(&[])), Ok(None));
-        assert_eq!(second_copy_now("", c2, &letters, &on(&[r"G:\COPY 2"])), Ok(None), "no second copy chosen");
+        assert_eq!(second_copy_now(c2, "", &letters, &on(&[]), &any), Ok(None));
+        assert_eq!(second_copy_now(c2, r"H:\COPY 2", &letters, &on(&[]), &any), Ok(None));
+        assert_eq!(second_copy_now("", c2, &letters, &on(&[r"G:\COPY 2"]), &any), Ok(None), "no second copy chosen");
+        // The second copy in F:\Recovery, WORK in E:\Recovery\WORK on SPARE:
+        // E:\Recovery holds WORK and its list too, and is never taken for the
+        // second copy - by the folders' own rules.
+        let fits = |p: &str| super::auto::check_folders(r"C:\IMAGE", r"E:\Recovery\WORK", p, false).is_ok();
+        let r = r"F:\Recovery";
+        assert_eq!(second_copy_now(r, r, &letters, &on(&[r"E:\Recovery", r"G:\Recovery"]), &fits), Ok(Some(r"G:\Recovery".to_string())));
+        assert!(second_copy_now(r, r, &letters, &on(&[r"E:\Recovery"]), &fits).unwrap_err().contains("plug in the drive"));
         assert!(!holds_second_copy(&std::env::temp_dir().join("arp-no-such-copy").display().to_string()));
     }
 
