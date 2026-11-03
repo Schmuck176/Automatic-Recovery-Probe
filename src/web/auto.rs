@@ -1622,7 +1622,19 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
     let work = PathBuf::from(&plan.work);
     ctx.line(&format!("Looking for repaired files (with their numbers) in {}...", from.display()));
     let b = handoff::bring_back(&work, from, &mut |s| ctx.line(s))?;
-    let mut summary = handoff::brought_summary(&b);
+    let mut out = bring_back_after(app, ctx, plan, &work, &b)?;
+    // After a Finalise: its second copy does not have what came back yet
+    // (said once, last: what to do next).
+    if !b.repaired.is_empty() || !b.salvaged.is_empty() {
+        out.summary.retain(|l| !l.starts_with("Finalise again"));
+        out.summary.extend(super::finalise::changed_since(app));
+    }
+    Ok(out)
+}
+
+/// Bring back's put-back and checks, after what came back is in REPAIR.
+fn bring_back_after(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, work: &Path, b: &handoff::Brought) -> Result<Outcome, String> {
+    let mut summary = handoff::brought_summary(b);
     // (Files it could not read: said as a problem at the end, so Bring back
     // is not taken for done while they are still left out.)
     let unread = (!b.unreadable.is_empty()).then(|| {
@@ -1670,7 +1682,7 @@ fn bring_back_run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, from: &Path) ->
     }
     let e = step(app, ctx, prepare_repair_step(app, "evaluate", &plan.work, "")?)?;
     summary.extend(e.summary.iter().take(3).cloned());
-    if let Ok(h) = handoff::prepare(&work) {
+    if let Ok(h) = handoff::prepare(work) {
         summary.extend(handoff::summary(&h));
     }
     Ok(Outcome { summary, problem: unread, ..Default::default() })

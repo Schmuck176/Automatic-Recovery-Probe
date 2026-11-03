@@ -2768,13 +2768,17 @@ function renderAuto() {
   if (fromNow !== null && $("ab-from") && $("ab-from").dataset.touched) $("ab-from").value = fromNow;
   setAuto("left", ho ? "done" : "", ho ? "Ready" : "");
 
-  // 6. Finalise.
+  // 6. Finalise. (Something brought back or put back since the last one:
+  // the second copy does not have it until Finalise runs again.)
   const fi = lastOf("finalise");
+  const again = setting("finalise_again") && !(fi && fi.state === "running") ? setting("finalise_again") : "";
   h = noteHtml("final");
+  if (again) h += msg("warn", `Since the last Finalise, files were brought back or put back (${esc(again)}): the second copy does not have them yet. Click <b>Finalise</b> again.`);
   if (fi && fi.state !== "running") h += msg(fi.state === "done" ? "ok" : fi.state === "stopped" ? "warn" : "err", lines(fi.summary || [fi.error]).replace(/\n/g, "<br>"));
   put($("ar-final"), h);
   $("b-finalise").disabled = running;
-  setAuto("final", fi && fi.state === "done" ? "done" : fi && fi.state === "failed" ? "problem" : fi && fi.state === "running" ? "running" : "",
+  if (again) setAuto("final", "turn", "Run it again");
+  else setAuto("final", fi && fi.state === "done" ? "done" : fi && fi.state === "failed" ? "problem" : fi && fi.state === "running" ? "running" : "",
     fi && fi.state === "done" ? "Done " + (fi.started_at || "") : fi && fi.state === "failed" ? "Needs attention" : fi && fi.state === "running" ? "Running…" : "");
 }
 function copiesHere() { return disks.filter((d) => isCopy(d) && !d.system); }

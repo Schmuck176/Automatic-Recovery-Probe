@@ -2364,6 +2364,7 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
         _ => ("evaluate", "Evaluating what is damaged"),
     };
     let step = step.to_string();
+    let app2 = app.clone();
     Ok(prepared(kind, title, move |ctx| {
         let stop = || ctx.stopping();
         let repair_s = repair.display().to_string();
@@ -2411,8 +2412,13 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
                     .raw("back", &arr(back))
                     .s("repair", &repair_s)
                     .end();
+                let mut summary = crate::repair::put_back_summary(&o, &repair);
+                // (After a Finalise: its second copy does not have these yet.)
+                if !o.returned.is_empty() {
+                    summary.extend(finalise::changed_since(&app2));
+                }
                 Ok(Outcome {
-                    summary: crate::repair::put_back_summary(&o, &repair),
+                    summary,
                     outputs: vec![repair_s.clone()],
                     data,
                     stopped: o.stopped,
@@ -2421,8 +2427,10 @@ fn prepare_repair_step(app: &Arc<Mutex<App>>, step: &str, folder: &str, id: &str
             }
             "undo" => {
                 let m = crate::repair::undo(&work, &id)?;
+                let mut summary = vec![m];
+                summary.extend(finalise::changed_since(&app2));
                 Ok(Outcome {
-                    summary: vec![m],
+                    summary,
                     outputs: vec![repair_s.clone()],
                     data: Obj::new().s("repair", &repair_s).b("undone", true).end(),
                     stopped: false,
@@ -2991,6 +2999,36 @@ mod tests {
         }));
         assert_eq!(folder_on_disk(&app, n).as_deref(), Some(temp.as_str()));
         assert_eq!(folder_on_disk(&app, n + 1000), None);
+    }
+
+    /// Something brought back or put back after a Finalise made the second
+    /// copy: the page says to Finalise again (until it runs - Finalise takes
+    /// the mark off once WORK, as checked, is copied). Before any Finalise,
+    /// or with no second copy made, there is nothing to say.
+    #[test]
+    fn a_change_after_finalise_asks_for_finalise_again() {
+        let dir = std::env::temp_dir().join(format!("arp-finalise-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.clone(),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        assert_eq!(finalise::changed_since(&app), None, "no Finalise yet");
+        lock(&app).settings.insert("finalised".to_string(), "2026-11-03 21:00".to_string());
+        assert_eq!(finalise::changed_since(&app), None, "Finalise made no second copy");
+        assert!(lock(&app).setting("finalise_again").is_empty());
+        lock(&app).settings.insert("copy2_made".to_string(), r"D:\COPY 2".to_string());
+        let said = finalise::changed_since(&app).unwrap();
+        assert!(said.starts_with("Finalise again") && said.contains(r"D:\COPY 2"), "{said}");
+        assert!(!lock(&app).setting("finalise_again").is_empty(), "and the page is told");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// On Windows: "C:" typed in the folder picker lists C:'s top (Windows

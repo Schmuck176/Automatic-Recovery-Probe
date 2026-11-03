@@ -116,7 +116,10 @@ The parts of the Automatic tab:
    leaves them alone, the second copy's folder too (it would check every
    file, and a recovered file it flags it takes out of both copies); what
    Finalise asks it for, it takes off again when it is done - otherwise it
-   leaves Windows' settings as they are.
+   leaves Windows' settings as they are. Anything brought back or put back
+   after a Finalise (a paid tool's repairs, weeks later, say) is not in the
+   second copy yet: Bring back says to Finalise again, and so does 6.
+   Finalise until it has run.
 7. **Put Windows back as it was** - what the program changed in Windows (new
    disks arriving switched off, "Automatically restart" after a crash if it
    turned that off, Defender's exclusions it added), each with its Show me

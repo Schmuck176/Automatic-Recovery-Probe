@@ -214,6 +214,19 @@ function iconsWithoutWords(page) {
     await page.waitForFunction(() => /Done|Needs attention/.test(document.getElementById("ast-final").textContent), null, { timeout: 300000 });
     check(/Finalised/.test(await text("#ar-final")), "Finalise finishes");
     await shot("auto-4-finalised", true);
+    // Brought back or put back since (the program's mark, as Bring back
+    // leaves it): 6. Finalise asks to be run again, not "Done".
+    const again = await page.evaluate(() => {
+      S.settings.finalise_again = "2026-11-03 21:30";
+      renderAuto();
+      const r = { state: document.getElementById("ast-final").textContent, says: document.getElementById("ar-final").textContent };
+      delete S.settings.finalise_again;
+      renderAuto();
+      r.after = document.getElementById("ast-final").textContent;
+      return r;
+    });
+    check(/Run it again/.test(again.state) && /second copy does not have them yet/.test(again.says) && /Done/.test(again.after),
+      "after something is brought back, 6. Finalise asks to be run again (" + again.state + "; then " + again.after + ")");
     // Every icon on the page comes with words saying what it is for.
     check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
     // 7. Put Windows back: its own part, after Finalise (here nothing was changed).

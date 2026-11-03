@@ -215,6 +215,24 @@ fn tree_bytes_counted(p: &Path, count: bool) -> u64 {
 
 /// Does this folder hold a second copy Finalise made (its copy of WORK, with
 /// the copying's list)?
+/// WORK or REPAIR changed after a Finalise made the second copy - Bring
+/// back brought something, a put-back or an undo changed WORK: the second
+/// copy does not have it until Finalise runs again (twice a year, the
+/// checklist says), so the page says to (6. Finalise) until it has, and this
+/// gives the line to say it with. (Before, nothing said so: with SPARE put
+/// away, as the checklist says, the second copy - the one to take files
+/// from day to day - held the damaged originals of what came back later.)
+pub(super) fn changed_since(app: &Arc<Mutex<App>>) -> Option<String> {
+    let mut a = lock(app);
+    let copy2 = a.setting("copy2_made");
+    if a.setting("finalised").is_empty() || copy2.is_empty() {
+        return None;
+    }
+    a.settings.insert("finalise_again".to_string(), local_now());
+    a.save();
+    Some(format!("Finalise again now: the second copy ({copy2}) does not have this yet."))
+}
+
 fn holds_second_copy(folder: &str) -> bool {
     Path::new(folder.trim()).join("WORK").join(crate::rescue::LOG_NAME).is_file()
 }
@@ -427,10 +445,14 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
             }
         }
         // (Made: the next Finalise looks for it, and never makes a new one
-        // on another drive that has its letter then.)
+        // on another drive that has its letter then. With WORK as checked,
+        // what changed since the last Finalise is in it now.)
         {
             let mut a = lock(app);
             a.settings.insert("copy2_made".to_string(), copy2.clone());
+            if work_ok {
+                a.settings.remove("finalise_again");
+            }
             a.save();
         }
         summary.push(format!(

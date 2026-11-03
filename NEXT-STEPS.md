@@ -1756,6 +1756,31 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-13. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (night, last): the second copy behind after a late Bring back
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Bring back after Finalise** (a paid tool's repairs weeks later, say):
+  the repaired files went into WORK and REPAIR, but the second copy only
+  gets them when Finalise runs again (twice a year), and nothing said so -
+  6. Finalise still said "Done", and the checklist says to keep SPARE
+  somewhere else and to take files day to day from the second copy, which
+  then held the damaged originals of what had come back. Now Bring back
+  (anything brought back), and any put-back or undo, after a Finalise made
+  the second copy says last "Finalise again now: the second copy (...) does
+  not have this yet", and 6. Finalise asks to be run again (not "Done")
+  until it has - Finalise takes the mark off once it has copied WORK as
+  checked. Tests: a_change_after_finalise_asks_for_finalise_again;
+  auto_check (a TIFF of the RAW brought back after Finalise: said, and the
+  page told - the delivered version fails it; Finalise again: in the second
+  copy, nothing more asked); auto_ui_check (6. Finalise says Run it again,
+  then Done again).
+- Version 2026-11-03 (15); the 2026-11-03 (14) checklist text is known
+  (4386106657188817721).
+- Tests here: unit tests 212 (and 212 with overflow checks), auto_check
+  107/107, auto_ui_check 36/36 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 103, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

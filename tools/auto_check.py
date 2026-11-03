@@ -616,6 +616,25 @@ def main():
         check(os.path.isdir(os.path.join(spare, "RECORDS", "results")), "RECORDS is beside WORK")
         hist = read_csv(os.path.join(home, "results", "safety-checks.csv"))
         check(len(hist) >= 5, "every check is in safety-checks.csv (%d)" % len(hist))
+        # Brought back after Finalise (a paid tool's work, weeks later): the
+        # second copy does not have it yet. Bring back says to Finalise again,
+        # and so does the page, until Finalise has run - before, nothing did.
+        raw = listed["RAW/IMG_0100.CR2"]
+        tif = "IMG_0100 [%s] (as TIFF).tif" % raw["id"]
+        with open(os.path.join(ret, tif), "wb") as f:
+            f.write(b"II*\x00" + bytes(range(64)))
+        r = prog.do(action="bring-back", **{"from": ""})
+        check(r.get("ok"), "Bring back after Finalise begins: %s" % r.get("error", ""))
+        s2 = prog.wait()
+        said2 = s2["job"].get("summary") or []
+        check(s2["job"]["state"] == "done" and said2 and said2[-1].startswith("Finalise again now")
+              and prog.get("api/state")["settings"].get("finalise_again"),
+              "brought back after Finalise, it says last to Finalise again, and the page is told (%s)" % said2[-1:])
+        r = prog.do(action="finalise")
+        s2 = prog.wait()
+        check(s2["job"]["state"] == "done" and not prog.get("api/state")["settings"].get("finalise_again")
+              and os.path.isfile(os.path.join(work, "COPY 2", "REPAIR", "salvaged", "returned", tif)),
+              "Finalise again: the second copy has it, and nothing more is asked (%s)" % s2["job"].get("error", ""))
         # Twice a year, SPARE not plugged in (here: its folder away): Finalise
         # and Bring back say to plug it in - not that Start has not copied
         # everything, nor that nothing on the stick has a number they know.
