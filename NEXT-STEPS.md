@@ -1596,6 +1596,18 @@ and deleted when they stop finding bugs.
 - Tests here: unit tests 209 (and 209 with overflow checks), auto_check
   99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
   test_mapcheck 94/94, resume_check (seed 79, 20 interruptions) 17/17.
+- CI run 41687145217 (9356efd), green on both systems. Windows: unit tests
+  213, map check tests 44/44, Windows disks 19/19, disk protection 21/21,
+  unplugged 42/42, page 68/68, download 6/6, automatic 107/107, Automatic
+  tab 35/35, resume 17/17; Linux: unit tests 209 (and 209 with overflow
+  checks), map check tests 94/94, Linux kernel 23/23, the Mac script 56/56,
+  page 67/67, automatic 106/106, Automatic tab 35/35, resume 17/17.
+- Delivered 3 Nov 2026, about 18:13 GMT: version 2026-11-03 (10),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,095,872 bytes, SHA-256
+  81f6477fe9ab5ada969cc78fa3d5ceb8cb1c61da575ac41ef96f87c1c293ca2a (staged
+  back and compared). main moved to it; the 2026-11-03 (9) main is kept as
+  branch version-2026-11-03-9. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
