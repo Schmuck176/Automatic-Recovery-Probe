@@ -104,19 +104,16 @@ pub(super) fn defender_targets(image_dir: &str, work: &str, spare_letter: &str, 
     out
 }
 
-/// Whole drives the program had Defender leave alone (`added`) that are none
-/// of the places now (`targets`): SPARE's letter before Windows gave it
-/// another. Only ever SPARE is left alone whole - never another drive that
-/// has that letter now.
-fn stale_drives(added: &[String], targets: &[String]) -> Vec<String> {
-    added
-        .iter()
-        .filter(|a| {
-            let k = norm(a);
-            k.len() == 2 && k.ends_with(':') && !targets.iter().any(|t| norm(t) == k)
-        })
-        .cloned()
-        .collect()
+/// What the program had Defender leave alone (`added`) that is none of the
+/// places now (`targets`), nor inside one: SPARE's letter before Windows gave
+/// it another (another drive may have that letter now), a folder chosen
+/// before another was. Only the places now are left alone - and only ever
+/// SPARE whole.
+fn stale(added: &[String], targets: &[String]) -> Vec<String> {
+    let covered = |k: &str| {
+        targets.iter().map(|t| norm(t)).any(|t| k == t || k.starts_with(&format!("{t}\\")))
+    };
+    added.iter().filter(|a| !norm(a).is_empty() && !covered(&norm(a))).cloned().collect()
 }
 
 /// SPARE's drive letter: the drive labelled SPARE, or the letter the
@@ -136,7 +133,19 @@ fn system_drive() -> String {
 /// The folders Defender should leave alone, from the folders chosen (or
 /// suggested, before any is chosen).
 pub(super) fn targets_now(app: &Arc<Mutex<App>>, image_dir: &str, work: &str) -> Vec<String> {
-    defender_targets(image_dir, work, &spare_letter(app), &system_drive())
+    let image = lock(app).setting("image");
+    defender_targets(&image_folder(&image, image_dir), work, &spare_letter(app), &system_drive())
+}
+
+/// The image's folder: where the image is, once it is made (the folder
+/// chosen for it may have been changed since - it is not needed then - and
+/// the image is read again and again: never one Defender checks again), or
+/// the folder chosen for it.
+fn image_folder(image: &str, image_dir: &str) -> String {
+    match image.trim().rsplit_once(['\\', '/']) {
+        Some((dir, _)) if !dir.is_empty() => dir.to_string(),
+        _ => image_dir.to_string(),
+    }
 }
 
 /// Tell Defender to leave the folders alone, then read its list back to
@@ -160,16 +169,18 @@ pub(super) fn defender_ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str
         ];
     };
     let mut lines = Vec::new();
-    // A whole drive left alone before, as SPARE, that is none of the places
-    // now - Windows gave SPARE another letter since (another drive may have
-    // that one now), or WORK is not on SPARE now: Defender checks it again.
+    // Left alone before, and none of the places now - a whole drive, SPARE's
+    // letter before Windows gave SPARE another (another drive may have that
+    // one now), or WORK not on SPARE now; a folder chosen before another was:
+    // Defender checks it again.
     let before: Vec<String> =
         lock(app).setting("defender_added").lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     let spare = spare_letter(app);
-    for old in stale_drives(&before, &targets) {
+    for old in stale(&before, &targets) {
         // (Taken off since, by hand: only forgotten.)
-        let there = crate::winset::is_excluded(&list, Path::new(&old));
+        let there = list.iter().any(|e| norm(e) == norm(&old));
         let r = if there { crate::winset::set_defender_exclusion(Path::new(&old), false) } else { Ok(()) };
+        let whole = norm(&old).len() == 2;
         match r {
             Ok(()) => {
                 // (A folder on it, the image's say, is not left alone by the
@@ -180,16 +191,19 @@ pub(super) fn defender_ensure(app: &Arc<Mutex<App>>, image_dir: &str, work: &str
                     a.setting("defender_added").lines().filter(|s| !s.trim().is_empty() && norm(s) != norm(&old)).map(String::from).collect();
                 a.settings.insert("defender_added".to_string(), l.join("\n"));
                 a.save();
-                if there {
+                if there && whole {
                     let why = if !spare.trim().is_empty() && norm(&spare) != norm(&old) {
                         format!("that was SPARE's letter, and SPARE is {} now", spare.trim().trim_end_matches('\\'))
                     } else {
                         "WORK is not on SPARE now".to_string()
                     };
                     lines.push(format!("Defender checks the whole of {old} again: {why}."));
+                } else if there {
+                    lines.push(format!("Defender checks {old} again: it is none of the folders now."));
                 }
             }
-            Err(e) => lines.push(format!("Defender still leaves the whole of {old} alone (left alone as SPARE before): {e}")),
+            Err(e) if whole => lines.push(format!("Defender still leaves the whole of {old} alone (left alone as SPARE before): {e}")),
+            Err(e) => lines.push(format!("Defender still leaves {old} alone (none of the folders now): {e}")),
         }
     }
     let mut added = Vec::new();
@@ -480,10 +494,22 @@ mod tests {
     fn a_drive_that_was_spares_letter_is_scanned_again() {
         let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let targets = defender_targets(r"C:\IMAGE", r"F:\WORK", "F:", "C:");
-        assert_eq!(stale_drives(&v(&[r"C:\IMAGE", r"E:\"]), &targets), v(&[r"E:\"]));
-        assert_eq!(stale_drives(&v(&[r"C:\IMAGE", r"f:\", r"D:\RECOVERY\WORK"]), &targets), Vec::<String>::new());
+        assert_eq!(stale(&v(&[r"C:\IMAGE", r"E:\"]), &targets), v(&[r"E:\"]));
+        // A folder chosen before another was (or WORK under SPARE's letter
+        // before, E:\WORK): taken off too (before, left alone until 7. Put
+        // Windows back); one inside a place now stays.
+        assert_eq!(
+            stale(&v(&[r"C:\IMAGE", r"f:\", r"D:\RECOVERY\WORK", r"F:\WORK", r"E:\WORK", r"c:\image\"]), &targets),
+            v(&[r"D:\RECOVERY\WORK", r"E:\WORK"])
+        );
         // SPARE switched off, its letter remembered: still its own.
         let remembered = defender_targets(r"C:\IMAGE", r"E:\WORK", "E:", "C:");
-        assert_eq!(stale_drives(&v(&[r"E:\"]), &remembered), Vec::<String>::new());
+        assert_eq!(stale(&v(&[r"E:\"]), &remembered), Vec::<String>::new());
+        // The image made, and its folder's setting changed since: where the
+        // image is stays left alone (it is read again and again).
+        assert_eq!(image_folder(r"C:\IMAGE\recovered-ssd.img", r"D:\Elsewhere"), r"C:\IMAGE");
+        assert_eq!(image_folder("", r"C:\IMAGE"), r"C:\IMAGE", "not made yet: the folder chosen");
+        let made = defender_targets(&image_folder(r"C:\IMAGE\recovered-ssd.img", r"D:\Elsewhere"), r"F:\WORK", "F:", "C:");
+        assert_eq!(stale(&v(&[r"C:\IMAGE", r"F:\"]), &made), Vec::<String>::new());
     }
 }

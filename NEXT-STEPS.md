@@ -1511,6 +1511,49 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-7. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (afternoon): REPAIR's room on SPARE, Defender's list kept to the places
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **REPAIR's room on SPARE was never looked at.** SPARE is as big as the
+  old drive (1 TB each, the checklist says), and the map check's fit check
+  counts only the copies; REPAIR, beside WORK, keeps two or three copies of
+  every file that lost data (the copy to repair, the repaired version, that
+  again in WORK; or the hand-off's copy), and nothing said it might not fit
+  - the repairs would have run out of room hours later. Now, the copies
+  fitting and REPAIR maybe not, Start says so once the map check knows (its
+  first line, and "what just happened"). Not a stop: the repairs say so if
+  they run out, and nothing is lost.
+- **Defender, the rest of yesterday's fix:** a folder the program had
+  Defender leave alone that is none of the places now - WORK and REPAIR
+  under SPARE's letter before Windows gave it another (folders on whatever
+  drive has that letter now), a folder chosen before another was - stayed
+  left alone until 7. Put Windows back. Start now takes off everything it
+  added that is none of the places now, nor inside one ("Defender checks X
+  again: it is none of the folders now"); only what is exactly in
+  Defender's list (one the person excluded above it stays theirs).
+  The image's folder is where the image is, once it is made (the folder
+  chosen for it may be changed since, and is not needed then): never one
+  Defender checks again while the image is read, over and over.
+- Get ready's Defender button, and Check this PC, find WORK again under
+  SPARE's new letter first (as Start and Finalise do): the button asked for
+  the old letter's folders, and the folders part showed WORK there.
+- **Bring back, SPARE under another letter since the hand-off:** the page
+  offers the hand-off folder it was made in (E:\REPAIR\hand-off), which then
+  was not there - Bring back said it was "not a folder this PC can see (is
+  the USB stick plugged in?)". The hand-off folder under SPARE's old letter
+  is taken for the hand-off folder where it is now.
+- The README says both, and what the folders suggested are (a drive with
+  room, another than Windows' own if one has room - not "the PC's second
+  drive").
+- Version 2026-11-03 (9); the 2026-11-03 (8) checklist text is known
+  (1852546009502476488).
+- Tests here: unit tests 207 (and 207 with overflow checks), auto_check
+  99/99, auto_ui_check 35/35 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 73, 20 interruptions) 17/17. (Usage
+  ran out after these, 13:00-16:57; hourly check-ins in this conversation now
+  carry the rounds on by themselves when it comes back.)
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

@@ -1500,6 +1500,8 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             })
             .map(|_| format!("\"message\":{}", json_str("Windows no longer restarts by itself after a crash: it stops at the blue screen instead (7. Put Windows back as it was puts this back)."))),
         "defender-ensure" => need_admin(app).map(|_| {
+            // (WORK where it is now: SPARE under another letter, say.)
+            auto::find_work_again(app);
             let map = lock(app).setting("mapfile");
             let (si, sw, _) = suggested_folders(app, &map);
             let (i, w) = {
@@ -1843,6 +1845,12 @@ fn prepare_rescue(app: &Arc<Mutex<App>>, disk: &str, out: &str, everything: bool
 
 /// What Get ready shows: the checks of this PC, the tools, the folders it suggests.
 fn ready_json(app: &Arc<Mutex<App>>, fresh: bool) -> String {
+    // Check this PC: WORK where it is now (SPARE plugged in under another
+    // letter, twice a year say), so the folders show it there - as Start and
+    // Finalise find it.
+    if fresh {
+        auto::find_work_again(app);
+    }
     {
         // No mapfile chosen yet: the best one in the program's folder.
         let home = lock(app).home.clone();

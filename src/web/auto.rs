@@ -192,9 +192,13 @@ pub(super) struct Plan {
     pub videos: bool,
 }
 
-pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
-    // SPARE plugged in under another letter than before (Windows gives a
-    // drive the first free one): WORK is found there again.
+/// SPARE plugged in under another letter than before (Windows gives a drive
+/// the first free one): WORK is found there again, and the setting follows
+/// (not under a job that works with it).
+pub(super) fn find_work_again(app: &Arc<Mutex<App>>) {
+    if lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
+        return;
+    }
     let moved = {
         let (w, spare_id) = {
             let a = lock(app);
@@ -209,6 +213,10 @@ pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
         drop(a);
         crate::live::event("info", &format!("WORK is {now} now ({was} before): Windows gave SPARE another letter"));
     }
+}
+
+pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
+    find_work_again(app);
     let a = lock(app);
     let map = a.setting("mapfile");
     let image_dir = a.setting("auto_image_dir");
@@ -1062,6 +1070,34 @@ fn stage_mapcheck(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, 
     r
 }
 
+/// REPAIR, beside WORK on SPARE, keeps a copy of every file that lost data,
+/// its repaired version, and that again in WORK (the original moved into
+/// REPAIR) - up to three times what those files take. `room`: what SPARE
+/// has for WORK and REPAIR; `copies`: what WORK takes; `losing`: the files
+/// that lost data (how many, their bytes). Said when the copies fit and
+/// REPAIR may not: not a stop - the repairs say so if they run out, and
+/// nothing is lost - but hours sooner. (Before, nothing said it: SPARE is
+/// as big as the old drive.) The copies not fitting at all, the copying
+/// itself says so, before it begins.
+fn repair_room_note(room: u64, copies: u64, losing: (u64, u64), letter: &str) -> Option<String> {
+    let (n, bytes) = losing;
+    let need = bytes.saturating_mul(3);
+    let left = room.saturating_sub(copies.saturating_add(1 << 30));
+    if n == 0 || copies.saturating_add(1 << 30) > room || need <= left {
+        return None;
+    }
+    Some(format!(
+        "{letter} has room for the copies, but maybe not for REPAIR beside them: the {} {} that lost data take {}, and REPAIR \
+         keeps two or three copies of each (up to {}), with {} left once the copies are in. If it runs out, the repairs stop \
+         and say so (nothing is lost); with more room on SPARE they carry on.",
+        crate::fmt::commas(n),
+        if n == 1 { "file" } else { "files" },
+        crate::fmt::size(bytes),
+        crate::fmt::size(need),
+        crate::fmt::size(room.saturating_sub(copies))
+    ))
+}
+
 fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> Result<End, String> {
     check_disk(app, image)?;
     let started = local_now();
@@ -1111,6 +1147,7 @@ fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> 
         );
     }
     // Will it fit?
+    let mut room_note = None;
     if problem.is_none() {
         if let Some(d) = drive_of(&plan.work) {
             let already = crate::verify::ListTotals::read(Path::new(&plan.work)).ok().map(|l| l.file_bytes + l.piece_bytes).unwrap_or(0);
@@ -1121,6 +1158,10 @@ fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> 
                     d.letter,
                     crate::fmt::size(d.free)
                 ));
+            } else {
+                // (REPAIR's room, beside WORK: hours later.)
+                let copies = report.bytes_seen.saturating_add(report.lost_bytes());
+                room_note = repair_room_note(d.free + already, copies, crate::mapcheck::losing(&report), &d.letter);
             }
         }
     }
@@ -1135,6 +1176,10 @@ fn run_map_check(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, image: &str) -> 
     crate::live::event(if problem.is_some() { "warn" } else { "info" }, &format!("Found what the damage touched: {}", crate::mapcheck::found_words(&report)));
     let mut lines: Vec<String> = summary.iter().take(8).cloned().collect();
     lines.extend(crate::mapcheck::windows_lines(&report).into_iter().take(3));
+    if let Some(n) = room_note {
+        crate::live::event("warn", &n);
+        lines.insert(0, n);
+    }
     match problem {
         Some(p) => Ok(End::Stop(p, lines)),
         None => Ok(End::Done(lines)),
@@ -1473,6 +1518,23 @@ fn stage_handoff(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, S
 
 /// Take in what came back from the Mac or a paid tool, put it back, and check
 /// everything again.
+/// The hand-off folder under SPARE's letter before Windows gave it another
+/// (the page offers the folder the hand-off was made in): the hand-off
+/// folder where it is now. (Before, Bring back said it was "not a folder
+/// this PC can see (is the USB stick plugged in?)".)
+fn handoff_now(from: &Path, now: &Path) -> PathBuf {
+    let parts: Vec<String> =
+        from.display().to_string().split(['\\', '/']).filter(|c| !c.is_empty()).map(|c| c.to_lowercase()).collect();
+    let is_handoff = parts.len() >= 2
+        && parts[parts.len() - 1] == handoff::HANDOFF_DIR.to_lowercase()
+        && parts[parts.len() - 2] == crate::repair::REPAIR_DIR.to_lowercase();
+    if is_handoff && !from.is_dir() && now.is_dir() {
+        now.to_path_buf()
+    } else {
+        from.to_path_buf()
+    }
+}
+
 pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64, String> {
     let plan = plan_of(app)?;
     work_is_there(&plan.work)?;
@@ -1483,6 +1545,7 @@ pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64,
     // version saved beside its damaged copy too. The damaged copies
     // themselves are known by their checksum and left.)
     let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR) } else { PathBuf::from(super::drive_top(from.trim())) };
+    let from = handoff_now(&from, &repair.join(handoff::HANDOFF_DIR));
     if !from.is_dir() {
         return Err(format!("{} is not a folder this PC can see (is the USB stick plugged in?)", from.display()));
     }
@@ -1944,6 +2007,40 @@ mod tests {
         }));
         let e = spare_off(&app, 5).unwrap_err();
         assert!(e.contains("is running"), "{e}");
+    }
+
+    /// SPARE as big as the old drive (1 TB each): the copies fit, and REPAIR
+    /// beside them may not - said once the map check knows, hours before
+    /// the repairs would run out of room (before, nothing said it).
+    #[test]
+    fn repair_without_room_beside_the_copies_is_said() {
+        const GB: u64 = 1 << 30;
+        // 931 GB free; 850 GB of copies; 40 GB of files that lost data (up to 120 GB in REPAIR).
+        let n = repair_room_note(931 * GB, 850 * GB, (37, 40 * GB), "E:").unwrap();
+        assert!(n.starts_with("E: has room for the copies, but maybe not for REPAIR") && n.contains("37 files"), "{n}");
+        assert!(n.contains("120.0 GB") && n.contains("81.0 GB left"), "{n}");
+        assert_eq!(repair_room_note(931 * GB, 600 * GB, (37, 40 * GB), "E:"), None, "room for both");
+        assert_eq!(repair_room_note(931 * GB, 931 * GB, (37, 40 * GB), "E:"), None, "the copies themselves do not fit: the copying says so");
+        assert_eq!(repair_room_note(931 * GB, 925 * GB, (0, 0), "E:"), None, "no file lost data");
+        assert!(repair_room_note(100 * GB, 90 * GB, (1, 5 * GB), "F:").unwrap().contains("the 1 file that lost data"));
+    }
+
+    /// Bring back offered the hand-off folder under SPARE's letter before
+    /// Windows gave it another: it is the hand-off folder where it is now.
+    #[test]
+    fn the_hand_off_folder_under_spares_old_letter_is_where_it_is_now() {
+        let base = std::env::temp_dir().join(format!("arp-handoff-now-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let now = base.join("F").join("REPAIR").join("hand-off");
+        std::fs::create_dir_all(&now).unwrap();
+        let old = base.join("E").join("REPAIR").join("hand-off");
+        assert_eq!(handoff_now(&old, &now), now);
+        assert_eq!(handoff_now(&now, &now), now);
+        let stick = base.join("STICK");
+        assert_eq!(handoff_now(&stick, &now), stick, "anything else is as chosen (and said not to be there)");
+        let other = base.join("E").join("REPAIR").join("hand-off").join("returned");
+        assert_eq!(handoff_now(&other, &now), other);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// Finalise twice a year, or Bring back, with SPARE not plugged in: they

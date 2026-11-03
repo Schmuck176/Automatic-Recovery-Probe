@@ -2257,6 +2257,14 @@ fn windows_json(w: Option<&WindowsView>, most: usize) -> String {
 /// What the front end shows of a map check (JSON): the totals, the files
 /// that lost data (most damage first), what Windows cannot list, and each
 /// unread place with what it hits.
+/// The files that lost data: how many, and the bytes they take in all (the
+/// room their copies need in REPAIR).
+pub fn losing(r: &Report) -> (u64, u64) {
+    let losing: Vec<&Item> =
+        r.files().filter(|i| !i.only_past_valid_data() && i.damaged_bytes() > 0).chain(r.lost_items.iter()).collect();
+    (losing.len() as u64, losing.iter().fold(0u64, |t, i| t.saturating_add(i.size)))
+}
+
 /// What the map check found, in one line (for "what just happened").
 pub fn found_words(r: &Report) -> String {
     let losing: Vec<&Item> =

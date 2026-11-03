@@ -48,15 +48,16 @@ check, then the copies), whether SPARE is switched off, and whether Defender
 leaves it alone. Start tells Defender itself to leave the image's folder and
 SPARE alone, and confirms it in Defender's own list; 7. Put Windows back as it
 was takes that off again. Never Windows' own drive or folders, nor a whole drive
-other than SPARE (a drive left alone whole as SPARE that is not SPARE now -
-Windows gave SPARE another letter - is taken off again). Every setting the
-program changes has a **Show me** button beside it that opens Windows' own
-page for it (Windows Security at Exclusions, the "Automatically restart"
-setting, Windows Update, Disk Management, the notification settings), and
-**Show what Windows itself says** opens a window with Windows' own answers,
-read-only: Defender's exclusions, the policy for new disks (`diskpart san`),
-the disks and whether each is switched off, the crash setting, a restart
-waiting, what keeps the PC awake.
+other than SPARE (what it had Defender leave alone that is none of these now -
+the letter SPARE had before Windows gave it another, a folder chosen before
+another was - is taken off again). Every setting the program changes has a
+**Show me** button beside it that opens Windows' own page for it (Windows
+Security at Exclusions, the "Automatically restart" setting, Windows Update,
+Disk Management, the notification settings), and **Show what Windows itself
+says** opens a window with Windows' own answers, read-only: Defender's
+exclusions, the policy for new disks (`diskpart san`), the disks and whether
+each is switched off, the crash setting, a restart waiting, what keeps the PC
+awake.
 
 The parts of the Automatic tab:
 
@@ -74,8 +75,9 @@ The parts of the Automatic tab:
    again, it must arrive switched off - then so will the recovered SSD, taken
    for SPARE or as a disk never seen. Removable media, or switched on again:
    stop.
-3. **The folders** - suggested: the image in `IMAGE` on the PC's second drive,
-   the copies in `WORK` on SPARE, the second copy in `COPY 2`; and,
+3. **The folders** - suggested: the image in `IMAGE` on a drive of the PC
+   with room for it (another than Windows' own, if one has room), the copies
+   in `WORK` on SPARE, the second copy in `COPY 2` beside the image; and,
    optionally, folders holding older copies of the files.
 4. **Start** - runs by itself, stage by stage, and carries on where it stopped
    after Stop, a closed window or a power cut:
@@ -85,7 +87,7 @@ The parts of the Automatic tab:
    | ready | the checks again; Windows set to leave new disks switched off |
    | image | waits for the recovered SSD, marks it read-only by itself, reads it once into one file, reads the file back to check it (Recovery Probe's step 4) |
    | open | opens the image read-only with AIM Toolkit's command line, so the map check can compare itself with Windows' own reading |
-   | mapcheck | which files the never-read places touched; stops on a date after the copy, a disagreement with Windows, records claiming space not theirs, or files that won't fit (step 5) |
+   | mapcheck | which files the never-read places touched; stops on a date after the copy, a disagreement with Windows, records claiming space not theirs, or files that won't fit (step 5); says so when the copies fit and REPAIR, beside them, may not |
    | copy | waits for SPARE (switches it on if it arrived switched off), copies everything off the image with a checksum per file (step 6) |
    | verify | every copy against its checksum, and the safety check (step 7) |
    | scan | every file's structure, joined with the map check (step 7) |
