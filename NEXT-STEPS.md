@@ -1348,6 +1348,35 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-3. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (morning, later): the second copy's REPAIR, a notification once
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Finalise kept an older repaired version in the second copy's REPAIR**: a
+  newer version brought back under the same name as the one before it (the
+  older one moved to REPAIR\replaced) gets its original's dates, as every
+  version does, and with the same size too (an intact twin, a second try of
+  the same repair) the second copy took it for the one there already. Files
+  in REPAIR\repaired and REPAIR\salvaged are compared by their contents now,
+  as WORK's put-back files already were (the rest of REPAIR, and RECORDS, by
+  size and dates as before: nothing else there is ever replaced so).
+- The notification "The SSD has not cooled in 45 minutes" came each time it
+  happened - in a warm room, about every 50 minutes of a long image. Once
+  now ("what just happened" still has each).
+- The repository's README says what the cooling does after a quarter of an
+  hour, and after 45 minutes.
+- Fuzzed with nothing found: the repairs' own readers of JPEG, WAV, PDF, PNG
+  and zip-kind files, and the test for an intact twin (58,500 mangled sample
+  files, in a build that checks its sums); the program's own lists
+  (rescue-log.csv, repair-list.csv, repair-returns.csv, the repairs' log)
+  mangled in 2,400 ways, then the copy check, the hand-off, put back and the
+  copying again over them.
+- Version 2026-11-03 (5); the 2026-11-03 (4) checklist text is known
+  (496753919670135684).
+- Tests here: unit tests 200 (and 200 with overflow checks), test_mapcheck
+  94/94, auto_check 96/96, auto_ui_check 34/34 and ui_check 67/67 with both
+  fonts, resume_check (seed 53, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

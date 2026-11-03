@@ -265,6 +265,9 @@ pub fn watch(n: Option<u32>, pause: Arc<AtomicBool>, done: Arc<AtomicBool>) -> s
             return;
         };
         let mut c = Cooling::new(limit);
+        // (Told by a notification once: in a warm room it can happen again
+        // and again, each time reading pauses and the SSD cools no further.)
+        let mut stuck_told = false;
         while !done.load(Ordering::Relaxed) && crate::live::drive_reading() {
             let t = way.read();
             if done.load(Ordering::Relaxed) {
@@ -325,14 +328,17 @@ pub fn watch(n: Option<u32>, pause: Arc<AtomicBool>, done: Arc<AtomicBool>) -> s
                                 c.pause_at()
                             ),
                         );
-                        crate::notify::toast(
-                            "The SSD has not cooled in 45 minutes: reading carries on",
-                            &format!(
-                                "It has stayed at {low} °C or more at rest - its temperature reading may be stuck. If the \
-                                 SSD really feels hot, click Stop and give it air."
-                            ),
-                            true,
-                        );
+                        if !stuck_told {
+                            stuck_told = true;
+                            crate::notify::toast(
+                                "The SSD has not cooled in 45 minutes: reading carries on",
+                                &format!(
+                                    "It has stayed at {low} °C or more at rest - its temperature reading may be stuck. If \
+                                     the SSD really feels hot, click Stop and give it air."
+                                ),
+                                true,
+                            );
+                        }
                     }
                 }
             }

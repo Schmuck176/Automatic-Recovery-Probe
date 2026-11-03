@@ -37,7 +37,10 @@ While the image is made, a strip of the whole SSD fills in as it is read (green
 read, amber read slowly, red could not be read), with how fast it reads over
 time (a sagging speed is said to be an early sign it struggles) and how warm
 it is, read from Windows every half minute: at 70 °C (lower if the SSD's own
-warning level is lower) reading pauses until it has cooled by 10 °C. While the
+warning level is lower) reading pauses until it has cooled by 10 °C (by 5 °C
+after a quarter of an hour; and if it has not gone a degree lower in 45
+minutes - a reading that is stuck, or a room too warm for it to cool more -
+reading carries on, pausing again only on a real rise). While the
 repairs run, and afterwards in What is left, the photos are shown before and
 after their repair (click one to see it bigger). Beside each folder: the drive it is on and its
 free space, what it needs and what it holds (from the mapfile, then the map

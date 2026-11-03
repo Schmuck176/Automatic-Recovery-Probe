@@ -131,6 +131,16 @@ pub(super) fn copy_tree(
     Ok(c)
 }
 
+/// A file in REPAIR that the second copy compares by its contents: in
+/// "repaired" or "salvaged", where a version brought back or made again
+/// replaces another under the same name, and with the same dates.
+fn by_contents_in_repair(repair: &Path, p: &Path) -> bool {
+    crate::repair::relative_to(repair, &p.display().to_string()).is_some_and(|rel| {
+        let first = rel.split('\\').next().unwrap_or("");
+        first.eq_ignore_ascii_case(crate::repair::REPAIRED) || first.eq_ignore_ascii_case(crate::repair::SALVAGED)
+    })
+}
+
 /// Two modified times the same, as the second copy's drive keeps them: exFAT
 /// keeps a file's time to 10 ms, a network drive to a second or two, where
 /// NTFS keeps it to 100 ns. (Before, on an exFAT drive every file the program
@@ -314,8 +324,18 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &auto::Plan) -> Result<Outcome, S
             crate::repair::relative_to(&work, &p.display().to_string().replace('/', "\\"))
                 .is_some_and(|r| returned.contains(&r.to_lowercase()))
         };
+        // So is every version in REPAIR's repaired and salvaged folders: a
+        // newer one replaces an older under the same name, with the same dates
+        // (each is given its original's) - the same size too, it may be.
+        let in_repaired = |p: &Path| by_contents_in_repair(&repair, p);
         for (from, to) in &parts {
-            let always: &dyn Fn(&Path) -> bool = if from == &work { &in_work } else { &|_| false };
+            let always: &dyn Fn(&Path) -> bool = if from == &work {
+                &in_work
+            } else if from == &repair {
+                &in_repaired
+            } else {
+                &|_| false
+            };
             let c = copy_tree(from, to, &mut |d, t| ctx.amount(d, t), &|| ctx.stopping(), total, &mut done, always, work_ok)?;
             copied.files += c.files;
             copied.bytes += c.bytes;
@@ -507,6 +527,38 @@ mod tests {
         let (c, _) = copy(&|_| false, true);
         assert_eq!((c.files, c.replaced), (1, 1), "replaced, read-only as it was there");
         assert_eq!(std::fs::read(b.join("locked.txt")).unwrap(), b"LOCKED");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A newer repaired version brought back under the same name as the one
+    /// before it, with the same size and the same dates (its original's): the
+    /// second copy's REPAIR is put right (before, only WORK's files put back
+    /// were compared by their contents, and the second copy kept the older
+    /// version in REPAIR\repaired).
+    #[test]
+    fn a_newer_version_in_repair_is_copied_again() {
+        let base = std::env::temp_dir().join(format!("arp-copy2-repair-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repair = base.join("REPAIR");
+        let v = repair.join(crate::repair::REPAIRED).join("returned").join("a [R0001].jpg");
+        std::fs::create_dir_all(v.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(repair.join("originals")).unwrap();
+        std::fs::write(&v, b"first version").unwrap();
+        std::fs::write(repair.join("originals").join("a.jpg"), b"the damaged one").unwrap();
+        let dates = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_500_000_000);
+        std::fs::File::options().write(true).open(&v).unwrap().set_modified(dates).unwrap();
+        let b = base.join("COPY 2").join("REPAIR");
+        let in_repaired = |p: &Path| by_contents_in_repair(&repair, p);
+        let mut done = 0;
+        copy_tree(&repair, &b, &mut |_, _| {}, &|| false, 0, &mut done, &in_repaired, true).unwrap();
+        std::fs::write(&v, b"other version").unwrap();
+        std::fs::File::options().write(true).open(&v).unwrap().set_modified(dates).unwrap();
+        let c = copy_tree(&repair, &b, &mut |_, _| {}, &|| false, 0, &mut done, &in_repaired, true).unwrap();
+        assert_eq!((c.files, c.replaced), (1, 1), "{c:?}");
+        assert_eq!(std::fs::read(b.join(crate::repair::REPAIRED).join("returned").join("a [R0001].jpg")).unwrap(), b"other version");
+        assert!(by_contents_in_repair(&repair, &repair.join("salvaged").join("x.tif")));
+        assert!(!by_contents_in_repair(&repair, &repair.join("originals").join("a.jpg")), "the rest by size and dates");
+        assert!(!by_contents_in_repair(&repair, &base.join("WORK").join("repaired").join("a.jpg")));
         let _ = std::fs::remove_dir_all(&base);
     }
 
