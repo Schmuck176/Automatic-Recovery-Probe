@@ -1116,6 +1116,15 @@ fn drives_json() -> String {
 }
 
 /// A folder's contents for the picker; "" lists the drives.
+/// "E:" alone is, to Windows, wherever the program last was on E: - the
+/// drive's top is what is meant: "E:\\".
+pub(super) fn drive_top(path: &str) -> String {
+    match path.as_bytes() {
+        [l, b':'] if l.is_ascii_alphabetic() && cfg!(windows) => format!("{path}\\"),
+        _ => path.to_string(),
+    }
+}
+
 fn list_json(path: &str, show: &str) -> String {
     let files_too = show == "files";
     if path.is_empty() {
@@ -1136,6 +1145,7 @@ fn list_json(path: &str, show: &str) -> String {
             .collect();
         return Obj::new().s("path", "").s("parent", "").raw("entries", &arr(entries)).end();
     }
+    let path = &drive_top(path);
     let p = Path::new(path);
     let rd = match std::fs::read_dir(p) {
         Ok(r) => r,
@@ -1298,8 +1308,32 @@ fn need_admin(app: &Arc<Mutex<App>>) -> Result<(), String> {
     }
 }
 
+/// A path as typed or pasted: File Explorer's "Copy as path" (Ctrl+Shift+C)
+/// puts it in quotes ("E:\WORK"), and no name on Windows holds one - taken
+/// without them. Line by line, for a list of folders.
+fn clean_path(s: &str) -> String {
+    s.lines()
+        .map(|l| {
+            let t = l.trim();
+            t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).unwrap_or(t).trim()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The settings, and the fields of an action, that hold paths.
+const PATH_SETTINGS: &[&str] = &["mapfile", "auto_image_dir", "auto_work", "auto_copy2", "auto_search", "image_dir", "copy_to", "scan_folder", "disk"];
+const PATH_FIELDS: &[&str] = &["folder", "from", "out", "map", "earlier", "disk", "path"];
+
 fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
-    let g = |k: &str| f.get(k).cloned().unwrap_or_default();
+    let g = |k: &str| {
+        let v = f.get(k).cloned().unwrap_or_default();
+        if PATH_FIELDS.contains(&k) {
+            clean_path(&v)
+        } else {
+            v
+        }
+    };
     let on = |k: &str| matches!(g(k).as_str(), "1" | "true" | "on" | "yes");
     let disk_number = |k: &str| -> Result<u32, String> {
         g(k).trim_start_matches(r"\\.\PhysicalDrive").parse().map_err(|_| "which disk?".to_string())
@@ -1309,6 +1343,8 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             // What a running job works with is not changed under it (the
             // folders, the mapfile); WORK not once Start has copied into it.
             let running = lock(app).job.as_ref().filter(|j| j.state == "running").map(|j| j.title.clone());
+            let f: HashMap<String, String> =
+                f.iter().map(|(k, v)| (k.clone(), if PATH_SETTINGS.contains(&k.as_str()) { clean_path(v) } else { v.clone() })).collect();
             if let Some(title) = running {
                 for k in ["mapfile", "auto_image_dir", "auto_work", "auto_copy2"] {
                     if f.get(k).is_some_and(|v| v.trim() != lock(app).setting(k).trim()) {
@@ -1323,7 +1359,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
                 auto::work_change_ok(app, w)?;
             }
             let mut a = lock(app);
-            for (k, v) in f {
+            for (k, v) in &f {
                 if k != "action" {
                     a.settings.insert(k.clone(), v.clone());
                 }
@@ -2935,6 +2971,55 @@ mod tests {
         }));
         assert_eq!(folder_on_disk(&app, n).as_deref(), Some(temp.as_str()));
         assert_eq!(folder_on_disk(&app, n + 1000), None);
+    }
+
+    /// On Windows: "C:" typed in the folder picker lists C:'s top (Windows
+    /// would list wherever the program last was on C:, and the folders shown
+    /// there were named "C:name", which no step takes).
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_letter_alone_lists_the_drives_top() {
+        assert_eq!(drive_top("E:"), "E:\\");
+        assert_eq!(drive_top("E:\\returned"), "E:\\returned");
+        assert_eq!(drive_top("é:"), "é:");
+        let j = list_json("C:", "dirs");
+        assert!(j.contains(r#""path":"C:\\""#) && j.contains(r#""parent":"""#), "{j}");
+        assert!(j.contains(r#"C:\\Windows""#), "{j}");
+    }
+
+    /// A folder pasted the way File Explorer's "Copy as path" gives it, in
+    /// quotes: taken without them (before: kept with them, and Start said
+    /// WORK was "not written out from its drive"; Bring back, that it was
+    /// "not a folder").
+    #[test]
+    fn a_path_pasted_in_quotes_is_taken_without_them() {
+        assert_eq!(clean_path("  \"E:\\WORK\"  "), "E:\\WORK");
+        assert_eq!(clean_path("E:\\WORK"), "E:\\WORK");
+        assert_eq!(clean_path("\"D:\\Old photos\"\r\n  F:\\Backup \n"), "D:\\Old photos\nF:\\Backup");
+        assert_eq!(clean_path("\""), "\"", "a quote alone is not a pair");
+        assert_eq!(clean_path(""), "");
+        let dir = std::env::temp_dir().join(format!("arp-quoted-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.clone(),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::default(),
+        }));
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let r = act(&app, &form(&[("action", "set"), ("auto_work", "\"E:\\WORK\""), ("auto_search", "\"D:\\Old photos\"\nF:\\Backup"), ("note", "\"as typed\"")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        let a = lock(&app);
+        assert_eq!(a.setting("auto_work"), "E:\\WORK");
+        assert_eq!(a.setting("auto_search"), "D:\\Old photos\nF:\\Backup");
+        assert_eq!(a.setting("note"), "\"as typed\"", "what is not a path is kept as it is");
+        drop(a);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The person's copy of the checklist, saved by another editor (not

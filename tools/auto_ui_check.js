@@ -82,12 +82,16 @@ function iconsWithoutWords(page) {
     // 3. The folders.
     await page.fill("#af-image", path.join(work, "IMAGE"));
     await page.dispatchEvent("#af-image", "change");
-    await page.fill("#af-work", path.join(work, "SPARE", "WORK"));
+    // WORK pasted the way File Explorer's "Copy as path" gives it: in quotes.
+    const workDir = path.join(work, "SPARE", "WORK");
+    await page.fill("#af-work", '"' + workDir + '"');
     await page.dispatchEvent("#af-work", "change");
     await page.fill("#af-copy2", path.join(work, "COPY 2"));
     await page.dispatchEvent("#af-copy2", "change");
     await page.waitForFunction(() => /Chosen/.test(document.getElementById("ast-folders").textContent), null, { timeout: 10000 });
     check(true, "the folders are chosen");
+    const pasted = await page.evaluate(() => [setting("auto_work"), document.getElementById("af-work").value]);
+    check(pasted[0] === workDir && pasted[1] === workDir, "a folder pasted in quotes (File Explorer's Copy as path) is taken without them (" + pasted.join(" | ") + ")");
     // What each folder needs, beside it: worked out from the mapfile.
     await page.evaluate(() => loadPlaces());
     const needs = await page.waitForFunction(() => /Needs/.test(document.getElementById("facts-image").textContent) &&

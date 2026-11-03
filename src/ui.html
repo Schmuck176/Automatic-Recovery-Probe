@@ -1197,6 +1197,14 @@ function nominal(n) {
   if (n >= 1e9) return Math.round(n / 1e9) + " GB";
   return size(n);
 }
+// A path as typed or pasted: File Explorer's "Copy as path" puts it in
+// quotes ("E:\WORK"), and no name on Windows holds one. Line by line.
+function cleanPath(s) {
+  return String(s || "").split(/\r?\n/).map((l) => {
+    const t = l.trim();
+    return t.length >= 2 && t[0] === '"' && t[t.length - 1] === '"' ? t.slice(1, -1).trim() : t;
+  }).join("\n").trim();
+}
 function duration(s) {
   s = Math.max(0, Math.round(s));
   if (s < 60) return s + " s";
@@ -2075,7 +2083,7 @@ function renderScan() {
 }
 
 function repairFolder() {
-  const f = $("scan-folder").value.trim();
+  const f = cleanPath($("scan-folder").value);
   return f || setting("scan_folder") || setting("copy_to");
 }
 function renderRepair() {
@@ -2307,7 +2315,7 @@ async function startJob(step, fields) {
 $("b-test").onclick = () => startJob("test", { action: "selftest" });
 $("b-imagecheck").onclick = () => startJob("imagecheck", { action: "check-image" });
 $("b-image").onclick = async () => {
-  const to = $("image-to").value.trim();
+  const to = cleanPath($("image-to").value);
   if (!to) { note("image", "err", "Choose where the image goes first."); return; }
   await save({ image_dir: to });
   startJob("image", { action: "image", disk: setting("disk"), out: to });
@@ -2322,18 +2330,18 @@ $("b-undo").onclick = () => {
 };
 $("b-evaluate").onclick = () => startJob("evaluate", { action: "evaluate", folder: repairFolder() });
 $("b-verify").onclick = () => {
-  const f = $("scan-folder").value.trim();
+  const f = cleanPath($("scan-folder").value);
   if (!f) { note("verify", "err", "Choose the folder the copies went into first (above)."); return; }
   startJob("verify", { action: "verify", folder: f });
 };
 $("b-copy").onclick = async () => {
-  const to = $("copy-to").value.trim();
+  const to = cleanPath($("copy-to").value);
   if (!to) { note("copy", "err", "Choose where the copies go first."); return; }
   await save({ copy_to: to });
   startJob("copy", { action: "rescue", disk: source(), out: to, everything: "1", lost: $("copy-lost").checked ? "1" : "0" });
 };
 $("b-scan").onclick = async () => {
-  const f = $("scan-folder").value.trim();
+  const f = cleanPath($("scan-folder").value);
   if (!f) { note("scan", "err", "Choose the folder to check first."); return; }
   await save({ scan_folder: f });
   startJob("scan", { action: "scan", folder: f, holes: $("scan-holes").checked ? "1" : "0", hole_kb: "4", join: $("scan-join").checked ? setting("last_map_check") : "" });
@@ -2375,10 +2383,10 @@ async function pickerShow(path) {
   $("picker-up").disabled = !r.path;
 }
 $("picker-up").onclick = () => pickerShow(pick.parent || "");
-$("picker-go").onclick = () => pickerShow($("picker-path").value.trim());
-$("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") pickerShow($("picker-path").value.trim()); });
+$("picker-go").onclick = () => pickerShow(cleanPath($("picker-path").value));
+$("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") pickerShow(cleanPath($("picker-path").value)); });
 $("picker-cancel").onclick = () => $("picker").close();
-$("picker-ok").onclick = () => { const p = $("picker-path").value.trim(); $("picker").close(); if (p) pick.done(p); };
+$("picker-ok").onclick = () => { const p = cleanPath($("picker-path").value); $("picker").close(); if (p) pick.done(p); };
 $("b-mapfile").onclick = () => openPicker("Choose the mapfile", S.home, true, chooseMapfile);
 $("b-copy-to").onclick = () => openPicker("Choose where the copies go", $("copy-to").value || "", false, (p) => {
   // A whole drive chosen: the copies go into a WORK folder on it, as the checklist says.
@@ -2394,7 +2402,7 @@ $("image-to").addEventListener("change", () => updateImageSpace());
 $("b-scan-folder").onclick = () => openPicker("Choose the folder to check", $("scan-folder").value || setting("copy_to"), false, (p) => { $("scan-folder").value = p; $("scan-folder").dataset.touched = "1"; });
 
 async function updateImageSpace() {
-  const p = $("image-to").value.trim();
+  const p = cleanPath($("image-to").value);
   const out = $("image-space");
   if (!p) { out.textContent = ""; return; }
   const parent = p.replace(/[\\/][^\\/]*$/, "") || p;
@@ -2405,7 +2413,7 @@ async function updateImageSpace() {
   } catch { out.textContent = ""; }
 }
 async function updateSpace() {
-  const p = $("copy-to").value.trim();
+  const p = cleanPath($("copy-to").value);
   const out = $("copy-space");
   if (!p) { out.textContent = ""; return; }
   const parent = p.replace(/[\\/][^\\/]*$/, "") || p;
@@ -3218,7 +3226,7 @@ async function saveFolder(el, key, value) {
 for (const [id, key, sub] of FOLDERS) {
   const el = $(id);
   el.addEventListener("input", () => { el.dataset.touched = "1"; });
-  el.addEventListener("change", () => saveFolder(el, key, el.value.trim()));
+  el.addEventListener("change", () => { el.value = cleanPath(el.value); saveFolder(el, key, el.value); });
   $("b-" + id).onclick = () => openPicker("Choose the folder", el.value || "", false, (p) => {
     // A whole drive chosen: the folder goes on it.
     if (/^[A-Za-z]:\\?$/.test(p)) p = p.slice(0, 2) + "\\" + sub;
@@ -3226,13 +3234,13 @@ for (const [id, key, sub] of FOLDERS) {
   });
 }
 $("af-search").addEventListener("input", () => { $("af-search").dataset.touched = "1"; });
-$("af-search").addEventListener("change", () => save({ auto_search: $("af-search").value }));
+$("af-search").addEventListener("change", () => save({ auto_search: cleanPath($("af-search").value) }));
 $("af-videos").addEventListener("change", () => save({ auto_videos: $("af-videos").checked ? "1" : "0" }));
 $("b-auto-start").onclick = async () => {
   note("start", "", "");
   // Folders typed but not yet saved.
   const f = {};
-  for (const [id, key] of FOLDERS) if ($(id).value.trim() !== setting(key)) f[key] = $(id).value.trim();
+  for (const [id, key] of FOLDERS) if (cleanPath($(id).value) !== setting(key)) f[key] = cleanPath($(id).value);
   try {
     if (Object.keys(f).length) await save(f);
     await act({ action: "auto-start" });
@@ -3261,7 +3269,7 @@ $("ar-left").addEventListener("click", async (e) => {
     openPicker("Bring back from this folder", $("ab-from").value || "", false, (p) => { $("ab-from").value = p; $("ab-from").dataset.touched = "1"; });
   } else if (b.id === "b-bring") {
     note("left", "", "");
-    try { await act({ action: "bring-back", from: $("ab-from").value.trim() }); } catch (err) { note("left", "err", err.message); }
+    try { await act({ action: "bring-back", from: cleanPath($("ab-from").value) }); } catch (err) { note("left", "err", err.message); }
     await refresh();
   }
 });

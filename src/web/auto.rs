@@ -1451,7 +1451,7 @@ pub(super) fn start_bring_back(app: &Arc<Mutex<App>>, from: &str) -> Result<u64,
     // (By default the whole hand-off folder: "returned", and a repaired
     // version saved beside its damaged copy too. The damaged copies
     // themselves are known by their checksum and left.)
-    let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR) } else { PathBuf::from(from.trim()) };
+    let from = if from.trim().is_empty() { repair.join(handoff::HANDOFF_DIR) } else { PathBuf::from(super::drive_top(from.trim())) };
     if !from.is_dir() {
         return Err(format!("{} is not a folder this PC can see (is the USB stick plugged in?)", from.display()));
     }

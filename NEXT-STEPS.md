@@ -1389,6 +1389,28 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-4. The PC as before: nothing run since, no
   folders chosen.
 
+## 3 Nov 2026 (late morning): a folder pasted in quotes, a drive letter alone
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **A folder pasted the way File Explorer's "Copy as path" gives it** (Ctrl+
+  Shift+C, or Shift+right-click: in quotes, "E:\WORK") was kept with its
+  quotes: Start then said WORK was "not written out from its drive: write it
+  in full" - which it was - and Bring back that the stick was not a folder;
+  the steps' folders the same. No Windows name holds a quote: a path in
+  quotes is taken without them now, on the page (the field shows it so) and
+  by the program (every folder setting, every action's folder, line by line
+  for the list of older copies). auto_ui_check pastes WORK in quotes now.
+- **"E:" typed alone** (the USB stick's letter) is, to Windows, wherever the
+  program last was on E:, not E:'s top: the folder picker listed that
+  folder, and named what was in it "E:name" (which no step takes); Bring
+  back walked it. Taken as E:'s top now.
+- Version 2026-11-03 (6); the 2026-11-03 (5) checklist text is known
+  (7387997572815069701).
+- Tests here: unit tests 201 (and 201 with overflow checks), test_mapcheck
+  94/94, auto_check 96/96, auto_ui_check 35/35 and ui_check 67/67 with both
+  fonts, resume_check (seed 59, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
