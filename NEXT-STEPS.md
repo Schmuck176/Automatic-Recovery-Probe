@@ -1498,6 +1498,18 @@ The user, as before: keep hunting for bugs, without breaking anything.
   resume_check (seed 67, 20 interruptions) 17/17 on the build just before
   the version number changed. The Mac script check (zsh) runs in CI only:
   zsh cannot be had here.
+- CI run 41630423970 (94bf1ca), green on both systems. Windows: unit tests
+  209, map check tests 44/44, Windows disks 19/19, disk protection 21/21,
+  unplugged 42/42, page 68/68, download 6/6, automatic 107/107, Automatic
+  tab 35/35, resume 17/17; Linux: unit tests 205 (and 205 with overflow
+  checks), map check tests 94/94, Linux kernel 23/23, the Mac script 56/56,
+  page 67/67, automatic 106/106, Automatic tab 35/35, resume 17/17.
+- Delivered 3 Nov 2026, about 12:15 GMT: version 2026-11-03 (8),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,073,856 bytes, SHA-256
+  003119cbe510ee279ae79671545e1490ec6bc5df6e90190e072f848e16430b83 (staged
+  back and compared). main moved to it; the 2026-11-03 (7) main is kept as
+  branch version-2026-11-03-7. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
