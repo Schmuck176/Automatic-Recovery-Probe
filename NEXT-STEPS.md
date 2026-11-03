@@ -1286,6 +1286,20 @@ The user, as before: keep hunting for bugs, without breaking anything.
   auto_ui_check 34/34 and ui_check 67/67 with both fonts, resume_check (seed
   43, 20 interruptions) 17/17; the hand-off harness, 400 rounds with numbers
   typed short; mac_script_check runs in CI only (no zsh here).
+- CI run 41577122370 (677e063), green on both systems. Windows: unit tests
+  199, map check tests 44/44, Windows disks 19/19, disk protection 21/21,
+  unplugged 42/42, page 68/68, download 6/6, automatic 104/104, Automatic tab
+  34/34, resume 17/17; Linux: unit tests 196 (and 196 with overflow checks),
+  map check tests 94/94, Linux kernel 23/23, the Mac script 46/46 (run by
+  zsh: three runs, the second keeping everything the first made, the third
+  with an avconvert that does not know --disableMetadataFilter), page 67/67,
+  automatic 103/103, Automatic tab 34/34, resume 17/17.
+- Delivered 3 Nov 2026, about 04:44 GMT: version 2026-11-03 (3),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,032,384 bytes, SHA-256
+  acdd416e5c3e80d0fa0ea849d43af7d3b8e73414c33c7c983886e8e1e086e54f (staged
+  back and compared). main moved to it; the 2026-11-03 (2) main is kept as
+  branch version-2026-11-03-2. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
