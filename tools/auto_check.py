@@ -582,6 +582,10 @@ def main():
         check(open(os.path.join(w, "DCIM", "IMG_0005.JPG"), "rb").read() == before
               and "IMG_0005.JPG) stays as its original" in " ".join(s["job"].get("summary") or []),
               "the photo undone is left as it is by Bring back's put-back, and it says so")
+        # (And handed off now, for a better repair than the one not wanted -
+        # before, it was "still to repair" and handed to no one.)
+        check(any(f.startswith("IMG_0005 [") for _, _, fs in os.walk(os.path.join(hand, "2 For a paid repair tool")) for f in fs),
+              "the photo undone is handed off to a paid tool")
         # Finalise: RECORDS, the second copy, the final checks.
         r = prog.do(action="finalise")
         check(r.get("ok"), "Finalise begins: %s" % r.get("error", ""))

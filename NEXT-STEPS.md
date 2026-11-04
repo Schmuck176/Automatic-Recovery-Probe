@@ -1941,6 +1941,31 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-18. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (early hours, later): a repair undone is handed off
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **A repair the person undid** (step 8's Undo a put-back of one of the
+  program's own repairs, the original kept over it): the evaluation counted
+  it "still to repair", but the hand-off (5. What is left) left it out -
+  the program had repaired it, so it went to no one: no Mac, no paid tool.
+  Now a file whose put-back was undone is handed off as a file not repaired
+  is (by its kind: a JPEG to a paid tool, a HEIC or RAW to the Mac), and
+  what comes back for it goes back as any new version does. Tests:
+  a_repair_the_person_undid_is_handed_off (fails without the fix);
+  auto_check (the photo cut short, undone: in the hand-off for a paid tool
+  after Bring back - the delivered version fails).
+- **The look for a backup drive plugged in later** (round 19) ran inside
+  the page's own request for the state: a folder on a network drive that
+  does not answer can take a minute to say so, and every ten seconds the
+  page would have waited that long. It runs on a thread of its own now,
+  one at a time.
+- Version 2026-11-04 (1); the 2026-11-03 (19) checklist text is known
+  (18148929583769702814).
+- Tests here: unit tests 217 (and 217 with overflow checks), auto_check
+  117/117, auto_ui_check 38/38 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 137, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

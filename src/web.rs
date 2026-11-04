@@ -962,18 +962,24 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
 /// (or named then): looked at now and then, as the page asks for the state,
 /// so that Start is brought back to the repairs - its button would
 /// otherwise stay greyed out, every stage done. Not under a job (Start
-/// itself looks when it begins).
+/// itself looks when it begins), and on a thread of its own: a folder on a
+/// network drive that does not answer can take a minute to say so, and the
+/// page's answer does not wait for it (nor does a second look start).
 fn older_copies_now_and_then(app: &Arc<Mutex<App>>) {
     static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static LOOKING: AtomicBool = AtomicBool::new(false);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    if now < LAST.load(Ordering::Relaxed).saturating_add(10) {
+    if now < LAST.load(Ordering::Relaxed).saturating_add(10) || LOOKING.swap(true, Ordering::SeqCst) {
         return;
     }
     LAST.store(now, Ordering::Relaxed);
-    if lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
-        return;
-    }
-    auto::older_copies_added(app, false);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !lock(&app).job.as_ref().is_some_and(|j| j.state == "running") {
+            auto::older_copies_added(&app, false);
+        }
+        LOOKING.store(false, Ordering::SeqCst);
+    });
 }
 
 fn state_json(app: &Arc<Mutex<App>>) -> String {

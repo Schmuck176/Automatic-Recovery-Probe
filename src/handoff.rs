@@ -187,10 +187,18 @@ pub fn prepare(work: &Path) -> Result<HandedOff, String> {
         }
         let name = item.copied_as.rsplit('\\').next().unwrap_or(&item.copied_as).to_string();
         let a = attempts.get(&item.id);
-        if a.is_some_and(|a| a.fate == Fate::Repaired) {
+        // Repaired by the program, and kept so: nothing more to do. Put back
+        // and undone (the person kept the original over it), it goes to
+        // whoever can do better, as a file not repaired does. (Before, it was
+        // left out: "still to repair", and handed to no one.)
+        let undone = back.get(&item.path.to_lowercase()).is_some_and(|n| !n.repaired);
+        if a.is_some_and(|a| a.fate == Fate::Repaired) && !undone {
             continue;
         }
-        let next = a.map(|a| a.next).unwrap_or_else(|| next_by_kind(&name));
+        let next = match a {
+            Some(a) if a.fate != Fate::Repaired => a.next,
+            _ => next_by_kind(&name),
+        };
         let folder = match next {
             Next::Mac => FOR_MAC,
             Next::Paid => FOR_PAID,
@@ -1043,6 +1051,43 @@ mod tests {
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         let _ = std::fs::set_permissions(&f, perm);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A file the program repaired and put back, whose put-back the person
+    /// undid (keeping the original over it): handed off to whoever can do
+    /// better, as a file not repaired is - not left "still to repair" with
+    /// no one to repair it. Repaired and kept: nothing to hand off.
+    #[test]
+    fn a_repair_the_person_undid_is_handed_off() {
+        let base = std::env::temp_dir().join(format!("arp-handoff-undone-{}", std::process::id()));
+        let (work, repair) = one_copied_out(&base);
+        let copy = repair.join("to-repair").join("1 Photos").join("a [R0001].jpg");
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        std::fs::write(&copy, b"damaged").unwrap();
+        let own = repair.join(repair::REPAIRED).join(autorepair::AUTO_DIR);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join("a [R0001].jpg"), b"the program's repair").unwrap();
+        let made = autorepair::Attempt {
+            id: "R0001".to_string(),
+            path: "Pics\\a.jpg".to_string(),
+            group: "1 Photos".to_string(),
+            fate: Fate::Repaired,
+            how: "rebuilt by a tool".to_string(),
+            tool: "FFmpeg".to_string(),
+            output: format!("{}\\{}\\a [R0001].jpg", repair::REPAIRED, autorepair::AUTO_DIR),
+            next: Next::Done,
+            note: String::new(),
+        };
+        autorepair::append_log(&repair, &[made]).unwrap();
+        std::fs::write(work.join(crate::rescue::LOG_NAME), "").unwrap();
+        assert_eq!(repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap().returned.len(), 1);
+        let h = prepare(&work).unwrap();
+        assert!(h.paid.is_empty() && h.mac.is_empty() && h.own.is_empty(), "repaired and kept: nothing to hand off ({h:?})");
+        repair::undo(&work, "R0001").unwrap();
+        let h = prepare(&work).unwrap();
+        assert_eq!(h.paid, vec!["Pics\\a.jpg".to_string()], "{h:?}");
+        assert!(repair.join(HANDOFF_DIR).join(FOR_PAID).join("1 Photos").join("a [R0001].jpg").is_file());
         let _ = std::fs::remove_dir_all(&base);
     }
 

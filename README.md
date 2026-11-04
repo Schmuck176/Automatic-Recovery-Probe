@@ -186,7 +186,9 @@ same results folder, so Recovery Probe can carry on from anything this one did.
 - Nor redoes one the person undid: a put-back undone (step 8's Undo a
   put-back) stays undone - Start and Bring back leave that version out of
   WORK, and say so; only step 8's Put the repaired files back, clicked, puts
-  it back after all. A new version of that number goes back as any other.
+  it back after all. A new version of that number goes back as any other -
+  and the file is handed off for one (5. What is left), as a file not
+  repaired is.
 - A file restored from an intact copy (the file as it was) stays so: what
   Bring back brings for it later - a repair from the Mac, say, of the copy
   handed off before the intact one was found - is kept beside it, in
