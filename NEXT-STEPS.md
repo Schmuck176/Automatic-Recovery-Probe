@@ -2046,6 +2046,27 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-04-2. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (small hours): the second copy's folder facts, behind or moved
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **3. The folders, the second copy's line**: it said "Made and checked"
+  after something was brought back since (the second copy not up to date:
+  6. Finalise said to run it again, 2026-11-03 (15)), and after another
+  folder was chosen for it (none there yet, 2026-11-03 (18)) - and so
+  checked no room there for it. Now it says "not up to date: Finalise
+  again", and for a folder chosen since, what the second copy needs there
+  (and checks the room), until Finalise has run. Tests: auto_ui_check (the
+  three wordings, the drive's room).
+- Looked through again, nothing more found: the program's own lists
+  mangled 1,500 ways through the new put-back, undo, Bring back, hand-off
+  and repair paths (no panic, with overflow checks too); the self-test.
+- Version 2026-11-04 (4); the 2026-11-04 (3) checklist text is known
+  (11539334781635225096).
+- Tests here: unit tests 218 (and 218 with overflow checks), auto_check
+  118/118, auto_ui_check 39/39 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 157, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

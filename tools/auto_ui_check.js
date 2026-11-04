@@ -219,16 +219,24 @@ function iconsWithoutWords(page) {
     const again = await page.evaluate(() => {
       S.settings.finalise_again = "2026-11-03 21:30";
       renderAuto();
-      const r = { state: document.getElementById("ast-final").textContent, says: document.getElementById("ar-final").textContent };
+      renderPlaces();
+      const r = { state: document.getElementById("ast-final").textContent, says: document.getElementById("ar-final").textContent,
+        copy2: document.getElementById("facts-copy2").textContent };
       S.settings.finalise_again_why = "folder";
       renderAuto();
+      renderPlaces();
       r.folder = document.getElementById("ar-final").textContent;
+      r.copy2_moved = document.getElementById("facts-copy2").textContent;
       delete S.settings.finalise_again;
       delete S.settings.finalise_again_why;
       renderAuto();
+      renderPlaces();
       r.after = document.getElementById("ast-final").textContent;
+      r.copy2_after = document.getElementById("facts-copy2").textContent;
       return r;
     });
+    check(/not up to date/.test(again.copy2) && !/Made and checked/.test(again.copy2_moved) && /Made and checked/.test(again.copy2_after),
+      "the second copy's folder says so too: not up to date, none there yet, then made and checked (" + again.copy2 + "; " + again.copy2_moved + ")");
     check(/Run it again/.test(again.state) && /second copy does not have them yet/.test(again.says) && /Done/.test(again.after),
       "after something is brought back, 6. Finalise asks to be run again (" + again.state + "; then " + again.after + ")");
     check(/no second copy there yet/.test(again.folder), "and after its folder is changed, says there is no second copy there yet");

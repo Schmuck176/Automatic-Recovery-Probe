@@ -3020,13 +3020,18 @@ function placeFacts(key) {
     const dir = $("af-copy2").value.trim() || P.copy2.dir, fi = lastOf("finalise"), j = runningAs("finalise", []);
     const wn = workNeed();
     const need = P.work.bytes != null ? P.work.bytes + (P.repair.bytes || 0) : wn && wn.bytes;
+    // (Something brought back since, it is not up to date; another folder
+    // chosen since, there is none there yet.)
+    const behind = !!setting("finalise_again"), moved = behind && setting("finalise_again_why") === "folder";
+    const made = fi && fi.state === "done" && !moved;
     if (j && j.total > 0 && S.live && /second copy/.test(S.live.what)) chips.push(fact("act", "copy", `<b>${esc(gb(j.done))}</b> of ${esc(gb(j.total))} copied`));
-    else if (fi && fi.state === "done") chips.push(fact("good", "copy", `Made and checked · ${esc(fi.started_at || "")}`));
+    else if (made && behind) chips.push(fact("", "copy", `Made ${esc(fi.started_at || "")} · not up to date: Finalise again`));
+    else if (made) chips.push(fact("good", "copy", `Made and checked · ${esc(fi.started_at || "")}`));
     else if (need) chips.push(fact("", "copy", `Needs about <b>${esc(gb(need))}</b> · WORK and REPAIR again`));
     // On the same drive as an image still to be made: both must fit.
     const imgDir = $("af-image").value.trim() || P.image.dir;
     const same = driveOf(dir) && driveOf(imgDir) && driveOf(dir) === driveOf(imgDir) && !P.image.made;
-    const done = fi && fi.state === "done";
+    const done = made;
     const total = done ? null : (need || 0) + (same ? (domain() || 0) - (P.image.bytes || 0) : 0);
     chips.push(driveFact(dir, total ? total + 2 ** 30 : null, same ? "the image and the second copy together" : "the second copy"));
   }
