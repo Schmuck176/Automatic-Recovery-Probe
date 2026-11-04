@@ -2060,12 +2060,29 @@ The user, as before: keep hunting for bugs, without breaking anything.
   three wordings, the drive's room).
 - Looked through again, nothing more found: the program's own lists
   mangled 1,500 ways through the new put-back, undo, Bring back, hand-off
-  and repair paths (no panic, with overflow checks too); the self-test.
+  and repair paths (no panic, with overflow checks too); damaged disks,
+  files and texts (the local fuzzers, 120 rounds each: no panic); the
+  self-test; every change since 2026-11-03 (13) read through again.
 - Version 2026-11-04 (4); the 2026-11-04 (3) checklist text is known
   (11539334781635225096).
 - Tests here: unit tests 218 (and 218 with overflow checks), auto_check
   118/118, auto_ui_check 39/39 and ui_check 67/67 with both fonts,
   test_mapcheck 94/94, resume_check (seed 157, 20 interruptions) 17/17.
+- CI run 41757382402 (a7a4299), green on both systems. Windows: unit tests
+  223, map check tests 44/44, Windows disks 19/19, disk protection 21/21,
+  unplugged 42/42, page 68/68, download 6/6, automatic 126/126, Automatic
+  tab 39/39, resume 17/17; Linux: unit tests 218 (and 218 with overflow
+  checks), map check tests 94/94, Linux kernel 23/23, the Mac script 56/56,
+  page 67/67, automatic 125/125, Automatic tab 39/39, resume 17/17.
+- Delivered 4 Nov 2026, about 02:30 GMT: version 2026-11-04 (4),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,185,984 bytes, SHA-256
+  2c366b2f7ae1d165aa6cb823dbff99c88ccbcbe58e37a15f511d1cf40e7f3e4a (staged
+  back and compared). main moved to it; the 2026-11-04 (3) main is kept as
+  branch version-2026-11-04-3. The PC as before: nothing run since, no
+  folders chosen.
+- The bug-hunting rounds stop here: the last pass found only the second
+  copy's folder line above, and the broad checks after it nothing. The
+  hourly check-ins that resumed the work after a usage pause are deleted.
 
 ## Not done / ideas for later
 
