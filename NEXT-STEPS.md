@@ -2003,6 +2003,18 @@ The user, as before: keep hunting for bugs, without breaking anything.
 - Tests here: unit tests 218 (and 218 with overflow checks), auto_check
   118/118, auto_ui_check 38/38 and ui_check 67/67 with both fonts,
   test_mapcheck 94/94, resume_check (seed 149, 20 interruptions) 17/17.
+- CI run 41751383419 (4bfccf7), green on both systems. Windows: unit tests
+  223, map check tests 44/44, Windows disks 19/19, disk protection 21/21,
+  unplugged 42/42, page 68/68, download 6/6, automatic 126/126, Automatic
+  tab 38/38, resume 17/17; Linux: unit tests 218 (and 218 with overflow
+  checks), map check tests 94/94, Linux kernel 23/23, the Mac script 56/56,
+  page 67/67, automatic 125/125, Automatic tab 38/38, resume 17/17.
+- Delivered 4 Nov 2026, about 01:35 GMT: version 2026-11-04 (2),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,184,448 bytes, SHA-256
+  a24322cebe02bc4ad298e9abdfde001483411178b52a38d77ee57d987a41f790 (staged
+  back and compared). main moved to it; the 2026-11-04 (1) main is kept as
+  branch version-2026-11-04-1. The PC as before: nothing run since, no
+  folders chosen.
 
 ## Not done / ideas for later
 
