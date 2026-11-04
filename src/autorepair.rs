@@ -61,6 +61,11 @@ pub struct Options {
     /// is the file as it was - better than any repair - and takes the place
     /// of the version made before, which is kept in REPAIR\replaced).
     pub twins_again: bool,
+    /// Run again only for those older copies (Start brought back to the
+    /// repairs by them): a file tried before is only looked for there - its
+    /// tools would do just what they did (FFmpeg playing big videos through
+    /// again, for hours).
+    pub look_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,6 +142,9 @@ pub struct Outcome {
     pub attempts: Vec<Attempt>,
     /// Already repaired (a version in "repaired", or put back) before this run.
     pub already: usize,
+    /// Tried before, and only looked for among the older copies this time
+    /// (Options::look_only): no intact copy there, so as they were.
+    pub looked: usize,
     pub stopped: bool,
     pub log: Option<PathBuf>,
 }
@@ -1805,6 +1813,9 @@ fn try_item(env: &Env, item: &Item, src: &Path, tmp: &Path) -> Try {
 /// a checking tool): handoff.rs tells those apart by it.
 pub const READ_WHOLE: &str = "Every byte of it was read from the old drive";
 
+/// What an attempt says of a tool it needed and did not have.
+const TOOL_MISSING: &str = "was not found on this PC";
+
 /// Read whole from the old drive (the map check: no place of it was never
 /// read), and found only by one of the extra checks' tools: what the tool
 /// finds was in the file already on the old drive (or is the tool's own
@@ -1818,28 +1829,31 @@ fn only_by_tools(env: &Env, item: &Item) -> bool {
         && item.why.split("; ").all(|r| r.starts_with("on the list auto-"))
 }
 
+/// An intact copy elsewhere (WORK, the older copies): the file as it was.
+fn try_twin(env: &Env, item: &Item, src: &Path, tmp: &Path, lost: &[(u64, u64)]) -> Option<Try> {
+    let t = find_twin(env, item, src, lost)?;
+    let shown = repair::relative_to(env.work, &t.display().to_string().replace('/', "\\"))
+        .map(|r| format!("WORK\\{r}"))
+        .unwrap_or_else(|| t.display().to_string());
+    let file = tmp.join("intact");
+    std::fs::copy(&t, &file).ok()?;
+    Some(Try::Made {
+        file,
+        how: format!(
+            "an intact copy of the same file was found at {shown}: identical in every byte the old drive did give up, and \
+             holding the {} bytes it never did. This is the file as it was",
+            commas(lost.iter().map(|(a, b)| b - a).sum::<u64>())
+        ),
+        tool: OWN.to_string(),
+        salvage: false,
+        note: String::new(),
+    })
+}
+
 fn try_format(env: &Env, item: &Item, src: &Path, tmp: &Path, lost: Option<Vec<(u64, u64)>>, read_whole: bool, only_tools: bool) -> Try {
     // 1. An intact copy elsewhere: the file as it was.
-    if let Some(lost) = lost {
-        if let Some(t) = find_twin(env, item, src, &lost) {
-            let shown = repair::relative_to(env.work, &t.display().to_string().replace('/', "\\"))
-                .map(|r| format!("WORK\\{r}"))
-                .unwrap_or_else(|| t.display().to_string());
-            let file = tmp.join("intact");
-            if std::fs::copy(&t, &file).is_ok() {
-                return Try::Made {
-                    file,
-                    how: format!(
-                        "an intact copy of the same file was found at {shown}: identical in every byte the old drive did give \
-                         up, and holding the {} bytes it never did. This is the file as it was",
-                        commas(lost.iter().map(|(a, b)| b - a).sum::<u64>())
-                    ),
-                    tool: OWN.to_string(),
-                    salvage: false,
-                    note: String::new(),
-                };
-            }
-        }
+    if let Some(t) = lost.as_deref().and_then(|lost| try_twin(env, item, src, tmp, lost)) {
+        return t;
     }
     // 2. The format's own repair. Every tool works on a copy of the copy,
     // with a short, plain name in a folder of its own (some older tools
@@ -2173,18 +2187,37 @@ pub fn run(
             a.next = Next::Paid;
         } else {
             let whole_only = only_by_tools(&env, item);
+            // Older copies named since, and tried before: only looked for
+            // among them (its tools would do just what they did). None
+            // there: as it was, its attempt before standing. (Not when a
+            // tool was missing then: installed since, it may do better.)
+            let look_only = opts.look_only && previous.get(&item.id).is_some_and(|a| !a.how.contains(TOOL_MISSING));
+            let found = if look_only { lost_ranges(&env, item).and_then(|lost| try_twin(&env, item, &src, &tmp, &lost)) } else { None };
+            if look_only && found.is_none() {
+                let _ = std::fs::remove_dir_all(&tmp);
+                if stop() {
+                    o.stopped = true;
+                    break;
+                }
+                o.looked += 1;
+                crate::live::done(&item.path, item.size);
+                amount(n as u64 + 1, total);
+                continue;
+            }
             // (One file the repairs cannot cope with - a parser's mistake on
             // something no test had - is left for the hand-off, not the end
             // of every repair after it: the stage would stop there each time.)
-            let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| try_item(&env, item, &src, &tmp)))
-                .unwrap_or_else(|p| {
+            let tried = match found {
+                Some(t) => t,
+                None => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| try_item(&env, item, &src, &tmp))).unwrap_or_else(|p| {
                     let why = p
                         .downcast_ref::<String>()
                         .cloned()
                         .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
                         .unwrap_or_default();
                     no(format!("the repair hit an internal error on this file ({why}): left for the hand-off"), Next::Paid)
-                });
+                }),
+            };
             // Stopped while it was being tried: what came of it is not what
             // it would be (a tool cut short, a check not made). Nothing of it
             // is kept or written down; the next run tries it again.
@@ -2415,6 +2448,13 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     if o.already > 0 && !o.attempts.is_empty() {
         t.push(format!("{} were repaired before and left as they are.", commas(o.already as u64)));
     }
+    if o.looked > 0 {
+        t.push(format!(
+            "{} tried before were looked for among the older copies named since: no intact copy of them there, so they are \
+             as they were.",
+            commas(o.looked as u64)
+        ));
+    }
     if o.stopped {
         t.push("Stopped before the end: Start again to carry on.".to_string());
     }
@@ -2608,7 +2648,7 @@ mod tests {
         std::fs::create_dir_all(&mc).unwrap();
         std::fs::write(mc.join(crate::join::TSV_NAME), format!("{}\r\n", crate::join::TSV_HEADER)).unwrap();
         repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
-        let opts = Options { work: work.clone(), search: Vec::new(), map_check: Some(mc), twins_again: false };
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: Some(mc), twins_again: false, look_only: false };
         let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert_eq!(o.attempts.len(), 1);
         assert!(o.attempts[0].how.contains(READ_WHOLE), "{}", o.attempts[0].how);
@@ -2633,7 +2673,7 @@ mod tests {
         std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "IMG_0001.HEIC\r\n").unwrap();
         let iso = repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
         assert_eq!(iso.copied.len(), 1, "{:?}", iso.left);
-        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None, twins_again: false };
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None, twins_again: false, look_only: false };
         // Stop clicked while the file is being tried (the second time Stop is
         // looked at: the first is before it starts).
         let asked = std::sync::atomic::AtomicUsize::new(0);
@@ -2728,7 +2768,7 @@ mod tests {
         std::fs::create_dir_all(&old).unwrap();
         std::fs::write(old.join("IMG_0001.JPG"), &a_orig).unwrap();
         std::fs::write(old.join("IMG_0002.JPG"), &b_orig).unwrap();
-        let opts = |again: bool| Options { work: work.clone(), search: vec![old.clone()], map_check: Some(mc.clone()), twins_again: again };
+        let opts = |again: bool| Options { work: work.clone(), search: vec![old.clone()], map_check: Some(mc.clone()), twins_again: again, look_only: false };
         let o = run(&base, &opts(false), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert!(o.attempts.is_empty() && o.already == 2, "not asked: nothing again ({:?})", o.attempts);
         let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
@@ -2755,6 +2795,79 @@ mod tests {
         // Once restored, not looked for again.
         let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert!(o.attempts.is_empty(), "{:?}", o.attempts);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Start brought back to the repairs by older copies named later
+    /// (look_only): a file tried before is only looked for among them - not
+    /// tried with every tool again (FFmpeg playing big videos through, for
+    /// hours) - and an intact copy there restores it.
+    #[test]
+    fn a_file_tried_before_is_only_looked_for_among_older_copies_named_later() {
+        let base = std::env::temp_dir().join(format!("rp-ar-lookonly-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Photos")).unwrap();
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let orig: Vec<u8> = (0..65536)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect();
+        let mut damaged = orig.clone();
+        damaged[16384..20480].fill(0);
+        let p = work.join("Photos").join("IMG_0001.HEIC");
+        std::fs::write(&p, &damaged).unwrap();
+        let sha = crate::sha256::file_hex(&p, &|| false).unwrap().unwrap();
+        let mut log = csv_row(&crate::rescue::LOG_HEADER);
+        log.push_str(&csv_row(&["FILE", "Photos\\IMG_0001.HEIC", "65536", "copied", "Photos\\IMG_0001.HEIC", "", &sha]));
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let mc = base.join("map-check");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(
+            mc.join(crate::join::TSV_NAME),
+            format!("{}\r\nDAMAGED\tPhotos\\IMG_0001.HEIC\t65536\t4096\t16384\t0\tzeros\t1\t16384-20480\r\n", crate::join::TSV_HEADER),
+        )
+        .unwrap();
+        let repair = base.join(repair::REPAIR_DIR);
+        std::fs::create_dir_all(repair.join(repair::LISTS)).unwrap();
+        std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "Photos\\IMG_0001.HEIC\r\n").unwrap();
+        assert_eq!(repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap().copied.len(), 1);
+        let old = base.join("Old backup");
+        std::fs::create_dir_all(&old).unwrap();
+        let opts = |look_only: bool| Options {
+            work: work.clone(),
+            search: vec![old.clone()],
+            map_check: Some(mc.clone()),
+            twins_again: look_only,
+            look_only,
+        };
+        // Tried once, as Start does: no tool here repairs it.
+        let o = run(&base, &opts(false), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(o.attempts.len(), 1);
+        assert!(!o.attempts[0].how.starts_with("an intact copy"), "{:?}", o.attempts[0]);
+        // The older copies have nothing of it: looked for there only, and as it was.
+        let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(o.attempts.is_empty() && o.looked == 1, "{:?}", o.attempts);
+        assert_eq!(read_log(&repair).len(), 1, "its attempt before stands");
+        assert!(summary(&o).iter().any(|l| l.contains("looked for among the older copies")), "{:?}", summary(&o));
+        // (Tried before without a tool it needed - installed since, it may do
+        // better: tried again.)
+        let mut missing = read_log(&repair).pop().unwrap();
+        missing.how = format!("FFmpeg {TOOL_MISSING}");
+        append_log(&repair, &[missing]).unwrap();
+        let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(o.attempts.len() == 1 && o.looked == 0, "{:?}", o.attempts);
+        // They have it: restored exactly.
+        std::fs::write(old.join("IMG_0001.HEIC"), &orig).unwrap();
+        let o = run(&base, &opts(true), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(o.attempts.len(), 1, "{:?}", o.attempts);
+        assert!(o.attempts[0].fate == Fate::Repaired && o.attempts[0].how.starts_with("an intact copy"), "{:?}", o.attempts[0]);
+        let made = repair.join(repair::REPAIRED).join(AUTO_DIR).join(format!("IMG_0001 [{}].HEIC", o.attempts[0].id));
+        assert_eq!(std::fs::read(made).unwrap(), orig);
         let _ = std::fs::remove_dir_all(&base);
     }
 

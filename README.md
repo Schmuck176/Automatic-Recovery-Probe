@@ -81,7 +81,8 @@ The parts of the Automatic tab:
    optionally, folders holding older copies of the files (named after the
    repairs ran - a backup found later - Start carries on from the repairs
    when clicked again, and an intact copy there takes the place of what a
-   tool made of the file).
+   tool made of the file; the repairs then only look there, rather than
+   try every tool again on what they tried before).
 4. **Start** - runs by itself, stage by stage, and carries on where it stopped
    after Stop, a closed window or a power cut:
 

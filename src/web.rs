@@ -3147,6 +3147,7 @@ mod tests {
             let a = lock(&app);
             assert_eq!(a.auto.resume_at(), auto::STAGES.iter().position(|s| s.0 == "repair").unwrap(), "Start carries on from the repairs");
             assert!(a.setting("auto_state").contains("repair\u{1f}pending"), "and that is kept");
+            assert_eq!(a.setting("repair_look_only"), "1", "the repairs only look there, not try every tool again");
         }
         // (The repairs not run yet: they look there anyway.)
         assert_eq!(auto::older_copies_added(&app, false), None);
@@ -3158,6 +3159,9 @@ mod tests {
         drop(a);
         let r = act(&app, &form(&[("action", "set"), ("auto_search", &both)]));
         assert!(r.contains("\"ok\":true") && state("repair") == "pending", "{r}");
+        // Start over: every stage again, the repairs' tools too.
+        auto::start_over(&app).unwrap();
+        assert_eq!(lock(&app).setting("repair_look_only"), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

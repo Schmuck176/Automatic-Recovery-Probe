@@ -695,6 +695,7 @@ def main():
             f.write(media["track.flac"])
         with open(os.path.join(old, "IMG_0100.CR2"), "wb") as f:
             f.write(media["IMG_0100.CR2"])
+        tried_before = read_csv(os.path.join(repair, "auto-repair-log.csv"))
         r = prog.do(action="set", auto_search=old)
         st = {x["key"]: x["state"] for x in prog.get("api/state")["auto"]["stages"]}
         check(r.get("ok") and st["isolate"] == "done" and st["repair"] == "pending" and st["handoff"] == "pending",
@@ -711,6 +712,14 @@ def main():
               "and the second copy waits for Finalise again, which Start says")
         check(open(os.path.join(w, "RAW", "IMG_0100.CR2"), "rb").read() == media["IMG_0100.CR2"],
               "the RAW too (only its preview was salvaged before)")
+        # (What was tried before and has no intact copy there is only looked
+        # for, not tried with every tool again - videos played through for
+        # hours, on the PC - unless a tool it needed was missing then.)
+        prev = {r["path_in_work"]: r for r in tried_before}
+        new_rows = read_csv(os.path.join(repair, "auto-repair-log.csv"))[len(tried_before):]
+        retried = [r["path_in_work"] for r in new_rows if not r["how"].startswith("an intact copy")
+                   and "was not found on this PC" not in prev.get(r["path_in_work"], {}).get("how", "was not found on this PC")]
+        check(new_rows and not retried, "the files tried before are only looked for there (tried again: %s)" % retried)
         # What comes back later for a file restored exactly - the Mac's repair
         # of the copy handed off before the backup was found: kept beside it,
         # never put in its place (before, the intact copy made way for it).

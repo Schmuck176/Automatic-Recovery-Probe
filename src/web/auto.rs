@@ -174,6 +174,8 @@ pub(super) fn start_over(app: &Arc<Mutex<App>>) -> Result<(), String> {
             return Err("Wait for what is running to finish, or stop it first.".to_string());
         }
         a.auto = State::new();
+        // (Every stage again, the repairs' tools too.)
+        a.settings.remove("repair_look_only");
     }
     save_state(app);
     Ok(())
@@ -1463,6 +1465,8 @@ pub(super) fn older_copies_added(app: &Arc<Mutex<App>>, by_start: bool) -> Optio
             s.started_at.clear();
             s.seconds = 0;
         }
+        // (Only for them: the repairs look there, not try every tool again.)
+        a.settings.insert("repair_look_only".to_string(), "1".to_string());
     }
     save_state(app);
     let then = if by_start {
@@ -1492,8 +1496,10 @@ fn stage_repair(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, St
         search: plan.search.clone(),
         map_check: (!map_check.is_empty()).then(|| PathBuf::from(&map_check)),
         // (Older copies named since the repairs last ran: what they repaired
-        // is looked for in them too.)
+        // is looked for in them too - and, Start brought back to the repairs
+        // by them, a file tried before is only looked for there.)
         twins_again: !older_copies_new(app, &plan.search).is_empty(),
+        look_only: lock(app).setting("repair_look_only") == "1",
     };
     let stop = ctx.stop.clone();
     let o = autorepair::run(&home, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &move || stop.load(Ordering::Relaxed))?;
@@ -1503,6 +1509,7 @@ fn stage_repair(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, St
         let mut a = lock(app);
         let searched = plan.search.iter().filter(|p| p.is_dir()).map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
         a.settings.insert("repair_searched".to_string(), searched);
+        a.settings.remove("repair_look_only");
         a.save();
     }
     let summary = autorepair::summary(&o);

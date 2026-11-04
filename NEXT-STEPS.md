@@ -1978,6 +1978,32 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-19. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (early hours, later still): older copies named later, only looked in
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **Start brought back to the repairs by older copies named later**
+  (rounds 16 and 19): the repairs then tried every file not repaired yet
+  with every tool again - FFmpeg playing each damaged video through, which
+  on the PC can be hours for a collection - though the tools would do just
+  what they did, and only the older copies were new. Now, brought back by
+  them, the repairs only look among them for an intact copy of a file
+  tried before (and restore it, if there); none there, the attempt before
+  stands, and the stage says so. A file whose tool was missing then is
+  tried again (installed since, it may do better). Start over (every stage
+  again) still tries every tool. Tests:
+  a_file_tried_before_is_only_looked_for_among_older_copies_named_later
+  (none there: looked for only, its attempt standing - fails without the
+  fix; a tool missing before: tried again; there: restored);
+  older_copies_named_after_the_repairs_ran_bring_start_back_to_them (the
+  mark, and Start over taking it off); auto_check (no file tried before
+  is tried again, but where a tool was missing then).
+- Version 2026-11-04 (2); the 2026-11-04 (1) checklist text is known
+  (53427354163379426).
+- Tests here: unit tests 218 (and 218 with overflow checks), auto_check
+  118/118, auto_ui_check 38/38 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 149, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
