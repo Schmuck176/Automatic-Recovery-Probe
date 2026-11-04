@@ -702,7 +702,9 @@ def main():
         check(open(os.path.join(w, "Music", "track.flac"), "rb").read() == media["track.flac"]
               and later["Music/track.flac"]["how"].startswith("an intact copy"),
               "the FLAC is restored exactly from the older copy, in place of FFmpeg's (%s)" % later["Music/track.flac"]["how"][:90])
-        check(prog.get("api/state")["settings"].get("finalise_again"), "and the second copy waits for Finalise again")
+        check(prog.get("api/state")["settings"].get("finalise_again")
+              and any(l.startswith("Finalise again now") for l in s["job"].get("summary") or []),
+              "and the second copy waits for Finalise again, which Start says")
         check(open(os.path.join(w, "RAW", "IMG_0100.CR2"), "rb").read() == media["IMG_0100.CR2"],
               "the RAW too (only its preview was salvaged before)")
         # What comes back later for a file restored exactly - the Mac's repair
@@ -718,6 +720,28 @@ def main():
               and open(os.path.join(w, "RAW", "IMG_0100.CR2"), "rb").read() == media["IMG_0100.CR2"]
               and os.path.isfile(os.path.join(repair, "salvaged", "returned", mac)),
               "what comes back for the RAW restored exactly is kept beside it, not put in its place (%s)" % said3[:160])
+        # A backup on a drive plugged in later: named while it is not there,
+        # nothing changes; once it is, the page's own look now and then brings
+        # Start back to the repairs (its button greyed out "all done"
+        # otherwise, so it could not be clicked).
+        later_drive = os.path.join(work, "Backup drive")
+        prog.do(action="set", auto_search=old + "\n" + later_drive)
+        st = {x["key"]: x["state"] for x in prog.get("api/state")["auto"]["stages"]}
+        check(st["repair"] == "done", "older copies on a drive not plugged in: nothing changes yet (%s)" % st["repair"])
+        os.makedirs(later_drive)
+        with open(os.path.join(later_drive, "notes.txt"), "wb") as f:
+            f.write(media["notes.txt"])
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            st = {x["key"]: x["state"] for x in prog.get("api/state")["auto"]["stages"]}
+            if st["repair"] == "pending":
+                break
+            time.sleep(1)
+        check(st["repair"] == "pending" and st["isolate"] == "done",
+              "plugged in, Start is brought back to the repairs by itself (%s)" % st["repair"])
+        r = prog.do(action="auto-start")
+        s = prog.wait()
+        check(s["job"]["state"] == "done", "and carries on to the end (%s: %s)" % (s["job"]["state"], s["job"].get("error", "")))
     finally:
         prog.close()
     print("\n%d of %d checks passed" % (len(PASSES), len(PASSES) + len(FAILS)))

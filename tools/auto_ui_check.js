@@ -232,6 +232,21 @@ function iconsWithoutWords(page) {
     check(/Run it again/.test(again.state) && /second copy does not have them yet/.test(again.says) && /Done/.test(again.after),
       "after something is brought back, 6. Finalise asks to be run again (" + again.state + "; then " + again.after + ")");
     check(/no second copy there yet/.test(again.folder), "and after its folder is changed, says there is no second copy there yet");
+    // Stages to run again (older copies named later): 4. Start says there is
+    // more to do, not that it stopped part-way.
+    const more = await page.evaluate(() => {
+      const keep = JSON.parse(JSON.stringify(S.auto));
+      const k = S.auto.stages.findIndex((s) => s.key === "repair");
+      S.auto.stages.forEach((s, i) => { if (i >= k) s.state = "pending"; });
+      S.auto.resume_at = k;
+      renderAuto();
+      const r = { state: document.getElementById("ast-start").textContent, button: document.getElementById("b-auto-start").textContent };
+      S.auto = keep;
+      renderAuto();
+      return r;
+    });
+    check(/More to do/.test(more.state) && /Carry on/.test(more.button),
+      "with stages to run again, 4. Start says there is more to do, and Carry on (" + more.state + "; " + more.button + ")");
     // Every icon on the page comes with words saying what it is for.
     check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
     // 7. Put Windows back: its own part, after Finalise (here nothing was changed).

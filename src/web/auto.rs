@@ -569,8 +569,9 @@ pub(super) fn step(app: &Arc<Mutex<App>>, ctx: &Ctx, p: Prepared) -> Result<Outc
 }
 
 fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String> {
-    // (Older copies named while something else ran: looked in now.)
-    older_copies_added(app);
+    // (Older copies named while something else ran, or on a drive plugged
+    // in since: looked in now.)
+    older_copies_added(app, true);
     let from = lock(app).auto.resume_at();
     if from >= STAGES.len() {
         return Ok(Outcome {
@@ -711,9 +712,16 @@ fn final_lines(app: &Arc<Mutex<App>>, plan: &Plan) -> Vec<String> {
     if let Some(j) = a.last.get("handoff") {
         t.extend(j.summary.iter().take(4).cloned());
     }
+    // (Run again after a Finalise - for older copies named later, say - and
+    // something put back: what to do next.)
+    let again = !a.setting("finalise_again").is_empty() && a.setting("finalise_again_why") != "folder";
+    let copy2 = a.setting("copy2_made");
     drop(a);
     if let Ok(repair) = crate::repair::repair_dir(Path::new(&plan.work)) {
         t.push(format!("Everything about the repairs is in {}.", repair.display()));
+    }
+    if again && !copy2.is_empty() {
+        t.push(format!("Finalise again now: the second copy ({copy2}) does not have what was put back yet."));
     }
     t
 }
@@ -1439,7 +1447,7 @@ fn older_copies_new(app: &Arc<Mutex<App>>, search: &[PathBuf]) -> Vec<String> {
 /// repairs, and the stages after them, are to run again - Start carries on
 /// from there - so an intact copy there is found, and restored. (Before,
 /// Start said every stage was done, and nothing looked in them.)
-pub(super) fn older_copies_added(app: &Arc<Mutex<App>>) -> Option<Vec<String>> {
+pub(super) fn older_copies_added(app: &Arc<Mutex<App>>, by_start: bool) -> Option<Vec<String>> {
     let search: Vec<PathBuf> =
         lock(app).setting("auto_search").lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(PathBuf::from).collect();
     let new = older_copies_new(app, &search);
@@ -1457,13 +1465,12 @@ pub(super) fn older_copies_added(app: &Arc<Mutex<App>>) -> Option<Vec<String>> {
         }
     }
     save_state(app);
-    crate::live::event(
-        "info",
-        &format!(
-            "Older copies to look in: {} - Start looks in them for undamaged copies of the damaged files: click Start",
-            new.join(", ")
-        ),
-    );
+    let then = if by_start {
+        "Start carries on from the repairs, and looks in them for undamaged copies of the damaged files"
+    } else {
+        "click Carry on (4. Start), and it looks in them for undamaged copies of the damaged files"
+    };
+    crate::live::event("info", &format!("Older copies to look in: {} - {then}", new.join(", ")));
     Some(new)
 }
 

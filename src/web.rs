@@ -923,7 +923,10 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
     }
     let (status, ctype, body): (u16, &str, String) = match (req.method.as_str(), rest.as_str()) {
         ("GET", "") => (200, "text/html; charset=utf-8", PAGE.replace("__KEY__", token)),
-        ("GET", "api/state") => (200, "application/json", state_json(app)),
+        ("GET", "api/state") => {
+            older_copies_now_and_then(app);
+            (200, "application/json", state_json(app))
+        }
         ("GET", "api/disks") => (200, "application/json", disks_json(app)),
         ("GET", "api/drives") => (200, "application/json", drives_json()),
         ("GET", "api/list") => (200, "application/json", list_json(&q("path"), &q("show"))),
@@ -954,6 +957,24 @@ fn handle(app: &Arc<Mutex<App>>, token: &str, port: u16, req: Request, stream: &
 }
 
 // ---------------------------------------------------------------- answers
+
+/// A folder of older copies on a drive plugged in after the repairs ran
+/// (or named then): looked at now and then, as the page asks for the state,
+/// so that Start is brought back to the repairs - its button would
+/// otherwise stay greyed out, every stage done. Not under a job (Start
+/// itself looks when it begins).
+fn older_copies_now_and_then(app: &Arc<Mutex<App>>) {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if now < LAST.load(Ordering::Relaxed).saturating_add(10) {
+        return;
+    }
+    LAST.store(now, Ordering::Relaxed);
+    if lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
+        return;
+    }
+    auto::older_copies_added(app, false);
+}
 
 fn state_json(app: &Arc<Mutex<App>>) -> String {
     let a = lock(app);
@@ -1389,7 +1410,7 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             // looks when it next begins).
             drop(a);
             if f.contains_key("auto_search") && !lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
-                auto::older_copies_added(app);
+                auto::older_copies_added(app, false);
             }
             Ok(String::new())
         })(),
@@ -3104,7 +3125,7 @@ mod tests {
             test_disks: Vec::new(),
             auto: st,
         }));
-        assert_eq!(auto::older_copies_added(&app), None, "looked in already");
+        assert_eq!(auto::older_copies_added(&app, false), None, "looked in already");
         let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
         let both = format!("{}\n{}", shown(&photos), shown(&backup));
         let state = |k: &str| lock(&app).auto.stages.iter().find(|s| s.key == k).unwrap().state.clone();
@@ -3114,7 +3135,7 @@ mod tests {
         assert_eq!(state("repair"), "done", "not there: nothing changes");
         // Plugged in: Start, clicked, carries on from the repairs.
         std::fs::create_dir_all(&backup).unwrap();
-        assert_eq!(auto::older_copies_added(&app), Some(vec![shown(&backup)]));
+        assert_eq!(auto::older_copies_added(&app, false), Some(vec![shown(&backup)]));
         assert_eq!((state("isolate"), state("repair"), state("handoff")), ("done".to_string(), "pending".to_string(), "pending".to_string()));
         {
             let a = lock(&app);
@@ -3122,7 +3143,7 @@ mod tests {
             assert!(a.setting("auto_state").contains("repair\u{1f}pending"), "and that is kept");
         }
         // (The repairs not run yet: they look there anyway.)
-        assert_eq!(auto::older_copies_added(&app), None);
+        assert_eq!(auto::older_copies_added(&app, false), None);
         // Named while the backup is there: at once.
         let mut a = lock(&app);
         for s in a.auto.stages.iter_mut() {

@@ -960,7 +960,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
               <div class="field">
                 <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg></span>
                 <label class="lab" for="af-search">Older copies of your files, if you have any (optional)</label>
-                <p class="hint">If an undamaged copy of a damaged file is found there (or anywhere in WORK), it is restored exactly instead of repaired. One named after Start has repaired the files is looked in when you click Start again.</p>
+                <p class="hint">If an undamaged copy of a damaged file is found there (or anywhere in WORK), it is restored exactly instead of repaired. One named after Start has repaired the files is looked in too: click Start (or Carry on) again.</p>
                 <textarea id="af-search" placeholder="One folder per line: an old backup, photos downloaded from a phone or iCloud…"></textarea>
               </div>
               <div class="field">
@@ -2726,7 +2726,8 @@ function renderAuto() {
   const pNow = progressNow();
   const runningWords = atStage >= 0 ? `Stage ${atStage + 1} of ${n}` + (pNow && pNow.f != null ? ` · ${pct(pNow.f)}` : "") : "Running…";
   setAuto("start", allDone ? "done" : failedStage ? "problem" : autoRunning() ? (waitingNow ? "turn" : "running") : "",
-    allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (waitingNow ? "Waiting for you" : runningWords) : A.resume_at > 0 ? "Stopped part-way" : "");
+    allDone ? "Done" : failedStage ? "Needs attention" : autoRunning() ? (waitingNow ? "Waiting for you" : runningWords) :
+      A.resume_at > 0 ? ((A.stages[A.resume_at] || {}).state === "pending" ? "More to do: Carry on" : "Stopped part-way") : "");
 
   // 5. What is left.
   const ho = lastOf("handoff"), ar = lastOf("autorepair"), bb = lastOf("bringback");

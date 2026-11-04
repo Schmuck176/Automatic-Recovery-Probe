@@ -1904,6 +1904,31 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-03-17. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (early hours): the backup drive plugged in later, noticed by itself
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **The backup drive plugged in later** (round 18): Start was to look in
+  it "when Start is clicked" - but with every stage done, Start's button is
+  greyed out ("Start (all done)"), so it could not be clicked, and nothing
+  else looked. Now the page's own look at the state (now and then, not
+  under a job) notices a folder of older copies there that the repairs
+  have not looked in, and brings Start back to the repairs (Carry on).
+  What 4. Start says then is "More to do: Carry on", not "Stopped
+  part-way"; "what just happened" says to click Carry on (Start, when it
+  finds one as it begins, says it carries on from the repairs); the
+  folders part says "click Start (or Carry on) again". Start, run again
+  after a Finalise and something put back, says to Finalise again too.
+  Tests: auto_check (a backup folder named before its drive is there:
+  nothing; there: Start brought back to the repairs by itself, and carries
+  on to the end; Start's Finalise line - the delivered version fails both);
+  auto_ui_check (More to do, Carry on).
+- Version 2026-11-03 (19); the 2026-11-03 (18) checklist text is known
+  (9651968073784163693).
+- Tests here: unit tests 216 (and 216 with overflow checks), auto_check
+  116/116, auto_ui_check 38/38 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 127, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never
