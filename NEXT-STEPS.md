@@ -2016,6 +2016,24 @@ The user, as before: keep hunting for bugs, without breaking anything.
   branch version-2026-11-04-1. The PC as before: nothing run since, no
   folders chosen.
 
+## 4 Nov 2026 (early hours, last): an intact copy undone, then Bring back
+
+The user, as before: keep hunting for bugs, without breaking anything.
+
+- **An intact copy whose put-back the person undid** (an unlikely choice,
+  but Undo allows it), then handed off (2026-11-04 (1)) and a repair of it
+  brought back: Bring back took the undone intact copy for the file as it
+  is, and kept what came back beside it in salvaged (2026-11-03 (17)) -
+  so the hand-off's repair never went back. Now an intact copy counts so
+  only while it is put back; undone, what comes back goes back as any new
+  version. Test: what_comes_back_for_a_file_restored_exactly_is_kept_beside_it
+  (undone, then brought back again: put back - fails without the fix).
+- Version 2026-11-04 (3); the 2026-11-04 (2) checklist text is known
+  (848015863591311911).
+- Tests here: unit tests 218 (and 218 with overflow checks), auto_check
+  118/118, auto_ui_check 38/38 and ui_check 67/67 with both fonts,
+  test_mapcheck 94/94, resume_check (seed 151, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

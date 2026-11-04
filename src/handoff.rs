@@ -653,6 +653,9 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
     // WORK or among the older copies - and that version still there: what
     // comes back for it is kept beside it, in salvaged, never put in its
     // place (before, a repair from the Mac, say, made it make way).
+    // (Not one whose put-back the person undid: the original is what they
+    // kept, and what comes back goes back as any new version.)
+    let back = repair::returned_now(work);
     let intact: HashSet<String> = {
         let mut latest: HashMap<String, autorepair::Attempt> = HashMap::new();
         for a in autorepair::read_log(&repair) {
@@ -662,6 +665,7 @@ pub fn bring_back(work: &Path, from: &Path, say: &mut dyn FnMut(&str)) -> Result
             .into_values()
             .filter(|a| a.fate == Fate::Repaired && a.how.starts_with("an intact copy") && !a.output.is_empty())
             .filter(|a| under(&repair, &a.output).exists())
+            .filter(|a| !back.get(&a.path.to_lowercase()).is_some_and(|n| !n.repaired))
             .map(|a| a.id)
             .collect()
     };
@@ -1132,6 +1136,15 @@ mod tests {
         let pb = repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap();
         assert!(pb.returned.is_empty() && pb.skipped.is_empty() && pb.already == 1, "{pb:?}");
         assert_eq!(std::fs::read(work.join("Pics").join("a.jpg")).unwrap(), b"as it was");
+        // Its put-back undone (the person kept the original), what comes back
+        // goes back as any new version does.
+        repair::undo(&work, "R0001").unwrap();
+        std::fs::write(stick.join(RETURNED).join("a [R0001].jpg"), b"the Mac's repair, again").unwrap();
+        let o = bring_back(&work, &stick, &mut |_| {}).unwrap();
+        assert!(o.repaired.len() == 1 && o.beside_intact == 0, "{o:?}");
+        let pb = repair::put_back_by_itself(&work, &mut |_| {}, &|| false).unwrap();
+        assert_eq!(pb.returned.len(), 1, "{pb:?}");
+        assert_eq!(std::fs::read(work.join("Pics").join("a.jpg")).unwrap(), b"the Mac's repair, again");
         let _ = std::fs::remove_dir_all(&base);
     }
 
