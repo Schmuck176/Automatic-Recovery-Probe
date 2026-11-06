@@ -2053,7 +2053,53 @@ pub fn run(
         true
     });
     let back = repair::returned_now(work);
-    let previous: HashMap<String, Attempt> = read_log(&repair).into_iter().map(|a| (a.id.clone(), a)).collect();
+    let mut previous: HashMap<String, Attempt> = read_log(&repair).into_iter().map(|a| (a.id.clone(), a)).collect();
+    // A repaired version the program saved into repaired\auto, by a run cut
+    // off (the window closed, a power cut) before it wrote down how: it stays
+    // as it is (it is put back as any other), and is written down now - or
+    // the log, What is left and the evaluation would never have it.
+    {
+        let key = |p: &str| p.replace('/', "\\").trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase();
+        let own_dir = format!("{}\\", key(&root.join(AUTO_DIR).display().to_string()));
+        let mut cut_off: Vec<Attempt> = Vec::new();
+        for item in &items {
+            let Some(name) = versions.get(&item.id).and_then(|vs| {
+                vs.iter().find_map(|v| {
+                    let full = v.display().to_string();
+                    let k = key(&full);
+                    // (Right inside repaired\auto: the program's own.)
+                    (k.starts_with(&own_dir) && !k[own_dir.len()..].contains('\\'))
+                        .then(|| v.file_name().map(|n| n.to_string_lossy().into_owned()))
+                        .flatten()
+                })
+            }) else {
+                continue;
+            };
+            let output = format!("{}\\{AUTO_DIR}\\{name}", repair::REPAIRED);
+            if previous.get(&item.id).is_some_and(|a| a.fate == Fate::Repaired && a.output.eq_ignore_ascii_case(&output)) {
+                continue;
+            }
+            cut_off.push(Attempt {
+                id: item.id.clone(),
+                path: item.path.clone(),
+                group: item.group.clone(),
+                fate: Fate::Repaired,
+                how: "repaired by a run that was cut off (the window closed, or the PC went off) before it could write down \
+                      how: its repaired version is kept, as made"
+                    .to_string(),
+                tool: String::new(),
+                output,
+                next: Next::Done,
+                note: String::new(),
+            });
+        }
+        if !cut_off.is_empty() {
+            append_log(&repair, &cut_off)?;
+            for a in cut_off {
+                previous.insert(a.id.clone(), a);
+            }
+        }
+    }
     let todo: Vec<&Item> = items
         .iter()
         .filter(|i| {
@@ -2685,6 +2731,67 @@ mod tests {
         let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
         assert_eq!(o.attempts.len(), 1);
         assert_eq!(read_log(&repair).len(), 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_repair_cut_off_before_its_log_line_is_written_down_after() {
+        // A run killed (the window closed, a power cut) after it saved a
+        // repaired version into repaired\auto, before it wrote how: the next
+        // run leaves the version as it is, and writes down that it is there.
+        // (Before, the log never had a line for it: What is left, the
+        // evaluation and the report said nothing of how it was repaired.)
+        let base = std::env::temp_dir().join(format!("rp-ar-cutoff-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("WORK");
+        std::fs::create_dir_all(work.join("Photos")).unwrap();
+        let mut log = csv_row(&crate::rescue::LOG_HEADER);
+        for name in ["IMG_0001.JPG", "IMG_0002.JPG"] {
+            let p = work.join("Photos").join(name);
+            std::fs::write(&p, vec![name.len() as u8; 8192]).unwrap();
+            let sha = crate::sha256::file_hex(&p, &|| false).unwrap().unwrap();
+            log.push_str(&csv_row(&["FILE", &format!("Photos\\{name}"), "8192", "copied", &format!("Photos\\{name}"), "", &sha]));
+        }
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let repair = base.join(repair::REPAIR_DIR);
+        std::fs::create_dir_all(repair.join(repair::LISTS)).unwrap();
+        std::fs::write(repair.join(repair::LISTS).join("mine.txt"), "Photos\\IMG_0001.JPG\r\nPhotos\\IMG_0002.JPG\r\n").unwrap();
+        let iso = repair::isolate(&work, &[], &mut |_| {}, &|| false).unwrap();
+        let id_of = |name: &str| iso.copied.iter().find(|i| i.path.ends_with(name)).unwrap().id.clone();
+        let (a_id, b_id) = (id_of("IMG_0001.JPG"), id_of("IMG_0002.JPG"));
+        let own = repair.join(repair::REPAIRED).join(AUTO_DIR);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join(format!("IMG_0001 [{a_id}].JPG")), b"repaired").unwrap();
+        // The second was tried and not repaired, then repaired by a run cut
+        // off the same way: its version is there, its last line says not.
+        let tried = Attempt {
+            id: b_id.clone(),
+            path: "Photos\\IMG_0002.JPG".to_string(),
+            group: String::new(),
+            fate: Fate::NotRepaired,
+            how: "no tool could".to_string(),
+            tool: String::new(),
+            output: String::new(),
+            next: Next::Paid,
+            note: String::new(),
+        };
+        append_log(&repair, std::slice::from_ref(&tried)).unwrap();
+        std::fs::write(own.join(format!("IMG_0002 [{b_id}].JPG")), b"repaired too").unwrap();
+        let opts = Options { work: work.clone(), search: Vec::new(), map_check: None, twins_again: false, look_only: false };
+        let o = run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(o.attempts.is_empty() && o.already == 2, "nothing tried again ({:?})", o.attempts);
+        let latest: HashMap<String, Attempt> = read_log(&repair).into_iter().map(|a| (a.id.clone(), a)).collect();
+        for (id, name) in [(&a_id, "IMG_0001"), (&b_id, "IMG_0002")] {
+            let a = &latest[id];
+            assert_eq!(a.fate, Fate::Repaired, "{a:?}");
+            assert_eq!(a.output, format!("{}\\{AUTO_DIR}\\{name} [{id}].JPG", repair::REPAIRED));
+            assert!(a.how.contains("cut off"), "{a:?}");
+            assert_eq!(a.next, Next::Done);
+        }
+        // Once written down, not again.
+        let lines = read_log(&repair).len();
+        run(&base, &opts, &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(read_log(&repair).len(), lines);
         let _ = std::fs::remove_dir_all(&base);
     }
 

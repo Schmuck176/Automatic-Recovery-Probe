@@ -2163,16 +2163,26 @@ videos: the processor is); no ticks at all in the automatic checklist.
   have lost its tick from the first wording - the lookup took one step;
   now it follows every rewording (test: ticks_are_kept_and_follow_renamed_lines,
   failing before).
+- Found by GitHub's interruption check (Linux, seed 5: Start killed four
+  times in the repairs): a run cut off after it saved a repaired version
+  into REPAIR\repaired\auto, before it wrote down how, left the log
+  without a line for it for good (report.docx: put back, but "None" in
+  auto-repair-log.csv - What is left, the evaluation and the report said
+  nothing of it). Now the next run writes it down ("repaired by a run that
+  was cut off ... its repaired version is kept, as made"), and also when the
+  last line said not repaired (test:
+  a_repair_cut_off_before_its_log_line_is_written_down_after, failing
+  before).
 - Version 2026-11-06 (1); the 2026-11-04 (4) checklist text is known
   (7714998951816333085); box 3's new wording is in RENAMED.
-- Tests here: unit tests 229 (and 229 with overflow checks; new: the
+- Tests here: unit tests 230 (and 230 with overflow checks; new: the
   videos played once per content and biggest first, played only while
   asked for, the trial, one more at once only with room, the pace; what a
   running tool has read; how busy the processor is; the program's ticks and
   an untick standing; most boxes known; what the program has seen done;
   videos asked for after the extra checks), auto_check 124/124,
   auto_ui_check 44/44 and ui_check 67/67 with both fonts, test_mapcheck
-  94/94, resume_check (seed 163, 20 interruptions) 17/17.
+  94/94, resume_check (seeds 163, 5 and 167, 20 interruptions each) 17/17.
 
 ## Not done / ideas for later
 
@@ -2196,3 +2206,11 @@ videos: the processor is); no ticks at all in the automatic checklist.
 - HEIC salvage on Windows with FFmpeg 8.1+ (as JPEG), before the Mac.
 - A Windows scheduled reminder every six months (the checklist says to set a
   phone reminder instead).
+- Suggested to the user on 6 Nov (waiting for their choice): phone
+  notifications when Start needs them or stops (a free push service would
+  see the text: only if they want it); one finish time for the whole of
+  Start; the old Phase -1 settings changed by hand (Windows Update, power
+  plan, their own Defender exclusion, AutoPlay) checked by the program with
+  Show me buttons, and that box ticked by it; a one-page recovery report in
+  RECORDS; repairs that failed before with the same tools not tried again
+  on a rerun (above).
