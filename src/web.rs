@@ -3247,6 +3247,8 @@ mod tests {
         let job = |state: &str, at: &str, data: &str| Job { state: state.into(), started_at: at.into(), data: data.into(), ..Default::default() };
         {
             let mut a = lock(&app);
+            // (On Windows, the program open is seen only with administrator rights.)
+            a.elevated = true;
             a.last.insert("selftest".into(), job("done", "2026-11-05 23:01:36", "{\"passed\":true,\"problems\":0}"));
             for s in a.auto.stages.iter_mut().take(5) {
                 s.state = "done".into();
