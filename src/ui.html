@@ -527,6 +527,7 @@ ul.phases .warn { color: var(--unread); }
 .checklist li.box.checkpoint { background: var(--sheet); border: 1px solid var(--rule); padding: 10px 12px 10px 44px; margin: 12px 0; }
 .checklist li.box.checkpoint > input.tick { left: 12px; top: 13px; }
 .checklist li.box.flash { outline: 3px solid var(--focus); outline-offset: 2px; }
+.checklist li.box .seennote { margin-top: 2px; }
 .cp { font-size: 0.92rem; margin-top: 6px; }
 .cp:empty { display: none; }
 .cp.passed, .cp.skipped { color: var(--read); }
@@ -966,6 +967,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
               <div class="field">
                 <span class="field-icon"><svg class="ic" aria-hidden="true"><use href="#i-film"></use></svg></span>
                 <label class="check"><input type="checkbox" id="af-videos" checked> <span><b>Play every video through to find damage.</b> Thorough, but it can take hours or days for a big collection. It runs last, and can be stopped.</span></label>
+                <p class="hint" id="videos-hint" role="status"></p>
               </div>
             </div>
             <div id="ar-folders"></div>
@@ -1297,6 +1299,10 @@ function progressNow() {
   let left = null;
   if (own && j.rate > 0) left = Math.max(0, total - done) / j.rate;
   else if (!own && f > 0.005 && secs >= 20) left = (secs * (1 - f)) / f;
+  // The extra checks: their own reckoning (the quick checks at the pace they
+  // go, the videos at the speed they play - not by how many are done).
+  const stage = j.kind === "auto" ? (((S.auto && S.auto.stages) || []).find((s) => s.state === "running") || {}).key : j.kind;
+  if (stage === "extra" && L && L.videos && L.videos.stage_left != null) left = L.videos.stage_left;
   return { f, left };
 }
 // "37% · about 2 h left" (or "Running…" when it cannot tell yet).
@@ -1334,6 +1340,11 @@ function liveHtml(L, narrow) {
       return `<li><span class="k-ring${full ? " full" : ""}">${ring(f)}</span>${ic(KIND_ICON[k.name] || "file")}<span class="k-name">${esc(k.name)}</span>` +
         `<span class="k-num"><span>${commas(k.files[0])} of ${commas(k.files[1])}</span>${narrow || !k.bytes[1] ? "" : ` <span>· ${esc(gb(k.bytes[0]))} of ${esc(gb(k.bytes[1]))}</span>`}</span></li>`;
     }).join("") + `</ul>`;
+  }
+  const V = L.videos;
+  if (V && V.to_play > 0) {
+    const yet = V.wanted && V.left != null && V.played < V.to_play ? ` · ${esc(leftText(V.left))}` : "";
+    h += `<p class="live-now">${ic("film")}<span>Videos played through: <b>${commas(V.played)}</b> of ${commas(V.to_play)}${narrow ? "" : ` · ${esc(gb(V.bytes))} of ${esc(gb(V.total))}`}${yet}${V.wanted ? "" : " · left out (not ticked)"} · ${commas(V.at_once)} at once</span></p>`;
   }
   if (L.now) h += `<p class="live-now">${ic("file")}<span>Now: <span class="path">${esc(shortPath(L.now))}</span></span></p>`;
   return h + `</div>`;
@@ -2541,6 +2552,55 @@ const STAGE_STATE = {
 };
 function stageTitle(s) { return STAGE_TITLE[s.key] || s.title; }
 
+// The videos still to play through, and how long that takes on this PC
+// (measured right after the copying, or as they played): null when not
+// known yet.
+function videosLeft() {
+  const norm = (p) => String(p || "").trim().replace(/[\\/]+$/, "").toLowerCase();
+  const work = norm(setting("auto_work"));
+  const [n, b, w] = setting("videos_to_play").split("\t");
+  if (!n || !work || norm(w) !== work) return null;
+  const [r, w2] = setting("video_speed").split("\t");
+  const rate = Number(r) > 0 && norm(w2) === work ? Number(r) : 0;
+  return { n: Number(n), bytes: Number(b), secs: rate ? Math.max(60, Number(b) / rate) : null };
+}
+// "about 6 h 40 min on this PC for the 1,234 videos (410 GB)".
+function videosWords(v) {
+  const what = `${commas(v.n)} ${v.n === 1 ? "video" : "videos"} (${gb(v.bytes)})`;
+  return v.secs != null ? `about ${duration(v.secs)} on this PC for the ${what}` : `the ${what}`;
+}
+// Play every video through: the question - with the time it takes, once
+// Start has measured it - while the answer still counts. For "Now" and 4.
+// Start; null when there is nothing to ask.
+function videosQuestion() {
+  const A = S.auto || { stages: [] };
+  const ex = A.stages.find((s) => s.key === "extra");
+  if (!ex) return null;
+  const ticked = setting("auto_videos") !== "0";
+  const running = autoRunning();
+  const V = S.live && S.live.videos;
+  const leave = `<button class="second" data-videos="0">${ic("film")}Leave them out</button>`;
+  const play = (carry) => `<button class="second" data-videos="1"${carry ? ' data-carry="1"' : ""}>${ic("film")}${carry ? "Play them through now" : "Play them through"}</button>`;
+  // In the extra checks: how far, and how long yet.
+  if (running && ex.state === "running" && V && V.to_play > 0) {
+    if (!V.wanted) return { tone: "warn", text: `<b>The videos are left out</b> (Play every video through is not ticked).`, btn: play(false) };
+    const yet = V.left != null && V.played < V.to_play ? ` · ${esc(leftText(V.left))}` : "";
+    if (!V.bytes) return { tone: "", text: `<b>Playing every video through:</b> next, once these checks are done - ${commas(V.to_play)} ${V.to_play === 1 ? "video" : "videos"}${V.left != null ? `, ${esc(leftText(V.left).replace(/ left$/, ""))}` : ""}.`, btn: leave };
+    return { tone: "", text: `<b>Playing every video through:</b> ${commas(V.played)} of ${commas(V.to_play)} played${yet}. Untick it to leave the rest out.`, btn: leave };
+  }
+  const v = videosLeft();
+  if (!v || !v.n) return null;
+  const words = esc(videosWords(v));
+  if (ex.state === "done" || ex.state === "skipped") {
+    if (!ticked) return { tone: "warn", text: `<b>The extra checks left the videos out:</b> ${words} to play them through. Asked for now, Start goes back to them, then repairs what they turn up.`, btn: running ? "" : play(true) };
+    return running ? { tone: "", text: `<b>The videos come after this:</b> Play every video through is ticked, so once Start has got through its stages it goes back to them - ${words} - and repairs what they turn up.`, btn: leave } : null;
+  }
+  // Their turn has not come yet.
+  return ticked
+    ? { tone: "", text: `<b>Playing every video through:</b> ${words}. The extra checks (stage 8) play them, last.`, btn: leave }
+    : { tone: "warn", text: `<b>Play every video through is not ticked,</b> so the extra checks (stage 8) leave the videos out: ${words} to play them through.`, btn: play(false) };
+}
+
 function renderAuto() {
   if (!S) return;
   const running = busy();
@@ -2664,6 +2724,13 @@ function renderAuto() {
   if (folderProblem) h += msg("err", esc(folderProblem));
   if (READY && !setting("auto_work") && !READY.suggest_work) h += `<p class="small soft">No drive called SPARE is plugged in now: type the folder (such as E:\\WORK), or plug SPARE in and click Check this PC.</p>`;
   put($("ar-folders"), h);
+  const vl = videosLeft();
+  const exNow = ((S.auto && S.auto.stages) || []).find((s) => s.key === "extra");
+  put($("videos-hint"), vl && vl.n
+    ? `${ic("timer")}${esc(videosWords(vl).replace(/^./, (c) => c.toUpperCase()))} still to play, measured on this PC. You can tick or untick this until their turn comes (they come last), and untick it while they play to leave the rest out.`
+    : exNow && (exNow.state === "done" || exNow.state === "skipped")
+      ? `No videos are left to play through.`
+      : `Start measures how long they take on this PC once it has copied everything, and shows it here and in 4. Start: you can tick or untick this until their turn comes (they come last), and untick it while they play to leave the rest out.`);
   setAuto("folders", foldersOk ? "done" : folderProblem ? "problem" : "", foldersOk ? "Chosen" : folderProblem ? "Needs changing" : "");
 
   // 4. Start.
@@ -2677,6 +2744,8 @@ function renderAuto() {
   h = noteHtml("start");
   // (What Start waits for you to do is in "Now", always in view.)
   if (A.banner) h += msg("ok", esc(A.banner));
+  const vq = videosQuestion();
+  if (vq) h += msg(vq.tone, vq.text, vq.btn);
   const byKey = Object.fromEntries(A.stages.map((s, i) => [s.key, [s, i]]));
   const grouped = new Set();
   const stageRow = ([s, i]) => {
@@ -3138,6 +3207,8 @@ function renderNow() {
   let t = "";
   if (waiting) t += `<div class="yourturn" role="status">${ic("hand")}<b>What to do</b><p>${esc(A.waiting)}</p></div>`;
   if (A.banner) t += `<div class="yourturn calm">${ic("info")}<b>When you're ready</b><p>${esc(A.banner)}</p></div>`;
+  const vq = running && j.kind === "auto" ? videosQuestion() : null;
+  if (vq) t += `<div class="yourturn calm">${ic("film")}<b>The videos</b><p>${vq.text}</p>${vq.btn ? `<div class="row">${vq.btn}</div>` : ""}</div>`;
   put($("now-turn"), t);
   // (While Start waits, its last line says the same as "What to do".)
   $("job-last").hidden = !!waiting;
@@ -3253,6 +3324,20 @@ for (const [id, key, sub] of FOLDERS) {
 $("af-search").addEventListener("input", () => { $("af-search").dataset.touched = "1"; });
 $("af-search").addEventListener("change", () => save({ auto_search: cleanPath($("af-search").value) }));
 $("af-videos").addEventListener("change", () => save({ auto_videos: $("af-videos").checked ? "1" : "0" }));
+// Play every video through, ticked or unticked from the question (in "Now"
+// or 4. Start). After the extra checks left them out, Start carries on with
+// them at once.
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest && e.target.closest("button[data-videos]");
+  if (!b) return;
+  b.disabled = true;
+  note("start", "", "");
+  try {
+    await save({ auto_videos: b.dataset.videos });
+    if (b.dataset.carry && !busy()) await act({ action: "auto-start" });
+  } catch (err) { note("start", "err", err.message); }
+  await refresh();
+});
 $("b-auto-start").onclick = async () => {
   note("start", "", "");
   // Folders typed but not yet saved.
@@ -3408,6 +3493,8 @@ function renderChecklist() {
   if (!CL || !CLS) return;
   const st = {};
   for (const s of CLS.status) st[s.i] = s;
+  const seen = {};
+  for (const s of CLS.seen || []) seen[s.i] = s;
   document.querySelectorAll("#cl-body input.tick").forEach((box) => {
     const i = Number(box.dataset.i);
     const on = CLS.ticked[i] === 1;
@@ -3415,6 +3502,12 @@ function renderChecklist() {
     const li = $("it-" + i);
     li.classList.toggle("done", on);
     li.classList.toggle("next", CLS.next === i);
+    // Ticked by the program: what it saw.
+    let sn = li.querySelector(".seennote");
+    if (seen[i] && on) {
+      if (!sn) { sn = document.createElement("div"); sn.className = "seennote small soft"; li.appendChild(sn); }
+      sn.textContent = "Ticked by the program: " + seen[i].text;
+    } else if (sn) sn.remove();
     const s = st[i];
     if (s) {
       // A checkpoint ticks itself when its safety check passes; by hand only
@@ -3447,9 +3540,10 @@ function renderChecklist() {
   put($("cl-top"), `<b>${CLS.done} of ${CLS.total} boxes ticked</b>
     <div class="progress" aria-hidden="true"><div style="width:${pct}%"></div></div>
     <ul class="phases">${phases}</ul>
-    <p class="small soft">Tick each box here when it's done. The boxes with ✅ tick themselves when the safety check
-    (step 7, <i>Check the copies are unchanged</i>) passes after the boxes before them. Your copy of this checklist,
-    <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
+    <p class="small soft">The program ticks the boxes it sees done, and says beside each one what it saw; tick the
+    others here when they're done (a box you untick stays unticked, until the program sees it done again). The boxes
+    with ✅ tick themselves when the safety check (step 7, <i>Check the copies are unchanged</i>) passes after the boxes
+    before them. Your copy of this checklist, <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
     ${CLS.copy_note ? msg("warn", esc(CLS.copy_note)) : ""}`);
   document.querySelectorAll("#cl-top a[data-ph]").forEach((a) => a.onclick = (e) => {
     e.preventDefault();
@@ -3515,7 +3609,8 @@ async function start() {
     tick++;
     const running = busy();
     if (running || tick % 3 === 0) await refresh();
-    if (tick % 5 === 0 && !running) loadChecklist();
+    // (While something runs, now and then: the program ticks what it sees done.)
+    if (tick % (running ? 30 : 5) === 0) loadChecklist();
     if (tick % 15 === 0 && !running && view === "auto") loadReady();
     // The folders and drives: often while something writes, now and then otherwise.
     if (tick % (running ? 5 : 20) === 0) loadPlaces();

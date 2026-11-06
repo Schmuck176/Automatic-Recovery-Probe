@@ -191,7 +191,6 @@ pub(super) struct Plan {
     pub work: String,
     pub copy2: String,
     pub search: Vec<PathBuf>,
-    pub videos: bool,
 }
 
 /// SPARE plugged in under another letter than before (Windows gives a drive
@@ -239,7 +238,6 @@ pub(super) fn plan_of(app: &Arc<Mutex<App>>) -> Result<Plan, String> {
         work: work.trim().to_string(),
         copy2: a.setting("auto_copy2"),
         search: a.setting("auto_search").lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(PathBuf::from).collect(),
-        videos: a.setting("auto_videos") != "0",
     })
 }
 
@@ -572,8 +570,10 @@ pub(super) fn step(app: &Arc<Mutex<App>>, ctx: &Ctx, p: Prepared) -> Result<Outc
 
 fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String> {
     // (Older copies named while something else ran, or on a drive plugged
-    // in since: looked in now.)
+    // in since: looked in now. The videos, if they were left out and are
+    // asked for now: played now.)
     older_copies_added(app, true);
+    videos_asked_for(app, true);
     let from = lock(app).auto.resume_at();
     if from >= STAGES.len() {
         return Ok(Outcome {
@@ -599,80 +599,92 @@ fn run(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<Outcome, String>
             ctx.line(&l);
         }
     }
-    for (i, (key, title)) in STAGES.iter().enumerate().skip(from) {
-        if ctx.stopping() {
-            return Ok(stopped_outcome(app, key));
-        }
-        let started = local_now();
-        let t = Instant::now();
-        lock(app).auto.stage_began = Some(t);
-        // (Nothing counted for the page until the stage counts its own.)
-        crate::live::clear();
-        set_stage(app, key, |s| {
-            s.state = "running".to_string();
-            s.started_at = started.clone();
-            s.summary.clear();
-        });
-        ctx.line(&format!("Stage {} of {}: {title}", i + 1, STAGES.len()));
-        crate::live::event("info", &format!("Stage {} of {} began: {title}", i + 1, STAGES.len()));
-        let end = match *key {
-            "ready" => stage_ready(app, ctx, plan),
-            "image" => stage_image(app, ctx, plan),
-            "open" => stage_open(app, ctx),
-            "mapcheck" => stage_mapcheck(app, ctx, plan),
-            "copy" => stage_copy(app, ctx, plan),
-            "verify" | "verify2" => stage_verify(app, ctx, plan, key),
-            "scan" | "scan2" => stage_scan(app, ctx, plan, key),
-            "extra" => stage_extra(app, ctx, plan),
-            "isolate" => stage_isolate(app, ctx, plan),
-            "repair" => stage_repair(app, ctx, plan),
-            "putback" => stage_putback(app, ctx, plan),
-            "evaluate" => stage_evaluate(app, ctx, plan),
-            "handoff" => stage_handoff(app, ctx, plan),
-            _ => Ok(End::Skipped(Vec::new())),
-        };
-        {
-            let mut a = lock(app);
-            a.auto.waiting.clear();
-        }
-        let secs = t.elapsed().as_secs();
-        let end = end.unwrap_or_else(|e| End::Stop(e, Vec::new()));
-        match end {
-            End::Done(lines) => {
-                // (What the map check found has a line of its own.)
-                let said = if *key == "mapcheck" { String::new() } else { first_words(&lines) };
-                crate::live::event("good", &format!("Stage {} done: {title} ({}){said}", i + 1, crate::fmt::duration(secs)));
-                set_stage(app, key, |s| {
-                    s.state = "done".to_string();
-                    s.seconds = secs;
-                    s.summary = lines.clone();
-                });
+    let mut from = from;
+    loop {
+        for (i, (key, title)) in STAGES.iter().enumerate().skip(from) {
+            if ctx.stopping() {
+                return Ok(stopped_outcome(app, key));
             }
-            End::Skipped(lines) => {
-                crate::live::event("info", &format!("Stage {} not needed: {title}{}", i + 1, first_words(&lines)));
-                set_stage(app, key, |s| {
-                    s.state = "skipped".to_string();
-                    s.seconds = secs;
-                    s.summary = lines.clone();
-                });
+            let started = local_now();
+            let t = Instant::now();
+            lock(app).auto.stage_began = Some(t);
+            // (Nothing counted for the page until the stage counts its own.)
+            crate::live::clear();
+            set_stage(app, key, |s| {
+                s.state = "running".to_string();
+                s.started_at = started.clone();
+                s.summary.clear();
+            });
+            ctx.line(&format!("Stage {} of {}: {title}", i + 1, STAGES.len()));
+            crate::live::event("info", &format!("Stage {} of {} began: {title}", i + 1, STAGES.len()));
+            let end = match *key {
+                "ready" => stage_ready(app, ctx, plan),
+                "image" => stage_image(app, ctx, plan),
+                "open" => stage_open(app, ctx),
+                "mapcheck" => stage_mapcheck(app, ctx, plan),
+                "copy" => stage_copy(app, ctx, plan),
+                "verify" | "verify2" => stage_verify(app, ctx, plan, key),
+                "scan" | "scan2" => stage_scan(app, ctx, plan, key),
+                "extra" => stage_extra(app, ctx, plan),
+                "isolate" => stage_isolate(app, ctx, plan),
+                "repair" => stage_repair(app, ctx, plan),
+                "putback" => stage_putback(app, ctx, plan),
+                "evaluate" => stage_evaluate(app, ctx, plan),
+                "handoff" => stage_handoff(app, ctx, plan),
+                _ => Ok(End::Skipped(Vec::new())),
+            };
+            {
+                let mut a = lock(app);
+                a.auto.waiting.clear();
             }
-            End::Stopped => return Ok(stopped_outcome(app, key)),
-            End::Stop(why, lines) => {
-                crate::live::event("bad", &format!("Start stopped at stage {} ({title}): {why}", i + 1));
-                crate::notify::toast(&format!("Start stopped at stage {}: it needs you", i + 1), &why, true);
-                set_stage(app, key, |s| {
-                    s.state = "failed".to_string();
-                    s.seconds = secs;
-                    let mut l = vec![why.clone()];
-                    l.extend(lines.iter().cloned());
-                    s.summary = l;
-                });
-                let mut sm = vec![format!("Start stopped at \"{title}\": {why}")];
-                sm.extend(lines);
-                sm.push("When it is sorted out, click Start again: it carries on from here.".to_string());
-                return Ok(Outcome { summary: sm, problem: Some(why), ..Default::default() });
+            let secs = t.elapsed().as_secs();
+            let end = end.unwrap_or_else(|e| End::Stop(e, Vec::new()));
+            match end {
+                End::Done(lines) => {
+                    // (What the map check found has a line of its own.)
+                    let said = if *key == "mapcheck" { String::new() } else { first_words(&lines) };
+                    crate::live::event("good", &format!("Stage {} done: {title} ({}){said}", i + 1, crate::fmt::duration(secs)));
+                    set_stage(app, key, |s| {
+                        s.state = "done".to_string();
+                        s.seconds = secs;
+                        s.summary = lines.clone();
+                    });
+                }
+                End::Skipped(lines) => {
+                    crate::live::event("info", &format!("Stage {} not needed: {title}{}", i + 1, first_words(&lines)));
+                    set_stage(app, key, |s| {
+                        s.state = "skipped".to_string();
+                        s.seconds = secs;
+                        s.summary = lines.clone();
+                    });
+                }
+                End::Stopped => return Ok(stopped_outcome(app, key)),
+                End::Stop(why, lines) => {
+                    crate::live::event("bad", &format!("Start stopped at stage {} ({title}): {why}", i + 1));
+                    crate::notify::toast(&format!("Start stopped at stage {}: it needs you", i + 1), &why, true);
+                    set_stage(app, key, |s| {
+                        s.state = "failed".to_string();
+                        s.seconds = secs;
+                        let mut l = vec![why.clone()];
+                        l.extend(lines.iter().cloned());
+                        s.summary = l;
+                    });
+                    let mut sm = vec![format!("Start stopped at \"{title}\": {why}")];
+                    sm.extend(lines);
+                    sm.push("When it is sorted out, click Start again: it carries on from here.".to_string());
+                    return Ok(Outcome { summary: sm, problem: Some(why), ..Default::default() });
+                }
             }
+            // (The checklist ticks what the stage did, and its copy follows.)
+            let _ = super::checklist_sync(app);
         }
+        // Play every video through ticked while the stages after the extra
+        // checks ran (it had left the videos out): back to them now.
+        if !videos_asked_for(app, true) {
+            break;
+        }
+        from = lock(app).auto.resume_at();
+        crate::live::event("info", &format!("Start goes back to stage {} of {}: {}", from + 1, STAGES.len(), STAGES[from].1));
     }
     // (Windows' settings stay as they are: they go back only when the person
     // clicks for it, with every drive unplugged - back.rs.)
@@ -1291,6 +1303,12 @@ fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Stri
     // switched on below.)
     if recovered_disk_attached(map_size_now()).is_none() {
         banner(app, "");
+        // (For the checklist: its box for unplugging the SSD ticks.)
+        let mut a = lock(app);
+        if a.setting("ssd_unplugged_at").is_empty() {
+            a.settings.insert("ssd_unplugged_at".to_string(), local_now());
+            a.save();
+        }
     }
     // WORK's drive must be there - and be the right one.
     loop {
@@ -1336,7 +1354,11 @@ fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Stri
     if let Some(p) = o.problem {
         return Ok(End::Stop(p, o.summary));
     }
-    Ok(End::Done(o.summary))
+    let mut lines = o.summary;
+    if !ctx.stopping() {
+        lines.extend(measure_videos(app, ctx, plan));
+    }
+    Ok(End::Done(lines))
 }
 
 fn stage_verify(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, key: &str) -> Result<End, String> {
@@ -1365,14 +1387,138 @@ fn stage_scan(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan, key: &str) -> Resul
     Ok(End::Done(o.summary))
 }
 
-fn stage_extra(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
-    let (home, results, map_check) = {
+/// How many tools the extra checks run at once to begin with (half the
+/// processor's threads, up to 4), and at most (one a thread, up to 16): more
+/// while the processor has room (extra.rs).
+fn at_once() -> (usize, usize) {
+    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    (n.div_ceil(2).clamp(1, 4), n.clamp(1, 16))
+}
+
+/// Whether Play every video through is ticked - asked when the videos' turn
+/// comes, and while they play (not once, when Start began: the person can
+/// change their mind once the time it takes is known).
+fn videos_wanted(app: &Arc<Mutex<App>>) -> Arc<dyn Fn() -> bool + Send + Sync> {
+    let app = app.clone();
+    Arc::new(move || lock(&app).setting("auto_videos") != "0")
+}
+
+/// How fast this PC played the videos in WORK through, last measured
+/// (bytes a second, all at once).
+pub(super) fn video_speed(a: &App, work: &str) -> Option<f64> {
+    let s = a.setting("video_speed");
+    let (rate, at) = s.split_once('\t')?;
+    same_folder(at, work).then(|| rate.parse::<f64>().ok()).flatten().filter(|r| *r > 0.0)
+}
+
+/// The videos in WORK still to play through: (how many, their bytes), as
+/// last counted (by the measuring after the copying, or the extra checks).
+pub(super) fn videos_to_play(a: &App, work: &str) -> Option<(u64, u64)> {
+    let s = a.setting("videos_to_play");
+    let mut f = s.split('\t');
+    let (n, b, at) = (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?);
+    same_folder(at, work).then_some((n, b))
+}
+
+fn note_videos(app: &Arc<Mutex<App>>, work: &str, to_play: u64, bytes: u64, rate: Option<f64>) {
+    let mut a = lock(app);
+    if to_play > 0 {
+        a.settings.insert("videos_to_play".to_string(), format!("{to_play}\t{bytes}\t{}", work.trim()));
+    } else {
+        a.settings.remove("videos_to_play");
+    }
+    if let Some(r) = rate.filter(|r| *r > 0.0) {
+        a.settings.insert("video_speed".to_string(), format!("{r:.0}\t{}", work.trim()));
+    }
+    a.save();
+}
+
+/// "about 6 h 40 min for the 1,234 videos still to play (410 GB)".
+pub(super) fn videos_time_words(to_play: u64, bytes: u64, rate: Option<f64>) -> String {
+    let what = format!("{} {} ({})", commas(to_play), if to_play == 1 { "video" } else { "videos" }, size(bytes));
+    match extra::VideoNumbers::secs_for(bytes, rate) {
+        Some(s) => format!("about {} on this PC for the {what}", crate::fmt::duration(s.max(60))),
+        None => format!("how long is not known yet: {what}"),
+    }
+}
+
+/// How long playing every video through takes on this PC: right after the
+/// copying, a minute and a half of it (what it plays through is kept, as
+/// the extra checks' own), so that the time is known well before the
+/// videos' turn in the extra checks, and the person can tick or untick Play
+/// every video through with it in front of them.
+const VIDEO_TRIAL: Duration = Duration::from_secs(90);
+
+fn measure_videos(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Vec<String> {
+    let (home, results) = {
         let a = lock(app);
-        (a.home.clone(), a.results.clone(), a.setting("last_map_check"))
+        (a.home.clone(), a.results.clone())
+    };
+    let (jobs, most) = at_once();
+    let opts = extra::Options {
+        work: PathBuf::from(&plan.work),
+        videos: Arc::new(|| true),
+        jobs,
+        most,
+        done_list: Some(results.join("extra-checks-done.tsv")),
+        map_items: None,
+        trial: Some(VIDEO_TRIAL),
+        video_rate: None,
+    };
+    ctx.line("- How long playing every video through takes on this PC: playing them for a minute and a half");
+    let stop = ctx.stop.clone();
+    let o = match extra::run(&home, &opts, &mut |s| ctx.line(s), &mut |_, _| {}, &move || stop.load(Ordering::Relaxed)) {
+        Ok(o) => o,
+        Err(e) => return vec![format!("How long playing every video through takes could not be measured: {e}")],
+    };
+    if o.left_out.iter().any(|(c, _)| *c == extra::Check::Video) {
+        return vec!["FFmpeg was not found, so the videos cannot be played through (1. Get ready says how to get it).".to_string()];
+    }
+    if o.stopped {
+        return vec!["(Stopped while measuring how long the videos take: the extra checks measure it as they go.)".to_string()];
+    }
+    let rest = o.videos.to_play.saturating_sub(o.videos.played);
+    let rest_bytes = o.videos.to_play_bytes.saturating_sub(o.videos.played_bytes);
+    note_videos(app, &plan.work, rest, rest_bytes, o.videos.rate);
+    if o.videos.to_play == 0 && o.videos.played == 0 {
+        return vec!["There are no videos to play through (or every one was played through before).".to_string()];
+    }
+    if rest == 0 {
+        return vec![format!("Every video is played through already ({}): none is left for the extra checks.", commas(o.videos.played))];
+    }
+    let rate = o.videos.rate.or_else(|| video_speed(&lock(app), &plan.work));
+    let time = videos_time_words(rest, rest_bytes, rate);
+    let ticked = lock(app).setting("auto_videos") != "0";
+    crate::live::event("info", &format!("Playing every video through: {time}"));
+    crate::notify::toast(
+        "How long the videos take",
+        &format!(
+            "Playing every video through: {time}. {}",
+            if ticked { "It is ticked: untick it (3. The folders) to leave them out." } else { "It is not ticked: tick it (3. The folders) to have them played through." }
+        ),
+        false,
+    );
+    let mut lines = vec![format!("Playing every video through: {time} (measured on {} of them).", commas(o.videos.played.max(1)))];
+    lines.push(if ticked {
+        "Play every video through is ticked: the extra checks (stage 8) play them, last. Untick it before then (3. The \
+         folders) to leave them out."
+            .to_string()
+    } else {
+        "Play every video through is not ticked: the extra checks (stage 8) leave them out. Tick it before then (3. The \
+         folders) to have them played through - or later: Start carries on with them then."
+            .to_string()
+    });
+    lines
+}
+
+fn stage_extra(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, String> {
+    let (home, results, map_check, speed) = {
+        let a = lock(app);
+        (a.home.clone(), a.results.clone(), a.setting("last_map_check"), video_speed(&a, &plan.work))
     };
     let started = local_now();
     let t = Instant::now();
-    let jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).div_ceil(2).clamp(1, 4);
+    let (jobs, most) = at_once();
     // The map check's list of the files the damage touched: a tool's
     // findings among the files read whole are weighed against how many it
     // flags (extra.rs).
@@ -1382,14 +1528,25 @@ fn stage_extra(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Str
         .map(|t| crate::join::parse_tsv(&t));
     let opts = extra::Options {
         work: PathBuf::from(&plan.work),
-        videos: plan.videos,
+        videos: videos_wanted(app),
         jobs,
+        most,
         done_list: Some(results.join("extra-checks-done.tsv")),
         map_items,
+        trial: None,
+        video_rate: speed,
     };
     ctx.line("- The extra checks");
     let stop = ctx.stop.clone();
     let o = extra::run(&home, &opts, &mut |s| ctx.line(s), &mut |d, t| ctx.amount(d, t), &move || stop.load(Ordering::Relaxed))?;
+    if !o.stopped {
+        // What is left to play through (none: every one was), for later.
+        note_videos(app, &plan.work, o.videos.left, o.videos.left_bytes, o.videos.rate);
+    } else if o.videos.rate.is_some() {
+        let left = o.videos.to_play.saturating_sub(o.videos.played);
+        let bytes = o.videos.to_play_bytes.saturating_sub(o.videos.played_bytes);
+        note_videos(app, &plan.work, left, bytes, o.videos.rate);
+    }
     let report = fresh(&results, &format!("extra-checks-{}", stamp()), ".csv");
     let mut outputs: Vec<String> = o.lists.iter().map(|p| p.display().to_string()).collect();
     if extra::write_report(&report, &o).is_ok() {
@@ -1449,6 +1606,37 @@ fn older_copies_new(app: &Arc<Mutex<App>>, search: &[PathBuf]) -> Vec<String> {
 /// repairs, and the stages after them, are to run again - Start carries on
 /// from there - so an intact copy there is found, and restored. (Before,
 /// Start said every stage was done, and nothing looked in them.)
+/// Play every video through ticked after the extra checks left videos out:
+/// Start carries on from the extra checks again (what they checked before
+/// stands: only the videos are played), and from the stages after them, for
+/// what the videos turn up. True when so.
+pub(super) fn videos_asked_for(app: &Arc<Mutex<App>>, by_start: bool) -> bool {
+    let left = {
+        let mut a = lock(app);
+        let work = a.setting("auto_work");
+        let Some((n, bytes)) = videos_to_play(&a, &work) else { return false };
+        let Some(from) = a.auto.stages.iter().position(|s| s.key == "extra") else { return false };
+        if a.setting("auto_videos") == "0" || !matches!(a.auto.stages[from].state.as_str(), "done" | "skipped") {
+            return false;
+        }
+        for s in a.auto.stages.iter_mut().skip(from) {
+            s.state = "pending".to_string();
+            s.summary.clear();
+            s.started_at.clear();
+            s.seconds = 0;
+        }
+        // (The repairs: the files they tried before are only looked for
+        // among older copies again - every tool was tried on them - and what
+        // the videos turn up gets every tool.)
+        a.settings.insert("repair_look_only".to_string(), "1".to_string());
+        videos_time_words(n, bytes, video_speed(&a, &work))
+    };
+    save_state(app);
+    let then = if by_start { "Start carries on from the extra checks" } else { "click Carry on (4. Start)" };
+    crate::live::event("info", &format!("Play every video through is ticked: {left} - {then}, then repairs what they turn up"));
+    true
+}
+
 pub(super) fn older_copies_added(app: &Arc<Mutex<App>>, by_start: bool) -> Option<Vec<String>> {
     let search: Vec<PathBuf> =
         lock(app).setting("auto_search").lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(PathBuf::from).collect();

@@ -24,9 +24,9 @@ use crate::tools::{self, Tool};
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Check {
@@ -122,10 +122,17 @@ pub fn checks_for(name: &str, heif: bool, videos: bool) -> Vec<Check> {
 
 pub struct Options {
     pub work: PathBuf,
-    /// Play every video through too (hours to days for a big collection).
-    pub videos: bool,
-    /// How many tools run at once.
+    /// Whether to play the videos through too (hours to days for a big
+    /// collection): asked as each one's turn comes, and while it plays. The
+    /// person can change their mind until the videos come (they come last),
+    /// and unticked while they play, the rest are left out.
+    pub videos: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// How many tools run at once to begin with,
     pub jobs: usize,
+    /// and at most: one more is started each time the processor has had
+    /// room for a while - every tool busy, the processor not - while memory
+    /// is free.
+    pub most: usize,
     /// What earlier runs found, file by file (a file of the same size and
     /// date is not checked again: stopped, the checks carry on where they
     /// stopped).
@@ -134,6 +141,42 @@ pub struct Options {
     /// (map-check-files.tsv), when there is one: every other file was read
     /// whole from the old drive.
     pub map_items: Option<Vec<crate::join::MapItem>>,
+    /// Only the videos, for this long, in no particular order: how fast this
+    /// PC plays them through (right after the copying, so that the time it
+    /// takes is known before their turn). What it got through is kept, as
+    /// any run's is.
+    pub trial: Option<Duration>,
+    /// How fast the videos went before (bytes a second, all at once): the
+    /// time they take is worked out from it until this run has measured its
+    /// own.
+    pub video_rate: Option<f64>,
+}
+
+/// Every video played through: what there is to play, what was, how fast.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VideoNumbers {
+    /// Videos to play (not counting those an earlier run played, nor
+    /// identical copies of others), and their bytes.
+    pub to_play: u64,
+    pub to_play_bytes: u64,
+    /// Played through by this run.
+    pub played: u64,
+    pub played_bytes: u64,
+    /// Left out: not to be played when their turn came, or unticked while
+    /// they played.
+    pub left: u64,
+    pub left_bytes: u64,
+    /// How fast they went, all at once together (bytes a second), when
+    /// measured.
+    pub rate: Option<f64>,
+}
+
+impl VideoNumbers {
+    /// How long playing the rest through would take at the speed measured
+    /// (or `rate`), in seconds.
+    pub fn secs_for(bytes: u64, rate: Option<f64>) -> Option<u64> {
+        rate.filter(|r| *r > 0.0).map(|r| (bytes as f64 / r).round() as u64)
+    }
 }
 
 /// One line of the list of files checked: check, size, modified (seconds),
@@ -200,6 +243,13 @@ pub struct Outcome {
     pub lists: Vec<PathBuf>,
     pub report: Option<PathBuf>,
     pub stopped: bool,
+    /// Files that are identical copies of another one checked (the same size
+    /// and SHA-256 in the list of copies, the same kind): its result is
+    /// theirs.
+    pub twins: u64,
+    /// The most tools that ran at once.
+    pub at_once: usize,
+    pub videos: VideoNumbers,
 }
 
 /// A check's findings for one kind of file, set aside.
@@ -216,7 +266,7 @@ pub struct Doubt {
 }
 
 /// What a tool's run of one file says.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Verdict {
     Fine,
     Damaged(String),
@@ -402,7 +452,10 @@ fn plain_path(p: &Path) -> bool {
     p.to_str().is_some_and(|s| s.is_ascii() && s.len() < 240 && !s.starts_with(r"\\?\"))
 }
 
-fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
+/// `watch` is told about once a second what the tool has read and the
+/// processor time it has used (how fast the videos go, and whether there is
+/// room for more at once).
+fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool, watch: &dyn Fn(tools::Usage)) -> Verdict {
     // MP3val and qpdf (older kinds of Windows program) can't open every
     // name: a file whose path has letters outside plain ASCII, or is long, is
     // checked as a short-named copy (which it can't tell from the file).
@@ -417,7 +470,7 @@ fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -
             Err(e) => return Verdict::NotChecked(format!("a short-named copy of it could not be made to check ({e})")),
         }
     }
-    let v = check_path(check, exe, copy.as_deref().unwrap_or(path), size, stop);
+    let v = check_path(check, exe, copy.as_deref().unwrap_or(path), size, stop, watch);
     if let Some(c) = copy {
         let _ = std::fs::remove_file(c);
     }
@@ -430,6 +483,13 @@ fn check_one(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -
 /// damage in a FLAC (5 damaged FLACs in 6 played "without an error" here,
 /// that on one thread gave four errors each). Video keeps its threads (a
 /// big one would take several times as long on one).
+///
+/// The deblocking filter is left out (`-skip_loop_filter all`): it only
+/// smooths the edges of the picture's blocks, after FFmpeg has read the
+/// stream - where every error is found. Played with and without it, damaged
+/// H.264, HEVC, MPEG-2 and MPEG-4 videos (random bytes, holes of zeros,
+/// scattered flipped bytes, cut short) gave the same errors, every one; and
+/// the H.264 and HEVC videos played 15-20% faster without it.
 pub fn play_through_args(path: &Path) -> Vec<OsString> {
     vec![
         "-hide_banner".into(),
@@ -438,6 +498,8 @@ pub fn play_through_args(path: &Path) -> Vec<OsString> {
         "error".into(),
         "-threads:a".into(),
         "1".into(),
+        "-skip_loop_filter".into(),
+        "all".into(),
         "-i".into(),
         path.as_os_str().to_os_string(),
         "-map".into(),
@@ -450,7 +512,7 @@ pub fn play_through_args(path: &Path) -> Vec<OsString> {
     ]
 }
 
-fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool) -> Verdict {
+fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() -> bool, watch: &dyn Fn(tools::Usage)) -> Verdict {
     let p = path.as_os_str().to_os_string();
     let args: Vec<OsString> = match check {
         // A made-up password: an archive that has one says "Wrong password"
@@ -460,7 +522,7 @@ fn check_path(check: Check, exe: &Path, path: &Path, size: u64, stop: &dyn Fn() 
         Check::Pdf => vec!["--check".into(), p],
         Check::Photo | Check::Sound | Check::Video => play_through_args(path),
     };
-    let r = match tools::run_low(exe, &args, None, limit_for(check, size), stop) {
+    let r = match tools::run_low_watching(exe, &args, None, limit_for(check, size), stop, watch) {
         Ok(r) => r,
         Err(e) => return Verdict::NotChecked(format!("could not start {}: {e}", check.tool().name())),
     };
@@ -494,6 +556,93 @@ fn skip(work: &Path, full: &str, name: &str) -> bool {
     }
 }
 
+/// One check to make: a file, and the identical copies of it whose result
+/// is its own (the same size and SHA-256 in the list of copies, and the same
+/// kind of file).
+struct Task {
+    check: Check,
+    path: PathBuf,
+    size: u64,
+    twins: Vec<(PathBuf, u64)>,
+}
+
+impl Task {
+    fn files(&self) -> u64 {
+        1 + self.twins.len() as u64
+    }
+    fn bytes(&self) -> u64 {
+        self.twins.iter().fold(self.size, |a, t| a.saturating_add(t.1))
+    }
+}
+
+/// A tool running now, on one of the workers: whether it plays a video, its
+/// file's size, what it has read and the processor time it has used (as last
+/// told), and that time at the last look.
+#[derive(Clone, Copy, Debug, Default)]
+struct Busy {
+    video: bool,
+    size: u64,
+    read: u64,
+    cpu: f64,
+    cpu_seen: f64,
+}
+
+/// A path's place in no particular order: the trial plays the videos in it,
+/// so that what it measures is not only the biggest, nor one folder's.
+fn scatter(p: &Path) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in p.to_string_lossy().as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// How fast something gets on, over the last two minutes.
+#[derive(Default)]
+struct Pace {
+    /// (seconds since the start, amount done then).
+    samples: std::collections::VecDeque<(f64, u64)>,
+}
+
+impl Pace {
+    fn note(&mut self, at: f64, done: u64) {
+        if self.samples.back().is_some_and(|&(t, _)| at - t < 1.0) {
+            return;
+        }
+        self.samples.push_back((at, done));
+        while self.samples.len() > 2 && self.samples.front().is_some_and(|&(t, _)| at - t > 120.0) {
+            self.samples.pop_front();
+        }
+    }
+    /// Done a second lately, once there are 20 seconds to go on.
+    fn rate(&self) -> Option<f64> {
+        let (&(t0, n0), &(t1, n1)) = (self.samples.front()?, self.samples.back()?);
+        (t1 - t0 >= 20.0 && n1 > n0).then(|| (n1 - n0) as f64 / (t1 - t0))
+    }
+}
+
+/// The processor busy less than this, with every tool running,
+const ROOM: f64 = 0.75;
+/// while each video being played keeps at least this much of a thread busy
+/// (less: it waits for the drive, and more at once would not go faster),
+const KEEPS_BUSY: f64 = 0.3;
+/// and this much memory free: one more tool at once.
+const MEMORY_FOR_MORE: u64 = 2 << 30;
+/// Less memory free than this: one fewer.
+const MEMORY_LOW: u64 = 1 << 30;
+
+/// Is there room for one more tool at once? `busy`: how busy the processor
+/// was lately (0 to 1); `all_working`: every worker had a file; `per_video`:
+/// threads' worth of the processor each video being played used, if one
+/// was; `free`: memory free now.
+fn room_for_more(busy: Option<f64>, all_working: bool, per_video: Option<f64>, free: Option<u64>) -> bool {
+    all_working
+        && busy.is_some_and(|b| b < ROOM)
+        && per_video.is_none_or(|p| p >= KEEPS_BUSY)
+        && free.is_none_or(|f| f >= MEMORY_FOR_MORE)
+}
+
 /// Run the extra checks over WORK.
 pub fn run(
     home: &Path,
@@ -506,12 +655,13 @@ pub fn run(
     if !work.is_dir() {
         return Err(format!("{} is not there", work.display()));
     }
+    let trial = opts.trial.is_some();
     let mut o = Outcome::default();
     // Which tools there are.
     let mut exes: BTreeMap<Check, PathBuf> = BTreeMap::new();
     let mut heif = false;
     for c in Check::ALL {
-        if c == Check::Video && !opts.videos {
+        if trial && c != Check::Video {
             continue;
         }
         match tools::find(c.tool(), home) {
@@ -524,17 +674,33 @@ pub fn run(
             None => o.left_out.push((c, format!("{} was not found on this PC", c.tool().name()))),
         }
     }
-    if !opts.videos {
-        o.left_out.push((Check::Video, "playing every video through was not asked for (it takes hours)".to_string()));
-    }
+    check_all(opts, &exes, heif, o, say, amount, stop)
+}
+
+/// The checks, with the tools found (`exes`; `heif`: FFmpeg decodes iPhone
+/// photos).
+fn check_all(
+    opts: &Options,
+    exes: &BTreeMap<Check, PathBuf>,
+    heif: bool,
+    mut o: Outcome,
+    say: &mut dyn FnMut(&str),
+    amount: &mut dyn FnMut(u64, u64),
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Result<Outcome, String> {
+    let work = &opts.work;
+    let trial = opts.trial.is_some();
+    let can_play = exes.contains_key(&Check::Video);
     // What to check.
     say(&format!("Looking for files to check in {}...", work.display()));
-    let mut tasks: Vec<(Check, PathBuf, u64)> = Vec::new();
     let earlier = opts.done_list.as_ref().map(|p| read_done(p)).unwrap_or_default();
     // A repaired version put back keeps its original's size (an intact twin)
     // and dates: what was found before is about the damaged copy, so it is
     // checked again.
     let back = crate::repair::returned_now(work);
+    // Every copy's size and SHA-256, as the copying found them: identical
+    // copies are checked once.
+    let copies = crate::repair::rescue_log(work);
     // The files the never-read places touched, by size (for a quick look-up).
     let touched_by_size: Option<std::collections::HashMap<u64, Vec<crate::join::MapItem>>> = opts.map_items.as_ref().map(|m| {
         let mut by: std::collections::HashMap<u64, Vec<crate::join::MapItem>> = std::collections::HashMap::new();
@@ -546,6 +712,11 @@ pub fn run(
     let mut read_whole: HashSet<String> = HashSet::new();
     let mut remembered: Vec<(Check, String, Verdict)> = Vec::new();
     let mut mtimes: std::collections::HashMap<PathBuf, i64> = std::collections::HashMap::new();
+    // (check, kind of file, content) -> what an earlier run found for a file
+    // with that content.
+    let mut known: std::collections::HashMap<(Check, String, String), Verdict> = std::collections::HashMap::new();
+    // To check, in the order found: (check, path, size, content).
+    let mut found: Vec<(Check, PathBuf, u64, Option<String>)> = Vec::new();
     let root = work.display().to_string();
     crate::walk::walk(&root, |dir, dirs, files| {
         dirs.retain(|d| !crate::formats::SYSTEM_DIRS.contains(&d.as_str()));
@@ -554,7 +725,10 @@ pub fn run(
             if skip(work, &full, f) {
                 continue;
             }
-            let wanted = checks_for(f, heif, opts.videos);
+            let mut wanted = checks_for(f, heif, can_play);
+            if trial {
+                wanted.retain(|c| *c == Check::Video);
+            }
             if wanted.is_empty() {
                 continue;
             }
@@ -572,22 +746,30 @@ pub fn run(
                 }
             }
             let put_back = back.contains_key(&rel.to_lowercase());
+            // Its content as the copying found it - if it is still that size,
+            // and nothing was put back in its place since.
+            let content = if put_back {
+                None
+            } else {
+                copies
+                    .get(&rel.to_lowercase())
+                    .filter(|(_, s, sha, _)| *s == size && sha.len() == 64)
+                    .map(|(_, _, sha, _)| format!("{size}:{sha}"))
+            };
+            let kind = ext_lower(f);
             for c in wanted {
                 if exes.contains_key(&c) {
                     // Checked before, as it is now: what was found then stands.
                     match earlier.get(&(c, full.to_lowercase())).filter(|_| !put_back) {
                         Some((s, m, v)) if *s == size && *m == mtime => {
-                            let v = match v {
-                                Verdict::Fine => Verdict::Fine,
-                                Verdict::Damaged(x) => Verdict::Damaged(x.clone()),
-                                Verdict::Locked => Verdict::Locked,
-                                Verdict::NotChecked(x) => Verdict::NotChecked(x.clone()),
-                            };
-                            remembered.push((c, full.clone(), v));
+                            if let Some(k) = &content {
+                                known.entry((c, kind.clone(), k.clone())).or_insert_with(|| v.clone());
+                            }
+                            remembered.push((c, full.clone(), v.clone()));
                         }
                         _ => {
                             mtimes.insert(PathBuf::from(&full), mtime);
-                            tasks.push((c, PathBuf::from(&full), size));
+                            found.push((c, PathBuf::from(&full), size, content.clone()));
                         }
                     }
                 }
@@ -595,18 +777,58 @@ pub fn run(
         }
         !stop()
     });
-    // Quick checks first, the videos last (the long part, best left running).
-    tasks.sort_by_key(|t| (t.0 == Check::Video, t.0));
-    let total = tasks.len() as u64;
+    // Identical copies: the first found is checked, and its result is the
+    // others' too (or what an earlier run found for one of them).
+    let mut tasks: Vec<Task> = Vec::new();
+    let mut first_of: std::collections::HashMap<(Check, String, String), usize> = std::collections::HashMap::new();
+    let mut by_twin: Vec<(Check, PathBuf, u64, Verdict)> = Vec::new();
+    for (c, path, size, content) in found {
+        let key = content.map(|k| (c, ext_of_path(&path.to_string_lossy()), k));
+        if let Some(k) = &key {
+            if let Some(v) = known.get(k) {
+                by_twin.push((c, path, size, v.clone()));
+                continue;
+            }
+            if let Some(&i) = first_of.get(k) {
+                tasks[i].twins.push((path, size));
+                continue;
+            }
+            first_of.insert(k.clone(), tasks.len());
+        }
+        tasks.push(Task { check: c, path, size, twins: Vec::new() });
+    }
+    if trial {
+        tasks.sort_by_key(|t| scatter(&t.path));
+    } else {
+        // Quick checks first, the videos last (the long part, best left
+        // running) - the biggest first, so that it does not end with one big
+        // video playing on its own.
+        tasks.sort_by(|a, b| {
+            let (va, vb) = (a.check == Check::Video, b.check == Check::Video);
+            va.cmp(&vb).then(a.check.cmp(&b.check)).then_with(|| if va { b.size.cmp(&a.size) } else { std::cmp::Ordering::Equal })
+        });
+    }
+    let total: u64 = tasks.iter().map(Task::files).sum();
     // (The page shows checks made of all there are, by kind of file. An MP3
     // gets two: MP3val's and FFmpeg's.)
     crate::live::begin("checks");
     crate::live::found_begin();
-    for (_, path, size) in &tasks {
-        crate::live::to_do(&path.to_string_lossy(), *size);
+    for t in &tasks {
+        crate::live::to_do(&t.path.to_string_lossy(), t.size);
+        for (p, s) in &t.twins {
+            crate::live::to_do(&p.to_string_lossy(), *s);
+        }
     }
-    let bytes: u64 = tasks.iter().map(|t| t.2).sum();
+    let bytes: u64 = tasks.iter().map(Task::bytes).sum();
     say(&format!("{} checks to make, over {} of files.", commas(total), crate::fmt::size(bytes)));
+    o.twins = tasks.iter().map(|t| t.twins.len() as u64).sum::<u64>() + by_twin.len() as u64;
+    if o.twins > 0 {
+        say(&format!(
+            "({} of the files are identical copies of others - the same size and SHA-256, the same kind of file: each is \
+             checked once, and its result is theirs too.)",
+            commas(o.twins)
+        ));
+    }
     if !remembered.is_empty() {
         say(&format!("({} more were made by an earlier run, on the files as they are now: what they found stands.)", commas(remembered.len() as u64)));
     }
@@ -617,8 +839,19 @@ pub fn run(
         std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
     });
     let done_file = Mutex::new(done_file);
+    let write_done = |line: Option<String>| {
+        use std::io::Write;
+        if let (Some(line), Some(f)) = (line, done_file.lock().unwrap_or_else(|e| e.into_inner()).as_mut()) {
+            let _ = f.write_all(line.as_bytes());
+        }
+    };
+    // (Identical to a file an earlier run checked: written down as checked,
+    // so that the next run remembers them by name.)
+    for (c, path, size, v) in &by_twin {
+        write_done(done_line(*c, *size, mtimes.get(path).copied().unwrap_or(0), v, &path.display().to_string()));
+    }
     for c in Check::ALL {
-        let n = tasks.iter().filter(|t| t.0 == c).count() as u64;
+        let n: u64 = tasks.iter().filter(|t| t.check == c).map(Task::files).sum();
         if n > 0 {
             say(&format!("  {}: {} files", c.title(), commas(n)));
         }
@@ -626,52 +859,209 @@ pub fn run(
             o.counts.insert(c, (0, 0));
         }
     }
+    o.videos.to_play = tasks.iter().filter(|t| t.check == Check::Video).count() as u64;
+    o.videos.to_play_bytes = tasks.iter().filter(|t| t.check == Check::Video).map(|t| t.size).sum();
+    let quick_total: u64 = tasks.iter().filter(|t| t.check != Check::Video).map(Task::files).sum();
+    if !trial && o.videos.to_play > 0 && !(opts.videos)() {
+        say("  (The videos come last: they are played through if Play every video through is ticked when their turn comes. It is not ticked now.)");
+    }
     amount(0, total);
-    // Several at once; each tool runs at a low priority.
+    // Several at once, each tool at a low priority; more while the processor
+    // has room.
+    let most = opts.most.max(opts.jobs).clamp(1, 16);
+    let target = AtomicUsize::new(opts.jobs.clamp(1, most));
+    let mut most_at_once = target.load(Ordering::Relaxed);
     let queue = Mutex::new(tasks.into_iter().rev().collect::<Vec<_>>());
-    let results: Mutex<Vec<(Check, String, Verdict)>> = Mutex::new(Vec::new());
+    let results: Mutex<Vec<(Check, String, Verdict)>> =
+        Mutex::new(by_twin.iter().map(|(c, p, _, v)| (*c, p.display().to_string(), v.clone())).collect());
     let done = AtomicU64::new(0);
-    let jobs = opts.jobs.clamp(1, 8);
     let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let busy: Mutex<Vec<Option<Busy>>> = Mutex::new(vec![None; most]);
+    let left: Mutex<Vec<Task>> = Mutex::new(Vec::new());
+    let (videos_played, video_bytes_played, quick_made) = (AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0));
+    // The trial's time is up.
+    let over = AtomicBool::new(false);
+    let started = Instant::now();
+    let videos_began: Mutex<Option<Instant>> = Mutex::new(None);
+    let wanted = || trial || (opts.videos)();
+    let mut video_pace = Pace::default();
+    let mut quick_pace = Pace::default();
     std::thread::scope(|s| {
-        for _ in 0..jobs {
-            s.spawn(|| loop {
-                if stop() {
+        for w in 0..most {
+            let (queue, results, done, lines, busy, left, target, over) = (&queue, &results, &done, &lines, &busy, &left, &target, &over);
+            let (videos_played, video_bytes_played, quick_made, videos_began) = (&videos_played, &video_bytes_played, &quick_made, &videos_began);
+            let (exes, mtimes, write_done, wanted) = (&exes, &mtimes, &write_done, &wanted);
+            s.spawn(move || loop {
+                if stop() || over.load(Ordering::Relaxed) {
                     break;
                 }
-                let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
-                let Some((c, path, size)) = next else { break };
-                let shown = path.to_string_lossy().into_owned();
-                crate::live::now(&shown);
-                let v = check_one(c, &exes[&c], &crate::walk::literal(&shown), size, stop);
-                if !matches!(&v, Verdict::NotChecked(why) if why == "stopped") {
-                    crate::live::done(&shown, size);
-                }
-                if let Some(line) = done_line(c, size, mtimes.get(&path).copied().unwrap_or(0), &v, &path.display().to_string()) {
-                    use std::io::Write;
-                    if let Some(f) = done_file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                        let _ = f.write_all(line.as_bytes());
+                if w >= target.load(Ordering::Relaxed) {
+                    // Not needed yet: more run at once only while the
+                    // processor has room.
+                    if queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+                        break;
                     }
+                    std::thread::sleep(Duration::from_millis(250));
+                    continue;
                 }
-                if let Verdict::Damaged(m) = &v {
-                    lines.lock().unwrap_or_else(|e| e.into_inner()).push(format!("{}: {}  ({m})", c.tool().name(), path.display()));
-                    // ("What just happened": the path inside WORK.)
-                    let inside = path.strip_prefix(work).map(|p| p.display().to_string()).unwrap_or_else(|_| shown.clone());
-                    crate::live::found(&inside, &format!("{}: {m}", c.tool().name()));
+                let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
+                let Some(t) = next else { break };
+                let video = t.check == Check::Video;
+                if video && !wanted() {
+                    // Not to be played when its turn came: left out.
+                    done.fetch_add(t.files(), Ordering::Relaxed);
+                    left.lock().unwrap_or_else(|e| e.into_inner()).push(t);
+                    continue;
                 }
-                results.lock().unwrap_or_else(|e| e.into_inner()).push((c, path.display().to_string(), v));
-                done.fetch_add(1, Ordering::Relaxed);
+                if video {
+                    videos_began.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Instant::now);
+                }
+                let shown = t.path.to_string_lossy().into_owned();
+                crate::live::now(&shown);
+                busy.lock().unwrap_or_else(|e| e.into_inner())[w] = Some(Busy { video, size: t.size, ..Default::default() });
+                let unticked = AtomicBool::new(false);
+                let stop_this = || {
+                    if stop() || over.load(Ordering::Relaxed) {
+                        return true;
+                    }
+                    if video && !wanted() {
+                        unticked.store(true, Ordering::Relaxed);
+                        return true;
+                    }
+                    false
+                };
+                let watch = |u: tools::Usage| {
+                    if let Some(b) = busy.lock().unwrap_or_else(|e| e.into_inner())[w].as_mut() {
+                        b.read = u.read.min(b.size);
+                        b.cpu = u.cpu;
+                    }
+                };
+                let v = check_one(t.check, &exes[&t.check], &crate::walk::literal(&shown), t.size, &stop_this, &watch);
+                busy.lock().unwrap_or_else(|e| e.into_inner())[w] = None;
+                if matches!(&v, Verdict::NotChecked(why) if why == "stopped") {
+                    if unticked.load(Ordering::Relaxed) {
+                        // Unticked while it played: left out, with the rest.
+                        done.fetch_add(t.files(), Ordering::Relaxed);
+                        left.lock().unwrap_or_else(|e| e.into_inner()).push(t);
+                    }
+                    continue;
+                }
+                // It and its identical copies: the same result.
+                let mut all = vec![(t.path.clone(), t.size)];
+                all.extend(t.twins.iter().cloned());
+                for (path, size) in &all {
+                    let shown = path.to_string_lossy().into_owned();
+                    crate::live::done(&shown, *size);
+                    write_done(done_line(t.check, *size, mtimes.get(path).copied().unwrap_or(0), &v, &path.display().to_string()));
+                    if let Verdict::Damaged(m) = &v {
+                        lines.lock().unwrap_or_else(|e| e.into_inner()).push(format!("{}: {}  ({m})", t.check.tool().name(), path.display()));
+                        // ("What just happened": the path inside WORK.)
+                        let inside = path.strip_prefix(work).map(|p| p.display().to_string()).unwrap_or_else(|_| shown.clone());
+                        crate::live::found(&inside, &format!("{}: {m}", t.check.tool().name()));
+                    }
+                    results.lock().unwrap_or_else(|e| e.into_inner()).push((t.check, path.display().to_string(), v.clone()));
+                }
+                if video {
+                    videos_played.fetch_add(1, Ordering::Relaxed);
+                    video_bytes_played.fetch_add(t.size, Ordering::Relaxed);
+                } else {
+                    quick_made.fetch_add(all.len() as u64, Ordering::Relaxed);
+                }
+                done.fetch_add(all.len() as u64, Ordering::Relaxed);
             });
         }
         // Progress, from here. Stopped, the workers end after the file they
         // are on (its tool is stopped too), and the scope waits for them.
+        let mut cpu_then = crate::sys::cpu_times();
+        let mut looked = Instant::now();
+        let mut room_seen = 0;
         loop {
             for l in lines.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
                 say(&l);
             }
             let d = done.load(Ordering::Relaxed);
             amount(d, total);
-            if d >= total || stop() {
+            if opts.trial.is_some_and(|t| started.elapsed() >= t) {
+                over.store(true, Ordering::Relaxed);
+            }
+            let at = started.elapsed().as_secs_f64();
+            let n = target.load(Ordering::Relaxed);
+            // What the videos playing now have got through, and (every five
+            // seconds) the processor time each has used since the last look.
+            let look = looked.elapsed() >= Duration::from_secs(5);
+            let (working, playing_bytes, per_video) = {
+                let mut b = busy.lock().unwrap_or_else(|e| e.into_inner());
+                let working = b.iter().filter(|x| x.is_some()).count();
+                let playing_bytes: u64 = b.iter().flatten().filter(|x| x.video).map(|x| x.read).sum();
+                let mut per_video = None;
+                if look {
+                    let secs = looked.elapsed().as_secs_f64().max(0.001);
+                    let used: Vec<f64> = b
+                        .iter_mut()
+                        .flatten()
+                        .filter(|x| x.video)
+                        .map(|x| {
+                            let u = (x.cpu - x.cpu_seen).max(0.0);
+                            x.cpu_seen = x.cpu;
+                            u / secs
+                        })
+                        .collect();
+                    if !used.is_empty() {
+                        per_video = Some(used.iter().sum::<f64>() / used.len() as f64);
+                    }
+                }
+                (working, playing_bytes, per_video)
+            };
+            let video_bytes = video_bytes_played.load(Ordering::Relaxed).saturating_add(playing_bytes);
+            video_pace.note(at, video_bytes);
+            quick_pace.note(at, quick_made.load(Ordering::Relaxed));
+            // Room for one more at once?
+            if look {
+                looked = Instant::now();
+                let cpu_now = crate::sys::cpu_times();
+                let cpu_busy = match (cpu_then, cpu_now) {
+                    (Some(a), Some(b)) => crate::sys::busy_between(a, b),
+                    _ => None,
+                };
+                cpu_then = cpu_now;
+                let free = crate::sys::memory_free();
+                let more_to_do = !queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+                if free.is_some_and(|f| f < MEMORY_LOW) && n > 1 {
+                    target.store(n - 1, Ordering::Relaxed);
+                    room_seen = 0;
+                } else if more_to_do && n < most && room_for_more(cpu_busy, working >= n, per_video, free) {
+                    // (Seen twice running: not a moment's lull.)
+                    room_seen += 1;
+                    if room_seen >= 2 {
+                        room_seen = 0;
+                        target.store(n + 1, Ordering::Relaxed);
+                        most_at_once = most_at_once.max(n + 1);
+                        say(&format!("  ({} at once now: the processor had room for more.)", n + 1));
+                    }
+                } else {
+                    room_seen = 0;
+                }
+            }
+            // The time left, for the page: the quick checks at the pace they
+            // go, the videos at the speed they play (or were measured at).
+            let want = wanted();
+            let left_bytes: u64 = left.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|t| t.size).sum();
+            let rate = video_pace.rate().or(opts.video_rate);
+            let video_rest = if want { o.videos.to_play_bytes.saturating_sub(video_bytes.saturating_add(left_bytes)) } else { 0 };
+            let video_left = if video_rest == 0 { Some(0) } else { VideoNumbers::secs_for(video_rest, rate) };
+            let quick_rest = quick_total.saturating_sub(quick_made.load(Ordering::Relaxed));
+            let quick_left = if quick_rest == 0 { Some(0) } else { quick_pace.rate().map(|r| (quick_rest as f64 / r).round() as u64) };
+            crate::live::videos(crate::live::Videos {
+                played: videos_played.load(Ordering::Relaxed),
+                to_play: o.videos.to_play,
+                bytes: video_bytes,
+                total: o.videos.to_play_bytes,
+                left: video_left,
+                at_once: n as u64,
+                wanted: want,
+                stage_left: quick_left.zip(video_left).map(|(q, v)| q + v),
+            });
+            if d >= total || stop() || over.load(Ordering::Relaxed) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(300));
@@ -684,6 +1074,23 @@ pub fn run(
     // (The short-named copies' folder, empty again.)
     let _ = std::fs::remove_dir(std::env::temp_dir().join(format!("arp-extra-{}", std::process::id())));
     o.stopped = stop();
+    o.at_once = most_at_once;
+    let left = left.into_inner().unwrap_or_else(|e| e.into_inner());
+    // (As to_play: the videos to play, not their identical copies - the
+    // time it takes is theirs.)
+    o.videos.left = left.len() as u64;
+    o.videos.left_bytes = left.iter().map(|t| t.size).sum();
+    o.videos.played = videos_played.load(Ordering::Relaxed);
+    o.videos.played_bytes = video_bytes_played.load(Ordering::Relaxed);
+    // How fast they went: in the trial, over its last two minutes (all of
+    // it); otherwise over all the time they played.
+    let overall = videos_began
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner())
+        .map(|t| t.elapsed().as_secs_f64())
+        .filter(|s| *s >= 0.1 && o.videos.played_bytes > 0)
+        .map(|s| o.videos.played_bytes as f64 / s);
+    o.videos.rate = if trial { video_pace.rate().or(overall) } else { overall.or(video_pace.rate()) };
     let mut results = results.into_inner().unwrap_or_else(|e| e.into_inner());
     results.extend(remembered);
     results.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
@@ -720,7 +1127,10 @@ pub fn run(
     }
     amount(done.load(Ordering::Relaxed), total);
     set_aside_doubtful(&mut o, &checked_by_kind, opts.map_items.is_some().then_some(&read_whole));
-    write_lists(work, &mut o)?;
+    // (The trial, like a run stopped part way, adds what it found to the
+    // lists: it did not check the rest.)
+    let partial = o.stopped || trial;
+    write_lists(work, &mut o, partial, trial.then_some(Check::Video))?;
     Ok(o)
 }
 
@@ -781,11 +1191,17 @@ fn set_aside_doubtful(
 
 /// The findings, into REPAIR\damaged-lists: one list per check, added to
 /// what an earlier run found (so a run that was stopped loses nothing).
-fn write_lists(work: &Path, o: &mut Outcome) -> Result<(), String> {
+/// `partial`: the run did not get to every file (stopped, or the trial), so
+/// what earlier runs listed stays. `only`: that check's list alone (the
+/// trial's videos).
+fn write_lists(work: &Path, o: &mut Outcome, partial: bool, only: Option<Check>) -> Result<(), String> {
     let repair = crate::repair::repair_dir(work)?;
     let dir = repair.join(crate::repair::LISTS);
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
     for c in Check::ALL {
+        if only.is_some_and(|x| x != c) {
+            continue;
+        }
         let mine: Vec<&Finding> = o.findings.iter().filter(|f| f.check == c).collect();
         let p = dir.join(c.list_name());
         let mut lines: BTreeMap<String, String> = BTreeMap::new();
@@ -805,14 +1221,14 @@ fn write_lists(work: &Path, o: &mut Outcome) -> Result<(), String> {
         }
         // A file checked again and found fine this time comes off the list,
         // unless the run was stopped before it got there.
-        if !o.stopped {
+        if !partial {
             lines.clear();
         }
         for f in &mine {
             lines.insert(f.path.to_lowercase(), format!("{}\t{}: {}", f.path, c.tool().name(), f.message.replace(['\t', '\r', '\n'], " ")));
         }
         if lines.is_empty() {
-            if !o.stopped && p.exists() {
+            if !partial && p.exists() {
                 let _ = std::fs::remove_file(&p);
             }
             continue;
@@ -864,6 +1280,40 @@ pub fn summary(o: &Outcome) -> Vec<String> {
     }
     for (c, why) in &o.left_out {
         t.push(format!("  {}: not checked - {why}", c.title()));
+    }
+    let v = &o.videos;
+    if v.left > 0 {
+        let at = VideoNumbers::secs_for(v.left_bytes, v.rate)
+            .map(|s| format!(" - about {} at the speed they played", crate::fmt::duration(s)))
+            .unwrap_or_default();
+        t.push(format!(
+            "  {}: {} {} ({}) left out, as Play every video through was not ticked when their turn came{at}.",
+            Check::Video.title(),
+            commas(v.left),
+            if v.left == 1 { "video" } else { "videos" },
+            crate::fmt::size(v.left_bytes)
+        ));
+    }
+    if v.played > 0 {
+        if let Some(r) = v.rate {
+            t.push(format!(
+                "  The videos played at {} a second, {} at most at once.",
+                crate::fmt::size(r.round() as u64),
+                o.at_once
+            ));
+        }
+    }
+    if o.twins > 0 {
+        t.push(if o.twins == 1 {
+            "  1 file is an identical copy of another (the same SHA-256): the other was checked, and its result stands for both."
+                .to_string()
+        } else {
+            format!(
+                "  {} files are identical copies of others (the same SHA-256): one of each was checked, and its result \
+                 stands for every copy.",
+                commas(o.twins)
+            )
+        });
     }
     for d in &o.doubtful {
         t.push(if d.read_whole {
@@ -935,7 +1385,7 @@ mod tests {
         let b = work.join("b.mp3").display().to_string();
         let mut o = Outcome { stopped: true, ..Default::default() };
         o.findings.push(Finding { path: b.clone(), check: Check::Mp3, message: "bad header".to_string() });
-        write_lists(&work, &mut o).unwrap();
+        write_lists(&work, &mut o, true, None).unwrap();
         let text = String::from_utf8_lossy(&std::fs::read(&p).unwrap()).into_owned();
         assert!(text.contains(&a), "what the earlier run found is kept: {text}");
         assert!(text.contains(&b), "{text}");
@@ -962,6 +1412,10 @@ mod tests {
         assert_eq!(a[at("-threads:a") + 1], "1");
         assert!(at("-threads:a") < at("-i") && a[at("-i") + 1] == "track.flac", "{a:?}");
         assert!(!a.iter().any(|x| x == "-threads"), "video keeps its threads: {a:?}");
+        // The deblocking filter left out, for the file's decoders (an input
+        // option too).
+        assert_eq!(a[at("-skip_loop_filter") + 1], "all");
+        assert!(at("-skip_loop_filter") < at("-i"), "{a:?}");
     }
 
     #[test]
@@ -1099,6 +1553,238 @@ mod tests {
         assert!(matches!(back.get(&(Check::Video, "e:\\w\\a.mov".to_string())), Some((10, 99, Verdict::Fine))));
         assert!(matches!(back.get(&(Check::Pdf, "e:\\w\\b.pdf".to_string())), Some((20, 98, Verdict::Damaged(m))) if m == "xref broken"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_more_at_once_only_while_the_processor_has_room() {
+        let gb = 1u64 << 30;
+        assert!(room_for_more(Some(0.4), true, Some(3.5), Some(8 * gb)));
+        assert!(room_for_more(Some(0.4), true, None, None), "photos (no video playing), memory not known");
+        assert!(!room_for_more(Some(0.9), true, Some(3.5), Some(8 * gb)), "the processor is busy");
+        assert!(!room_for_more(None, true, Some(3.5), Some(8 * gb)), "how busy is not known");
+        assert!(!room_for_more(Some(0.4), false, Some(3.5), Some(8 * gb)), "a worker had nothing to do");
+        assert!(!room_for_more(Some(0.2), true, Some(0.1), Some(8 * gb)), "the videos wait for the drive");
+        assert!(!room_for_more(Some(0.4), true, Some(3.5), Some(gb)), "memory is short");
+    }
+
+    #[test]
+    fn how_fast_is_taken_over_the_last_two_minutes() {
+        let mut p = Pace::default();
+        p.note(0.0, 0);
+        p.note(10.0, 100);
+        assert_eq!(p.rate(), None, "too soon to tell");
+        p.note(20.0, 400);
+        assert_eq!(p.rate(), Some(20.0));
+        p.note(20.5, 900);
+        assert_eq!(p.rate(), Some(20.0), "one a second at most");
+        for s in 21..300 {
+            p.note(s as f64, 400 + (s as u64 - 20) * 50);
+        }
+        assert!((p.rate().unwrap() - 50.0).abs() < 1e-9, "the start has dropped out: {:?}", p.rate());
+        assert_eq!(VideoNumbers::secs_for(1000, Some(50.0)), Some(20));
+        assert_eq!(VideoNumbers::secs_for(1000, None), None);
+        assert_eq!(VideoNumbers::secs_for(1000, Some(0.0)), None);
+    }
+
+    /// A stand-in for FFmpeg: reads the file it plays, takes a moment, writes
+    /// down which it played, and calls the ones named "bad..." damaged.
+    #[cfg(unix)]
+    fn fake_ffmpeg(dir: &Path, secs: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("ffmpeg");
+        let log = dir.join("played.txt");
+        std::fs::write(
+            &p,
+            format!(
+                "#!/bin/sh\nf=\"\"; prev=\"\"\nfor a in \"$@\"; do if [ \"$prev\" = \"-i\" ]; then f=\"$a\"; fi; prev=\"$a\"; done\n\
+                 cat \"$f\" > /dev/null\nsleep {secs}\necho \"$f\" >> \"{}\"\n\
+                 case \"$(basename \"$f\")\" in bad*) echo \"[h264 @ 0x1] error while decoding MB 1 2, bytestream -5\" >&2;; esac\nexit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    fn sha(d: &[u8]) -> String {
+        let mut h = crate::sha256::Sha256::new();
+        h.update(d);
+        h.finish_hex()
+    }
+
+    /// WORK with videos and the copying's list of them (sizes and SHA-256s).
+    #[cfg(unix)]
+    fn work_with_videos(base: &Path, files: &[(&str, &[u8])]) -> PathBuf {
+        let work = base.join("WORK");
+        std::fs::create_dir_all(&work).unwrap();
+        let mut log = crate::fmt::csv_row(&crate::rescue::LOG_HEADER);
+        for (name, data) in files {
+            let p = work.join(name);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, data).unwrap();
+            let sha = sha(data);
+            log.push_str(&crate::fmt::csv_row(&["FILE", &name.replace('/', "\\"), &data.len().to_string(), "OK", "", "", &sha]));
+        }
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        work
+    }
+
+    #[cfg(unix)]
+    fn options(work: &Path, results: &Path, videos: Arc<dyn Fn() -> bool + Send + Sync>) -> Options {
+        Options {
+            work: work.to_path_buf(),
+            videos,
+            jobs: 1,
+            most: 1,
+            done_list: Some(results.join("done.tsv")),
+            map_items: None,
+            trial: None,
+            video_rate: None,
+        }
+    }
+
+    fn played(dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("played.txt"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.rsplit('/').next().unwrap_or(l).to_string())
+            .collect()
+    }
+
+    /// The biggest video is played first; an identical copy of one (the same
+    /// size and SHA-256, the same kind) is not played again - the result is
+    /// its too, damaged or not, and is remembered for it by name.
+    #[cfg(unix)]
+    #[test]
+    fn identical_videos_are_played_once_and_the_biggest_first() {
+        let base = std::env::temp_dir().join(format!("arp-extra-twins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let a = vec![1u8; 3000];
+        let bad = vec![2u8; 2000];
+        let work = work_with_videos(
+            &base,
+            &[("Camera/a.mp4", &a), ("Backup/a copy.mp4", &a), ("Camera/bad1.mov", &bad), ("Backup/bad1.mov", &bad), ("small.mp4", b"tiny")],
+        );
+        let exe = fake_ffmpeg(&base, "0.05");
+        let exes = BTreeMap::from([(Check::Video, exe)]);
+        let opts = options(&work, &base, Arc::new(|| true));
+        let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(played(&base), vec!["a.mp4", "bad1.mov", "small.mp4"], "the biggest first, each content once");
+        assert_eq!(o.twins, 2);
+        assert_eq!(o.counts[&Check::Video], (5, 2), "five checked, both bad1.mov damaged");
+        let mut damaged: Vec<&str> = o.findings.iter().map(|f| f.path.as_str()).collect();
+        damaged.sort();
+        assert!(damaged.len() == 2 && damaged.iter().all(|p| p.ends_with("bad1.mov")), "{damaged:?}");
+        assert_eq!((o.videos.to_play, o.videos.played, o.videos.left), (3, 3, 0));
+        let list = std::fs::read_to_string(crate::repair::repair_dir(&work).unwrap().join(crate::repair::LISTS).join(Check::Video.list_name())).unwrap();
+        assert!(list.contains("Camera") && list.contains("Backup"), "both copies listed to repair: {list}");
+        // Run again: every one remembered, by name - none played again.
+        std::fs::remove_file(base.join("played.txt")).unwrap();
+        let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(played(&base).is_empty(), "{:?}", played(&base));
+        assert_eq!(o.counts[&Check::Video], (5, 2));
+        // A new identical copy: an earlier run's result for its content stands.
+        std::fs::write(work.join("again.mp4"), &a).unwrap();
+        let mut log = std::fs::read_to_string(work.join(crate::rescue::LOG_NAME)).unwrap();
+        log.push_str(&crate::fmt::csv_row(&["FILE", "again.mp4", "3000", "OK", "", "", &sha(&a)]));
+        std::fs::write(work.join(crate::rescue::LOG_NAME), log).unwrap();
+        let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(played(&base).is_empty(), "{:?}", played(&base));
+        assert_eq!(o.counts[&Check::Video], (6, 2));
+        // A copy changed since it was copied (not its list's size) is played.
+        std::fs::write(work.join("again.mp4"), vec![1u8; 2999]).unwrap();
+        let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(played(&base), vec!["again.mp4"]);
+        assert_eq!(o.twins, 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Whether to play the videos is asked when their turn comes, and while
+    /// they play: not ticked, they are left out (and counted, for later);
+    /// unticked while one plays, it is stopped and left out with the rest.
+    #[cfg(unix)]
+    #[test]
+    fn the_videos_are_played_only_while_asked_for() {
+        let base = std::env::temp_dir().join(format!("arp-extra-ask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let files: Vec<(String, Vec<u8>)> = (0..4).map(|i| (format!("v{i}.mp4"), vec![i as u8; 1000 + i * 10])).collect();
+        let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (n.as_str(), d.as_slice())).collect();
+        let work = work_with_videos(&base, &refs);
+        let exe = fake_ffmpeg(&base, "1");
+        let exes = BTreeMap::from([(Check::Video, exe)]);
+        // Not ticked: none played.
+        let o = check_all(&options(&work, &base, Arc::new(|| false)), &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false)
+            .unwrap();
+        assert!(played(&base).is_empty());
+        assert_eq!((o.videos.to_play, o.videos.played, o.videos.left, o.videos.left_bytes), (4, 0, 4, 4060));
+        assert!(summary(&o).iter().any(|l| l.contains("4 videos (") && l.contains("left out")), "{:?}", summary(&o));
+        // Unticked while the first plays (the biggest, v3): it is stopped,
+        // and it and the rest are left out.
+        let asked = Arc::new(AtomicU64::new(0));
+        let a2 = asked.clone();
+        let t = Instant::now();
+        let o = check_all(
+            &options(&work, &base, Arc::new(move || {
+                a2.fetch_add(1, Ordering::Relaxed);
+                t.elapsed() < Duration::from_millis(400)
+            })),
+            &exes,
+            false,
+            Outcome::default(),
+            &mut |_| {},
+            &mut |_, _| {},
+            &|| false,
+        )
+        .unwrap();
+        assert!(t.elapsed() < Duration::from_secs(4), "the one playing was stopped: {:?}", t.elapsed());
+        assert!(played(&base).is_empty(), "{:?}", played(&base));
+        assert_eq!((o.videos.played, o.videos.left), (0, 4));
+        assert!(asked.load(Ordering::Relaxed) > 2, "asked while it played");
+        assert!(!o.stopped, "not a stop: the checks carry on to the end");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The trial plays only videos, for as long as it is given: what it got
+    /// through is kept (listed, and remembered), the rest is for later, and
+    /// the other lists are left as they are.
+    #[cfg(unix)]
+    #[test]
+    fn the_trial_plays_videos_for_a_while_and_keeps_what_it_found() {
+        let base = std::env::temp_dir().join(format!("arp-extra-trial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let files: Vec<(String, Vec<u8>)> = (0..12).map(|i| (format!("bad{i}.mp4"), vec![i as u8; 500 + i])).collect();
+        let mut refs: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (n.as_str(), d.as_slice())).collect();
+        refs.push(("doc.pdf", b"%PDF-1.4"));
+        let work = work_with_videos(&base, &refs);
+        let lists = crate::repair::repair_dir(&work).unwrap().join(crate::repair::LISTS);
+        std::fs::create_dir_all(&lists).unwrap();
+        let pdf_list = lists.join(Check::Pdf.list_name());
+        std::fs::write(&pdf_list, format!("{}\tqpdf: broken\r\n", work.join("doc.pdf").display())).unwrap();
+        let exe = fake_ffmpeg(&base, "0.4");
+        let exes = BTreeMap::from([(Check::Video, exe), (Check::Pdf, PathBuf::from("/bin/false"))]);
+        let mut opts = options(&work, &base, Arc::new(|| false));
+        opts.trial = Some(Duration::from_millis(1500));
+        let t = Instant::now();
+        let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        let got = played(&base);
+        assert!(!got.is_empty() && got.len() < 12, "{got:?}");
+        assert_eq!(o.videos.played as usize, got.len());
+        assert_eq!(o.videos.to_play, 12, "only the videos (the PDF is not the trial's)");
+        assert!(o.videos.rate.is_some_and(|r| r > 0.0), "{:?}", o.videos);
+        let list = std::fs::read_to_string(lists.join(Check::Video.list_name())).unwrap();
+        assert_eq!(list.lines().filter(|l| !l.starts_with('#')).count(), got.len(), "{list}");
+        assert!(std::fs::read_to_string(&pdf_list).unwrap().contains("qpdf: broken"), "the other lists stay as they were");
+        // The extra checks after it play the others only.
+        std::fs::remove_file(base.join("played.txt")).unwrap();
+        let o2 = check_all(&options(&work, &base, Arc::new(|| true)), &BTreeMap::from([(Check::Video, base.join("ffmpeg"))]), false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false)
+            .unwrap();
+        let again = played(&base);
+        assert_eq!(again.len() + got.len(), 12, "{again:?} {got:?}");
+        assert!(again.iter().all(|v| !got.contains(v)));
+        assert_eq!(o2.counts[&Check::Video], (12, 12));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

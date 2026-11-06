@@ -255,6 +255,66 @@ function iconsWithoutWords(page) {
     });
     check(/More to do/.test(more.state) && /Carry on/.test(more.button),
       "with stages to run again, 4. Start says there is more to do, and Carry on (" + more.state + "; " + more.button + ")");
+    // Play every video through: the time it takes on this PC, once measured,
+    // by its box and in 4. Start, with the question while the answer counts.
+    const vids = await page.evaluate(() => {
+      const keep = JSON.parse(JSON.stringify(S.auto)), set = Object.assign({}, S.settings), r = {};
+      const work = S.settings.auto_work, bytes = 410 * 1024 ** 3;
+      S.settings.videos_to_play = `1234\t${bytes}\t${work}`;
+      S.settings.video_speed = `${Math.round(bytes / 24000)}\t${work}`;
+      const k = S.auto.stages.findIndex((s) => s.key === "extra");
+      S.auto.stages.forEach((s, i) => { if (i >= k) s.state = "pending"; });
+      S.auto.resume_at = k;
+      S.settings.auto_videos = "1";
+      renderAuto();
+      r.hint = document.getElementById("videos-hint").textContent;
+      r.ticked = document.getElementById("ar-start").textContent;
+      r.leave = !!document.querySelector('#ar-start button[data-videos="0"]');
+      S.settings.auto_videos = "0";
+      renderAuto();
+      r.unticked = document.getElementById("ar-start").textContent;
+      r.play = !!document.querySelector('#ar-start button[data-videos="1"]:not([data-carry])');
+      // Left out by the extra checks, and Start done: play them through now.
+      S.auto.stages.forEach((s) => { s.state = "done"; });
+      S.auto.resume_at = S.auto.stages.length;
+      renderAuto();
+      r.after = document.getElementById("ar-start").textContent;
+      r.now = !!document.querySelector('#ar-start button[data-videos="1"][data-carry]');
+      delete S.settings.videos_to_play;
+      renderAuto();
+      r.none = !document.querySelector("#ar-start button[data-videos]");
+      // While they play: how far, how long yet, how many at once.
+      const box = document.createElement("div");
+      box.innerHTML = liveHtml({ what: "checks", files: [3000, 4234], bytes: [50 * 1024 ** 3, 420 * 1024 ** 3], kinds: [], now: "",
+        videos: { played: 120, to_play: 1234, bytes: 40 * 1024 ** 3, total: bytes, left: 18600, at_once: 6, wanted: true, stage_left: 19000 } }, false);
+      r.live = box.textContent.replace(/\s+/g, " ");
+      S.auto = keep;
+      S.settings = set;
+      renderAuto();
+      return r;
+    });
+    check(/About 6 h 40 min on this PC for the 1,234 videos \(410 GB\) still to play/.test(vids.hint),
+      "the videos' box says how long they take on this PC, once measured (" + vids.hint.slice(0, 90) + ")");
+    check(/Playing every video through: about 6 h 40 min on this PC/.test(vids.ticked) && vids.leave &&
+      /not ticked, so the extra checks \(stage 8\) leave the videos out/.test(vids.unticked) && vids.play,
+      "before their turn, 4. Start asks with the time it takes: Leave them out, or Play them through");
+    check(/The extra checks left the videos out: about 6 h 40 min/.test(vids.after) && vids.now && vids.none,
+      "left out, 4. Start offers to play them through now - and with none left, asks nothing");
+    check(/Videos played through: 120 of 1,234 · 40 GB of 410 GB · about 5 h 10 min left · 6 at once/.test(vids.live),
+      "while they play, the live numbers say how far, how long yet and how many at once (" + vids.live.slice(0, 120) + ")");
+    // The checklist: the boxes the program has seen done are ticked by it,
+    // each saying what it saw.
+    await page.click("#tab-checklist");
+    const seen = await page.waitForFunction(() => document.querySelectorAll("#cl-body .seennote").length >= 8, null, { timeout: 10000 })
+      .then(() => page.evaluate(() => ({
+        n: document.querySelectorAll("#cl-body .seennote").length,
+        selftest: [...document.querySelectorAll("#cl-body li.box")].map((li) => li.textContent).find((t) => /Run the self-test/.test(t)) || "",
+        ticked: [...document.querySelectorAll("#cl-body .seennote")].every((n) => n.closest("li").querySelector("input.tick").checked),
+      })), () => ({ n: 0, selftest: "", ticked: false }));
+    check(seen.n >= 8 && seen.ticked && /Ticked by the program: The self-test passed/.test(seen.selftest),
+      "the checklist ticks what the program has seen done, saying what it saw (" + seen.n + " boxes)");
+    await shot("auto-checklist-seen", true);
+    await page.click("#tab-auto");
     // Every icon on the page comes with words saying what it is for.
     check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
     // 7. Put Windows back: its own part, after Finalise (here nothing was changed).

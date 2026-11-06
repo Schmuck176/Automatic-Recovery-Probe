@@ -42,6 +42,46 @@ pub struct Board {
     pub total: [Count; 6],
     /// The file being worked on now (as the step names it: a path).
     pub now: String,
+    /// The extra checks' videos, played through: how far, how fast.
+    pub videos: Option<Videos>,
+}
+
+/// The extra checks' videos as they are played through (extra.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Videos {
+    /// Played through of those to play (identical copies, and videos an
+    /// earlier run played, not counted).
+    pub played: u64,
+    pub to_play: u64,
+    /// Bytes of them got through (of those playing now, as far as they have
+    /// got), of all.
+    pub bytes: u64,
+    pub total: u64,
+    /// Seconds left for them at the speed they go (None: not known yet).
+    pub left: Option<u64>,
+    /// Tools running at once now.
+    pub at_once: u64,
+    /// They are to be played (Play every video through is ticked).
+    pub wanted: bool,
+    /// The whole step's time left, the quick checks with the videos.
+    pub stage_left: Option<u64>,
+}
+
+impl Videos {
+    fn json(&self) -> String {
+        let n = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
+        format!(
+            "{{\"played\":{},\"to_play\":{},\"bytes\":{},\"total\":{},\"left\":{},\"at_once\":{},\"wanted\":{},\"stage_left\":{}}}",
+            self.played,
+            self.to_play,
+            self.bytes,
+            self.total,
+            n(self.left),
+            self.at_once,
+            self.wanted,
+            n(self.stage_left)
+        )
+    }
 }
 
 impl Board {
@@ -87,12 +127,13 @@ impl Board {
             })
             .collect();
         format!(
-            "{{\"what\":{},\"files\":{},\"bytes\":{},\"kinds\":[{}],\"now\":{}}}",
+            "{{\"what\":{},\"files\":{},\"bytes\":{},\"kinds\":[{}],\"now\":{},\"videos\":{}}}",
             crate::fmt::json_str(&self.what),
             pair(d.files, t.files),
             pair(d.bytes, t.bytes),
             kinds.join(","),
-            crate::fmt::json_str(&self.now)
+            crate::fmt::json_str(&self.now),
+            self.videos.as_ref().map(|v| v.json()).unwrap_or_else(|| "null".to_string())
         )
     }
 }
@@ -168,6 +209,15 @@ pub fn to_do(name: &str, bytes: u64) {
 /// One file done.
 pub fn done(name: &str, bytes: u64) {
     with(|b| b.done(name, bytes));
+}
+
+/// How the extra checks' videos are getting on.
+pub fn videos(v: Videos) {
+    with(|b| {
+        if b.videos.as_ref() != Some(&v) {
+            b.videos = Some(v);
+        }
+    });
 }
 
 /// The file being worked on now.

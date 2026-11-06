@@ -950,7 +950,7 @@ pub struct Damaged {
 }
 
 /// The copying's list: (path in WORK, size, sha256, result), by lower-case path.
-fn rescue_log(work: &Path) -> HashMap<String, (String, u64, String, String)> {
+pub(crate) fn rescue_log(work: &Path) -> HashMap<String, (String, u64, String, String)> {
     let mut out = HashMap::new();
     let Ok(f) = std::fs::File::open(work.join(crate::rescue::LOG_NAME)) else { return out };
     let _ = crate::fmt::for_each_csv_row(std::io::BufReader::new(f), |r| {

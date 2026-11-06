@@ -325,6 +325,14 @@ pub fn csv_row<S: AsRef<str>>(fields: &[S]) -> String {
 }
 
 /// A JSON string literal (used by the machine-readable output modes).
+/// A whole number in JSON the program wrote itself (`"key":123`), at its
+/// top level or anywhere in it: the first one named `key`.
+pub fn json_u64(json: &str, key: &str) -> Option<u64> {
+    let at = json.find(&format!("\"{key}\":"))? + key.len() + 3;
+    let digits: String = json[at..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 pub fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');

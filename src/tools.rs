@@ -387,13 +387,99 @@ fn read_kept(p: &Path) -> String {
 /// so. Its output goes to files (not pipes, which a chatty tool can fill and
 /// stall on) and the first 256 KB of each is kept.
 pub fn run(exe: &Path, args: &[OsString], dir: Option<&Path>, limit: Duration, stop: &dyn Fn() -> bool) -> std::io::Result<Ran> {
-    run_with(exe, args, dir, limit, stop, false)
+    run_with(exe, args, dir, limit, stop, false, None)
 }
 
 /// The same, at a lower priority than everything else on the PC (for the
 /// long checks, so the PC stays usable while they run).
 pub fn run_low(exe: &Path, args: &[OsString], dir: Option<&Path>, limit: Duration, stop: &dyn Fn() -> bool) -> std::io::Result<Ran> {
-    run_with(exe, args, dir, limit, stop, true)
+    run_with(exe, args, dir, limit, stop, true, None)
+}
+
+/// What a running tool has done so far.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Usage {
+    /// Bytes it has read (from the file it checks, almost all of them).
+    pub read: u64,
+    /// Seconds of the processor's time it has used, all its threads together.
+    pub cpu: f64,
+}
+
+/// `run_low`, telling `watch` about once a second what the tool has done so
+/// far (on Windows and Linux; elsewhere nothing is told).
+pub fn run_low_watching(
+    exe: &Path,
+    args: &[OsString],
+    dir: Option<&Path>,
+    limit: Duration,
+    stop: &dyn Fn() -> bool,
+    watch: &dyn Fn(Usage),
+) -> std::io::Result<Ran> {
+    run_with(exe, args, dir, limit, stop, true, Some(watch))
+}
+
+/// What the process has read and how much processor time it has used.
+#[cfg(windows)]
+fn usage_of(child: &std::process::Child) -> Option<Usage> {
+    use std::os::windows::io::AsRawHandle;
+    #[repr(C)]
+    #[derive(Default)]
+    struct IoCounters {
+        _read_ops: u64,
+        _write_ops: u64,
+        _other_ops: u64,
+        read_bytes: u64,
+        _write_bytes: u64,
+        _other_bytes: u64,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    extern "system" {
+        fn GetProcessIoCounters(process: *mut std::ffi::c_void, counters: *mut IoCounters) -> i32;
+        fn GetProcessTimes(
+            process: *mut std::ffi::c_void,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+    }
+    let h = child.as_raw_handle() as *mut std::ffi::c_void;
+    let mut io = IoCounters::default();
+    if unsafe { GetProcessIoCounters(h, &mut io) } == 0 {
+        return None;
+    }
+    let (mut c, mut e, mut k, mut u) = (FileTime::default(), FileTime::default(), FileTime::default(), FileTime::default());
+    let cpu = if unsafe { GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) } != 0 {
+        let v = |t: &FileTime| (((t.high as u64) << 32) | t.low as u64) as f64 / 1e7;
+        v(&k) + v(&u)
+    } else {
+        0.0
+    };
+    Some(Usage { read: io.read_bytes, cpu })
+}
+
+#[cfg(target_os = "linux")]
+fn usage_of(child: &std::process::Child) -> Option<Usage> {
+    let pid = child.id();
+    let io = std::fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
+    let read = io.lines().find_map(|l| l.strip_prefix("rchar:")).and_then(|v| v.trim().parse().ok())?;
+    // utime and stime: the 14th and 15th fields, after the name in brackets
+    // (which can hold spaces), in ticks of 1/100 s.
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let after = stat.rsplit_once(')').map(|(_, r)| r).unwrap_or("");
+    let f: Vec<&str> = after.split_whitespace().collect();
+    let ticks = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    Some(Usage { read, cpu: (ticks(11) + ticks(12)) as f64 / 100.0 })
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn usage_of(_child: &std::process::Child) -> Option<Usage> {
+    None
 }
 
 fn run_with(
@@ -403,6 +489,7 @@ fn run_with(
     limit: Duration,
     stop: &dyn Fn() -> bool,
     low: bool,
+    watch: Option<&dyn Fn(Usage)>,
 ) -> std::io::Result<Ran> {
     let out_p = temp_name("out");
     let err_p = temp_name("err");
@@ -433,6 +520,7 @@ fn run_with(
         }
     };
     let mut ran = Ran::default();
+    let mut watched: Option<Instant> = None;
     loop {
         match child.try_wait()? {
             Some(status) => {
@@ -440,6 +528,14 @@ fn run_with(
                 break;
             }
             None => {
+                if let Some(w) = watch {
+                    if watched.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+                        watched = Some(Instant::now());
+                        if let Some(u) = usage_of(&child) {
+                            w(u);
+                        }
+                    }
+                }
                 if stop() {
                     ran.stopped = true;
                 } else if started.elapsed() > limit {
@@ -667,6 +763,35 @@ mod tests {
         let r = run(&sh, &os(&["-c", "head -c 3000000 /dev/zero | tr '\\0' x; echo"]), None, Duration::from_secs(30), &|| false).unwrap();
         assert!(r.finished_ok());
         assert_eq!(r.out.len() as u64, KEEP_OUTPUT);
+    }
+
+    /// What a tool has read so far, and the processor time it has used, as it
+    /// runs: the extra checks work out from that how fast the videos go.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn what_a_running_tool_has_read_is_told() {
+        let dir = std::env::temp_dir().join(format!("arp-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("big.bin");
+        std::fs::write(&f, vec![7u8; 5_000_000]).unwrap();
+        let seen = Mutex::new(Vec::<Usage>::new());
+        let py = PathBuf::from("/usr/bin/python3");
+        // Reads the file, spins the processor for a moment, and waits.
+        let script = format!(
+            "import time\nd=open({:?},'rb').read()\nt=time.time()\nwhile time.time()-t<1.2: pass\ntime.sleep(1.5)\n",
+            f.display().to_string()
+        );
+        let r = run_low_watching(&py, &os(&["-c", &script]), None, Duration::from_secs(30), &|| false, &|u| seen.lock().unwrap().push(u))
+            .unwrap();
+        assert!(r.finished_ok(), "{r:?}");
+        let seen = seen.into_inner().unwrap();
+        assert!(seen.len() >= 2, "told about once a second: {seen:?}");
+        let last = seen.last().unwrap();
+        assert!(last.read >= 5_000_000, "{seen:?}");
+        assert!(last.cpu >= 0.8, "{seen:?}");
+        assert!(seen.windows(2).all(|w| w[1].read >= w[0].read), "{seen:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

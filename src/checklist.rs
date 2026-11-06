@@ -34,6 +34,12 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-11-06 (1): how long the videos take is measured after the
+    // copying, and the box can be ticked or unticked until their turn.
+    (
+        "**3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).",
+        "**3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. **Play every video through:** once everything is copied, Start measures how long the videos take on this PC and shows it beside the box and in 4. Start — tick or untick it then, until their turn comes (they run last, overnight, and can be stopped). Left out, they can be played through later.",
+    ),
     // 2026-11-03 (10): the recovered SSD is unplugged as it is once the image
     // is made (it is switched off all along).
     (
@@ -120,6 +126,7 @@ const KNOWN_CHECKLISTS: &[u64] = &[
     53427354163379426,  // 2026-11-04 (1)
     848015863591311911,  // 2026-11-04 (2)
     11539334781635225096, // 2026-11-04 (3)
+    7714998951816333085,  // 2026-11-04 (4)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 
@@ -211,8 +218,17 @@ fn covered_numbers(text: &str) -> Vec<String> {
     rest[..end].split(|c: char| c == ',' || c.is_whitespace()).filter(|w| !w.is_empty() && *w != "and").map(String::from).collect()
 }
 
+/// A box's text as it is now: through every wording it had, one after
+/// another (a line reworded twice is in RENAMED twice).
 fn renamed(key: &str) -> &str {
-    RENAMED.iter().find(|(old, _)| *old == key).map(|(_, new)| *new).unwrap_or(key)
+    let mut k = key;
+    for _ in 0..RENAMED.len() {
+        match RENAMED.iter().find(|(old, _)| *old == k) {
+            Some((_, new)) => k = new,
+            None => break,
+        }
+    }
+    k
 }
 
 // ---------------------------------------------------------------- ticks
@@ -224,6 +240,9 @@ pub struct Tick {
     /// "2026-10-25 01:30:00 +01:00"; ticks made before 22 October 2026 have
     /// no offset. "" when not known.
     pub when: String,
+    /// Ticked by the program, from what it saw: that, in words ("" when
+    /// ticked or unticked by hand).
+    pub seen: String,
 }
 
 /// Every box's latest state: ticked or not, and since when.
@@ -257,15 +276,23 @@ fn unescape(s: &str) -> String {
 
 impl Ticks {
     /// Reads the ticks file: one line per tick or untick, the last one of a
-    /// box counts.
+    /// box counts. (A line "A", a tick the program made from what it saw,
+    /// says what that was: "A<TAB>when<TAB>what it saw<TAB>box".)
     pub fn load(path: &Path) -> Ticks {
         let mut t = Ticks::default();
         let Ok(text) = std::fs::read_to_string(path) else { return t };
         for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("A\t") {
+                if let [when, seen, key] = rest.splitn(3, '\t').collect::<Vec<_>>().as_slice() {
+                    let key = unescape(key);
+                    t.map.insert(renamed(&key).to_string(), Tick { on: true, when: unescape(when), seen: unescape(seen) });
+                }
+                continue;
+            }
             let f: Vec<&str> = line.splitn(3, '\t').collect();
             if let [mark @ ("T" | "U"), when, key] = f.as_slice() {
                 let key = unescape(key);
-                t.map.insert(renamed(&key).to_string(), Tick { on: *mark == "T", when: unescape(when) });
+                t.map.insert(renamed(&key).to_string(), Tick { on: *mark == "T", when: unescape(when), seen: String::new() });
             }
         }
         t
@@ -281,12 +308,29 @@ impl Ticks {
 
     /// Ticks or unticks a box, and adds it to the ticks file.
     pub fn set(&mut self, path: &Path, key: &str, on: bool, when: &str) -> Result<(), String> {
+        let line = format!("{}\t{}\t{}\r\n", if on { "T" } else { "U" }, escape(when), escape(key));
+        self.add(path, &line)?;
+        self.map.insert(key.to_string(), Tick { on, when: when.to_string(), seen: String::new() });
+        Ok(())
+    }
+
+    /// Ticks a box the program has seen done (`seen`: what it saw, in words).
+    pub fn set_seen(&mut self, path: &Path, key: &str, when: &str, seen: &str) -> Result<(), String> {
+        self.add(path, &format!("A\t{}\t{}\t{}\r\n", escape(when), escape(seen), escape(key)))?;
+        self.map.insert(key.to_string(), Tick { on: true, when: when.to_string(), seen: seen.to_string() });
+        Ok(())
+    }
+
+    fn add(&self, path: &Path, entry: &str) -> Result<(), String> {
         use std::io::Write;
         let mut line = String::new();
         if !path.exists() {
-            line.push_str("# Automatic Recovery Probe: the checklist's tick boxes, one line each time one is ticked (T) or unticked (U).\r\n");
+            line.push_str(
+                "# Automatic Recovery Probe: the checklist's tick boxes, one line each time one is ticked (T) or unticked \
+                 (U) by hand, or ticked by the program from what it saw (A).\r\n",
+            );
         }
-        line.push_str(&format!("{}\t{}\t{}\r\n", if on { "T" } else { "U" }, escape(when), escape(key)));
+        line.push_str(entry);
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -301,9 +345,84 @@ impl Ticks {
                 f.sync_all()
             })
             .map_err(|e| format!("could not write {}: {e}", path.display()))?;
-        self.map.insert(key.to_string(), Tick { on, when: when.to_string() });
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------- ticked by the program
+
+/// What the program has seen done, for one box: when (its local time, if
+/// it knows), and what, in words.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seen {
+    pub when: Option<String>,
+    pub what: String,
+}
+
+/// The boxes the program ticks itself when it sees them done: what it
+/// looks for (web.rs: checklist_seen), and a piece of the box's text that
+/// no other box has. The rest - keeping SPARE somewhere else, a cloud copy,
+/// what was changed by hand - only the person can tick.
+pub const SEEN: &[(&str, &str)] = &[
+    ("open", "Unplug every USB drive. Double-click"),
+    ("checkpc", "**1. Get ready → Check this PC.**"),
+    ("selftest", "**Run the self-test.**"),
+    ("aim", "**AIM Toolkit:**"),
+    ("tools", "**The tools:**"),
+    ("newdisks", "**2. The rehearsal → First: make Windows leave new disks switched off.**"),
+    ("spare_in", "Plug `SPARE` in **exactly the way"),
+    ("rehearsal", "click **This is SPARE: check it**"),
+    ("folders", "**3. The folders:**"),
+    ("start", "**4. Start.**"),
+    ("ssd_in", "**plug in the recovered SSD**"),
+    ("ssd_out", "is made and checked\"*: unplug the recovered SSD"),
+    ("spare_back", "If it asks for `SPARE`"),
+    ("start_done", "Start says **\"Start is done\"**"),
+    ("handoff_open", "Click **Open the hand-off folder**"),
+    ("mac", "**For the Mac**"),
+    ("paid", "**Paid repair tools**"),
+    ("office", "**Office documents**"),
+    ("bringback", "**Bring back:**"),
+    ("library", "**A Photos library with damage inside**"),
+    ("finalise", "**6. Finalise.**"),
+    ("windows_back", "**7. Put Windows back as it was.**"),
+];
+
+/// For each box, what the program looks for to tick it (None: only the
+/// person ticks it - or, a checkpoint, its safety check).
+pub fn seen_names(items: &[Item]) -> Vec<Option<&'static str>> {
+    items
+        .iter()
+        .map(|it| if it.checkpoint { None } else { SEEN.iter().find(|(_, part)| it.key.contains(part)).map(|(n, _)| *n) })
+        .collect()
+}
+
+/// Ticks the boxes the program has seen done (`seen`, by what it looks
+/// for): each one not ticked now, unless something was written for it since
+/// - an untick by hand stands until the program sees it done again, later.
+/// `now` stands for a moment the program does not know. The boxes ticked.
+pub fn tick_seen(path: &Path, items: &[Item], ticks: &mut Ticks, seen: &HashMap<&str, Seen>, now: &str) -> Result<Vec<usize>, String> {
+    let names = seen_names(items);
+    let at = |w: &str| crate::fmt::instant(w).unwrap_or(i64::MIN);
+    let mut out = Vec::new();
+    for (i, it) in items.iter().enumerate() {
+        let Some(s) = names[i].and_then(|n| seen.get(n)) else { continue };
+        if ticks.on(&it.key) {
+            continue;
+        }
+        // (Written with its offset from UTC, as a tick by hand is.)
+        let when = s.when.as_deref().and_then(crate::fmt::instant).map(crate::fmt::when_of);
+        let newer = match (ticks.map.get(&it.key), &when) {
+            (None, _) => true,
+            (Some(t), Some(w)) => at(w) > at(&t.when),
+            (Some(_), None) => false,
+        };
+        if newer {
+            ticks.set_seen(path, &it.key, when.as_deref().unwrap_or(now), &s.what)?;
+            out.push(i);
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------- checkpoints
@@ -969,10 +1088,20 @@ pub fn state_json(
     items: &[Item],
     done: &[bool],
     st: &[Status],
+    ticks: &Ticks,
     numbers: Option<(u64, u64)>,
     copy_path: &str,
     copy_note: &str,
 ) -> String {
+    // The boxes the program ticked, from what it saw: that, and when.
+    let seen: Vec<String> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, it)| {
+            let t = ticks.map.get(&it.key).filter(|t| t.on && !t.seen.is_empty())?;
+            Some(format!("{{\"i\":{i},\"text\":{},\"when\":{}}}", json_str(&t.seen), json_str(crate::fmt::when_shown(&t.when))))
+        })
+        .collect();
     let mut per: Vec<(u64, u64)> = vec![(0, 0); phases.len()];
     for (i, it) in items.iter().enumerate() {
         per[it.phase].1 += 1;
@@ -984,7 +1113,7 @@ pub fn state_json(
     let num = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
     format!(
         "{{\"ticked\":[{}],\"status\":[{}],\"phases\":[{}],\"done\":{},\"total\":{},\"next\":{},\"numbers\":{},\
-         \"numbers_text\":{},\"copy\":{},\"copy_note\":{}}}",
+         \"numbers_text\":{},\"copy\":{},\"copy_note\":{},\"seen\":[{}]}}",
         done.iter().map(|&d| if d { "1" } else { "0" }).collect::<Vec<_>>().join(","),
         st.iter()
             .map(|s| format!("{{\"i\":{},\"state\":\"{}\",\"text\":{}}}", s.item, s.state.word(), json_str(&s.text)))
@@ -999,7 +1128,8 @@ pub fn state_json(
             .map(|(f, b)| format!("{{\"files\":{},\"bytes\":{}}}", json_str(&commas(f)), json_str(&size(b))))
             .unwrap_or_else(|| "null".to_string()),
         json_str(copy_path),
-        json_str(copy_note)
+        json_str(copy_note),
+        seen.join(",")
     )
 }
 
@@ -1060,9 +1190,10 @@ mod tests {
         assert_eq!(h.matches("<li").count(), h.matches("</li>").count());
         assert_eq!(h.matches("<ul").count() + h.matches("<ol").count(), h.matches("</ul>").count() + h.matches("</ol>").count());
         assert!(!h.contains("**"), "every bold pair is turned into a tag");
-        // A tick on a reworded line follows it: the new wording is a box here.
+        // A tick on a reworded line follows it: its wording now (through
+        // every rewording since) is a box here.
         for (_, new) in RENAMED {
-            assert!(items.iter().any(|i| i.key == *new), "not a box in the checklist: {new}");
+            assert!(items.iter().any(|i| i.key == renamed(new)), "not a box in the checklist: {}", renamed(new));
         }
     }
 
@@ -1100,9 +1231,13 @@ mod tests {
         t.set(&path, "two", false, "2026-10-20 10:02:00").unwrap();
         let back = Ticks::load(&path);
         assert!(back.on("one") && !back.on("two"));
-        for (old, new) in RENAMED {
+        // Every renamed line's tick ends up on a box the checklist has now -
+        // through each wording it had, one after another.
+        let (_, items) = parse(TEXT);
+        for (old, _) in RENAMED {
             t.set(&path, old, true, "2026-10-20 10:03:00").unwrap();
-            assert!(Ticks::load(&path).on(new));
+            let now = items.iter().find(|it| Ticks::load(&path).on(&it.key) && renamed(old) == it.key);
+            assert!(now.is_some(), "a tick on {old:?} is lost");
         }
         assert_eq!(back.when("two"), "2026-10-20 10:02:00");
         std::fs::remove_dir_all(&dir).ok();
@@ -1116,9 +1251,9 @@ mod tests {
         let mut t = Ticks::default();
         let state = |t: &Ticks, h: &[Checked]| statuses(&items, t, h).into_iter().find(|s| s.item == cp).unwrap().state;
         assert_eq!(state(&t, &[]), State::Waiting);
-        t.map.insert(key("**1."), Tick { on: true, when: "2026-10-20 10:00:00".into() });
+        t.map.insert(key("**1."), Tick { on: true, when: "2026-10-20 10:00:00".into(), ..Default::default() });
         assert_eq!(state(&t, &[]), State::After);
-        t.map.insert(key("**2."), Tick { on: true, when: "2026-10-20 11:00:00".into() });
+        t.map.insert(key("**2."), Tick { on: true, when: "2026-10-20 11:00:00".into(), ..Default::default() });
         // A check from before the last box does not count.
         let early = check("2026-10-20 10:30:00", "E:\\WORK", true);
         assert_eq!(state(&t, &[early.clone()]), State::Due);
@@ -1135,7 +1270,7 @@ mod tests {
         assert!(may_set(&items, &t, cp, false).is_ok());
         // The phase 4 checkpoint covers phase 3: a box there makes it wait for a check.
         let cp4 = items.iter().position(|i| i.covers == vec![3]).unwrap();
-        t.map.insert(key("scan"), Tick { on: true, when: "2026-10-20 14:00:00".into() });
+        t.map.insert(key("scan"), Tick { on: true, when: "2026-10-20 14:00:00".into(), ..Default::default() });
         assert_eq!(statuses(&items, &t, &[good.clone()]).iter().find(|s| s.item == cp4).unwrap().state, State::After);
         // Skipped by hand when nothing was done in it.
         let cp8 = items.iter().position(|i| i.both_copies).unwrap();
@@ -1149,9 +1284,9 @@ mod tests {
         let key = |k: &str| items.iter().find(|i| i.key.starts_with(k)).unwrap().key.clone();
         let state = |t: &Ticks, h: &[Checked]| statuses(&items, t, h).into_iter().find(|s| s.item == cp).unwrap();
         let mut t = Ticks::default();
-        t.map.insert(key("**1."), Tick { on: true, when: "2026-10-25 00:30:00 +01:00".into() });
+        t.map.insert(key("**1."), Tick { on: true, when: "2026-10-25 00:30:00 +01:00".into(), ..Default::default() });
         // The last box ticked at 01:10 after the clocks went back (GMT)...
-        t.map.insert(key("**2."), Tick { on: true, when: "2026-10-25 01:10:00 +00:00".into() });
+        t.map.insert(key("**2."), Tick { on: true, when: "2026-10-25 01:10:00 +00:00".into(), ..Default::default() });
         // ...and a check at 01:50 before they did (BST): 20 minutes before
         // that box was ticked, so it says nothing about it.
         let before = check("2026-10-25 01:50:00 +01:00", "E:\\WORK", true);
@@ -1168,7 +1303,7 @@ mod tests {
         let (_, items) = parse(DOC);
         let cp8 = items.iter().position(|i| i.both_copies).unwrap();
         let mut t = Ticks::default();
-        t.map.insert("second copy".into(), Tick { on: true, when: "2026-11-01 09:00:00".into() });
+        t.map.insert("second copy".into(), Tick { on: true, when: "2026-11-01 09:00:00".into(), ..Default::default() });
         let st = |h: &[Checked]| statuses(&items, &t, h).into_iter().find(|s| s.item == cp8).unwrap().state;
         let one = check("2026-11-01 10:00:00", "E:\\WORK", true);
         let same = check("2026-11-01 11:00:00", "e:\\work\\", true);
@@ -1247,5 +1382,75 @@ mod tests {
         assert!(!home.join("Obsidian MD files").join("recovery-checklist.md.new").exists());
         std::fs::remove_dir_all(&home).ok();
     }
-}
 
+    /// Every box the program ticks itself is found by its piece of text -
+    /// one box each - and most of the boxes are such (or checkpoints).
+    #[test]
+    fn the_program_knows_most_of_the_boxes() {
+        let (_, items) = parse(TEXT);
+        let names = seen_names(&items);
+        for (name, part) in SEEN {
+            let n = items.iter().filter(|it| it.key.contains(part)).count();
+            assert_eq!(n, 1, "{name}: {part:?} is in {n} boxes");
+        }
+        let known = names.iter().filter(|n| n.is_some()).count();
+        let checkpoints = items.iter().filter(|it| it.checkpoint).count();
+        assert_eq!(known, SEEN.len());
+        assert!(known + checkpoints >= items.len() * 3 / 4, "{known} + {checkpoints} of {}", items.len());
+        // The rest is the person's own.
+        let theirs: Vec<&str> =
+            items.iter().zip(&names).filter(|(it, n)| n.is_none() && !it.checkpoint).map(|(it, _)| it.key.as_str()).collect();
+        assert!(theirs.iter().any(|k| k.contains("Keep `SPARE` somewhere else")), "{theirs:?}");
+        assert!(theirs.iter().any(|k| k.contains("Undo what the old checklist")), "{theirs:?}");
+    }
+
+    /// The program ticks what it saw done, once: an untick by hand stands,
+    /// until it sees it done again, later. Its ticks say what it saw, and are
+    /// read back as such.
+    #[test]
+    fn the_program_ticks_what_it_saw_and_an_untick_by_hand_stands() {
+        let dir = std::env::temp_dir().join(format!("rp-checklist-seen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join(TICKS_NAME);
+        let (phases, items) = parse(TEXT);
+        let at = |name: &str| seen_names(&items).iter().position(|n| *n == Some(name)).unwrap();
+        let (selftest, tools) = (at("selftest"), at("tools"));
+        let mut ticks = Ticks::load(&path);
+        let mut seen: HashMap<&str, Seen> = HashMap::new();
+        seen.insert("selftest", Seen { when: Some("2026-11-05 23:01:36".into()), what: "The self-test passed.".into() });
+        seen.insert("tools", Seen { when: None, what: "All found.".into() });
+        let now = "2026-11-06 09:00:00 +00:00";
+        let got = tick_seen(&path, &items, &mut ticks, &seen, now).unwrap();
+        assert_eq!(got, vec![selftest, tools]);
+        let back = Ticks::load(&path);
+        assert!(back.on(&items[selftest].key) && back.on(&items[tools].key));
+        assert_eq!(back.map[&items[selftest].key].seen, "The self-test passed.");
+        assert!(back.when(&items[selftest].key).starts_with("2026-11-05 23:01:36"), "when it was seen: {}", back.when(&items[selftest].key));
+        assert_eq!(back.when(&items[tools].key), now, "a moment not known: now");
+        // Ticked already: nothing again.
+        assert!(tick_seen(&path, &items, &mut ticks, &seen, now).unwrap().is_empty());
+        // Unticked by hand: it stays so...
+        ticks.set(&path, &items[selftest].key, false, "2026-11-06 09:05:00 +00:00").unwrap();
+        ticks.set(&path, &items[tools].key, false, "2026-11-06 09:05:00 +00:00").unwrap();
+        assert!(tick_seen(&path, &items, &mut ticks, &seen, now).unwrap().is_empty());
+        let back = Ticks::load(&path);
+        assert!(!back.on(&items[selftest].key) && back.map[&items[selftest].key].seen.is_empty());
+        // ...until the program sees it done again, later.
+        seen.insert("selftest", Seen { when: Some("2026-11-06 09:30:00".into()), what: "The self-test passed again.".into() });
+        assert_eq!(tick_seen(&path, &items, &mut ticks, &seen, now).unwrap(), vec![selftest]);
+        assert!(Ticks::load(&path).on(&items[selftest].key));
+        assert!(!Ticks::load(&path).on(&items[tools].key), "what has no moment never comes back by itself");
+        // A box ticked by hand is the person's: the program leaves it be.
+        let start = at("start");
+        ticks.set(&path, &items[start].key, true, "2026-11-06 10:00:00 +00:00").unwrap();
+        seen.insert("start", Seen { when: Some("2026-11-06 11:00:00".into()), what: "Start began.".into() });
+        assert!(tick_seen(&path, &items, &mut ticks, &seen, now).unwrap().is_empty());
+        // The page is told what the program saw, for its own ticks only.
+        let st = statuses(&items, &ticks, &[]);
+        let done = ticked(&items, &ticks, &st);
+        let json = state_json(&phases, &items, &done, &st, &ticks, None, "copy", "");
+        assert!(json.contains(&format!("{{\"i\":{selftest},\"text\":\"The self-test passed again.\"")), "{json}");
+        assert!(!json.contains(&format!("{{\"i\":{start},")), "{json}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

@@ -405,6 +405,32 @@ def main():
                   "scan2", "evaluate", "handoff"]:
             check(stages[k]["state"] == "done", "stage %s done" % k)
         check(stages["open"]["state"] in ("skipped", "done"), "stage open skipped off Windows")
+        # Right after the copying, Start measures how long playing every
+        # video through takes on this PC, by playing them (the few small ones
+        # here all get played then): the extra checks remember them.
+        copy_said = " ".join(stages["copy"]["summary"] or [])
+        check("Every video is played through already" in copy_said or "Playing every video through:" in copy_said,
+              "after the copying, Start measures how long the videos take (%s)"
+              % next((l for l in stages["copy"]["summary"] if "video" in l), "nothing said"))
+        speed = s["settings"].get("video_speed", "")
+        check(speed.split("\t")[-1] == w and float(speed.split("\t")[0] or 0) > 0,
+              "and keeps how fast this PC plays them, for WORK (%s)" % speed.replace("\t", " | "))
+        check("videos_to_play" not in s["settings"], "every video played through: none is left to play")
+        extra_said = stages["extra"]["summary"] or []
+        played = next((l for l in extra_said if l.strip().startswith("Videos, played through")), "")
+        check(re.search(r"Videos, played through \(FFmpeg\): [1-9]\d* checked", played) is not None,
+              "the extra checks count the videos played through, the measuring's too (%s)" % played.strip())
+        # The checklist: the boxes the program has seen done are ticked by it,
+        # each with what it saw - and its copy shows them ticked.
+        cs = prog.get("api/checklist-state")
+        seen = [x["text"] for x in cs.get("seen") or []]
+        print("  ticked by the program: " + " | ".join(seen))
+        check(len(seen) >= 6 and all(any(t.startswith(w) for t in seen) for w in
+                                     ("Start is done", "Start began", "The folders are chosen", "The image is made and checked")),
+              "the checklist ticks what the program has seen done (%d boxes)" % len(seen))
+        ticks_file = open(os.path.join(home, "results", "automatic-checklist-ticks.txt"), encoding="utf-8").read()
+        check(sum(1 for l in ticks_file.splitlines() if l.startswith("A\t")) == len(seen),
+              "each written down as the program's tick, with what it saw")
         # Defender: Start asks it by itself to leave the image's folder and
         # WORK (with REPAIR) alone, then reads its list back (Windows only).
         ready_said = " ".join(stages["ready"]["summary"] or [])

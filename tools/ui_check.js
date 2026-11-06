@@ -120,12 +120,16 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   await page.waitForSelector("#view-checklist:not([hidden]) input.tick", { timeout: 10000 });
   await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
   const tab0 = await page.textContent("#tab-count");
-  check(await page.isChecked('input.tick[data-i="0"]') && /^\(1 of \d+\)$/.test(tab0),
-    "the checklist is built in, with the box ticked in the copy in Obsidian taken in " + tab0);
+  // (Besides it, the boxes the program has seen done: ticked by it.)
+  const bySeen = await page.evaluate(() => (CLS.seen || []).length);
+  check(await page.isChecked('input.tick[data-i="0"]') && tab0.startsWith("(" + (1 + bySeen) + " of "),
+    "the checklist is built in, with the box ticked in the copy in Obsidian taken in " + tab0 + " (" + bySeen + " ticked by the program)");
   check((await page.textContent("#where")).includes("Next on the checklist"), "the page says what is next on the checklist");
-  await page.click('input.tick[data-i="1"]');
-  await page.waitForFunction(() => /^\(2 of /.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });
-  check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 && fs.existsSync(path.join(home, "results", "automatic-checklist-ticks.txt")) &&
+  // A box not ticked yet, ticked by hand.
+  const free = await page.evaluate(() => [...document.querySelectorAll("#cl-body input.tick")].find((b) => !b.checked && !b.disabled).dataset.i);
+  await page.click(`input.tick[data-i="${free}"]`);
+  await page.waitForFunction((n) => document.getElementById("tab-count").textContent.startsWith("(" + n + " of "), 2 + bySeen, { timeout: 10000 });
+  check((fs.readFileSync(obsidian, "utf8").match(/- \[x\] /g) || []).length === 2 + bySeen && fs.existsSync(path.join(home, "results", "automatic-checklist-ticks.txt")) &&
     fs.readFileSync(oldList, "utf8") === "- [x] Recovery Probe's own checklist, with the person's ticks\n",
     "a box ticked on the page is kept, and the copy in Obsidian follows");
   check(fs.existsSync(path.join(home, "Obsidian MD files", "automatic-download-manifest.md")) && !fs.existsSync(path.join(home, "Obsidian MD files", "download-manifest.md")), "the download manifest is put beside it (and not Recovery Probe's)");

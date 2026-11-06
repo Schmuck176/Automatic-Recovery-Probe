@@ -2084,6 +2084,96 @@ The user, as before: keep hunting for bugs, without breaking anything.
   copy's folder line above, and the broad checks after it nothing. The
   hourly check-ins that resumed the work after a usage pause are deleted.
 
+## 6 Nov 2026 (small hours): the videos measured and asked about, the checklist ticking itself
+
+The user (5 Nov, 23:13 GMT): how does "Play every video through to find
+damage" work; can it be sped up and optimised for this PC's hardware; can
+the question be asked after the program has estimated how long it takes;
+can most of the checklist tick itself from what the program knows has
+happened; any suggestions; and the hourly check-ins again (24 scheduled,
+6 Nov 00:20 to 23:20 GMT, in the scratchpad's checkins.txt).
+
+Seen on the PC first (results\recovery-probe-state.txt): the box was
+unticked (auto_videos=0), the folders not chosen yet, Start not begun, the
+self-test passed at 23:01, AIM Toolkit and the rehearsal passed, SPARE is an
+NVMe SSD in a Realtek RTL9210 USB case (reading is not what limits the
+videos: the processor is); no ticks at all in the automatic checklist.
+
+- **How it works** (unchanged in what it finds): the extra checks (stage 8)
+  have FFmpeg decode every picture and every sound sample of every video in
+  WORK to nowhere, and read its errors (not its chatter); a video with any
+  is listed in REPAIR\damaged-lists\auto-videos.txt and repaired. Videos run
+  last, each with a time limit, at a low priority; what was checked is
+  remembered (Carry on resumes); only WORK is read. Measured here: a 4 KB
+  hole of zeros in an H.264 or HEVC video decoded without one error - the
+  map check is what finds every never-read place; playing through is the
+  extra net (damage the drive gave up wrongly, or older damage).
+- **Faster**, without missing anything:
+  - FFmpeg leaves out the deblocking filter (`-skip_loop_filter all`): the
+    errors are found reading the stream, before it. Measured on damaged
+    H.264, HEVC, MPEG-2 and MPEG-4 videos (random bytes, holes of zeros,
+    scattered flipped bytes, cut short): the same errors, every count the
+    same; H.264 and HEVC 15-20% faster (scratchpad vbench/compare.py).
+  - More at once while the processor has room: half its threads (up to 4)
+    to begin with, then one more each time it was less than 75% busy for
+    ten seconds with every tool working, while each video playing kept at
+    least 0.3 of a thread busy (not waiting for the drive) and 2 GB of
+    memory were free, up to one a thread (16); one fewer when memory falls
+    under 1 GB (sys::cpu_times, sys::memory_free; tools::run_low_watching
+    tells what each tool has read and its processor time).
+  - A file identical to another (the same size and SHA-256 in
+    rescue-log.csv, the same kind, not put back since) is checked once; its
+    result stands for every copy (and an earlier run's result for one).
+  - The biggest videos first: it does not end with one big video alone.
+  - Not the graphics card: its decoders hide damage instead of reporting it.
+- **The estimate, then the question**: right after the copying (stage 5),
+  Start plays the videos for a minute and a half (scattered, not only the
+  biggest; what it plays through is kept, like any check) and works out how
+  long the rest take on this PC from what FFmpeg has read so far (settings
+  video_speed, videos_to_play - for WORK). The copy stage says it, "What
+  just happened" says it, a Windows notification says it; the videos' box
+  in 3. The folders and 4. Start show it ("about 6 h 40 min on this PC for
+  the 1,234 videos (410 GB)"). Whether to play them is asked when their
+  turn comes (not once when Start began): ticked or unticked until then;
+  unticked while they play, the one playing stops and the rest are left
+  out; ticked after the extra checks left them out (4. Start: Play them
+  through now), Start goes back to the extra checks - only the videos are
+  played, the rest remembered - and on through the stages after, the
+  repairs only looking among older copies for what they tried before; ticked
+  while Start runs past them, it goes back once it has got through. While
+  they play: how many of how many, the GB, the time left (from how fast they
+  go), how many at once - in the stage, in Now; the stage's time left is
+  the extra checks' own reckoning, not by count.
+- **The checklist ticks itself**: 22 of the 29 boxes are things the
+  program sees (and the 3 checkpoints tick by their checks, as before):
+  the program open, Check this PC, the self-test, AIM Toolkit, the tools,
+  new disks switched off, SPARE checked, the rehearsal, the folders, Start
+  begun, the image made, the SSD seen unplugged (new setting
+  ssd_unplugged_at), SPARE back for the copying, Start done, the hand-off
+  folder opened (new setting handoff_opened, from its button) or nothing to
+  hand off, nothing for the Mac / a paid tool / its own program, Bring back,
+  no Photos library damaged, Finalise, Windows put back. Each tick is
+  written as the program's ("A" lines in automatic-checklist-ticks.txt,
+  with what it saw), shown beside the box ("Ticked by the program: ..."),
+  and its copy in Obsidian follows; a box unticked by hand stays so until
+  the program sees it done again, later. Synced after every stage, and every
+  30 s while something runs. The person's own: keeping SPARE elsewhere,
+  using the files day to day, a cloud copy, undoing the old Phase -1 by hand.
+- Found on the way: a box reworded twice (3. The folders, again now) would
+  have lost its tick from the first wording - the lookup took one step;
+  now it follows every rewording (test: ticks_are_kept_and_follow_renamed_lines,
+  failing before).
+- Version 2026-11-06 (1); the 2026-11-04 (4) checklist text is known
+  (7714998951816333085); box 3's new wording is in RENAMED.
+- Tests here: unit tests 229 (and 229 with overflow checks; new: the
+  videos played once per content and biggest first, played only while
+  asked for, the trial, one more at once only with room, the pace; what a
+  running tool has read; how busy the processor is; the program's ticks and
+  an untick standing; most boxes known; what the program has seen done;
+  videos asked for after the extra checks), auto_check 124/124,
+  auto_ui_check 44/44 and ui_check 67/67 with both fonts, test_mapcheck
+  94/94, resume_check (seed 163, 20 interruptions) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

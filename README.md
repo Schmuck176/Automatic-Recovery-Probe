@@ -92,10 +92,10 @@ The parts of the Automatic tab:
    | image | waits for the recovered SSD, marks it read-only by itself, reads it once into one file, reads the file back to check it (Recovery Probe's step 4) |
    | open | opens the image read-only with AIM Toolkit's command line, so the map check can compare itself with Windows' own reading |
    | mapcheck | which files the never-read places touched; stops on a date after the copy, a disagreement with Windows, records claiming space not theirs, or files that won't fit (step 5); says so when the copies fit and REPAIR, beside them, may not |
-   | copy | waits for SPARE (switches it on if it arrived switched off), copies everything off the image with a checksum per file (step 6) |
+   | copy | waits for SPARE (switches it on if it arrived switched off), copies everything off the image with a checksum per file (step 6); then plays the videos for a minute and a half to measure how long playing every one through takes on this PC, and says so (what it plays is kept) |
    | verify | every copy against its checksum, and the safety check (step 7) |
    | scan | every file's structure, joined with the map check (step 7) |
-   | extra | 7-Zip tests every archive and Office file, MP3val every MP3, qpdf every PDF, FFmpeg plays every photo, song and video through (HEIC too with FFmpeg 8.1+) |
+   | extra | 7-Zip tests every archive and Office file, MP3val every MP3, qpdf every PDF, FFmpeg plays every photo, song and video through (HEIC too with FFmpeg 8.1+): the videos last, biggest first, if Play every video through is ticked when their turn comes (unticked while they play, the rest are left out; ticked later, Start goes back for them). Half the processor's threads at first, then one more at a time while the processor has room and memory is free; files identical to another (the same SHA-256) checked once; FFmpeg skips the deblocking filter, which finds no errors (15-20% faster) |
    | isolate | the damaged files copied into `REPAIR` (step 8) |
    | repair | an intact twin first (identical in every byte the drive gave up: restored exactly), then the format's own repair: JPEG end marker, untrunc with a pattern video it picks, FFmpeg remux, MP3val, FLAC re-encode, WAV header, qpdf (with a new trailer if the old one was lost), 7-Zip rebuild of zips and Office files; previews out of RAW and JPEG, what can be read out of archives |
    | putback | every repaired file back exactly where its original is; the original kept; logged; undoable (step 8) |
@@ -139,7 +139,11 @@ The parts of the Automatic tab:
    program's steps has the same button, by the same rule.
 
 The checklist (now 29 boxes, `docs/automatic-checklist.md`) and the program's
-steps one at a time are the other two tabs. The page shows each stage's results
+steps one at a time are the other two tabs. The checklist ticks itself where the
+program can see a box done - 22 of the 29, besides the 3 checkpoints that tick
+when their safety check passes - each with what it saw beside it, and its copy
+in Obsidian follows; a box unticked by hand stays so until the program sees it
+done again. The page shows each stage's results
 in the steps tab as if its button had been clicked, and both programs read the
 same results folder, so Recovery Probe can carry on from anything this one did.
 

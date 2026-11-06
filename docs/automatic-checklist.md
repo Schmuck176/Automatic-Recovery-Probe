@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-11-04 (4) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-11-06 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -19,6 +19,9 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 
 **What you do:** plug drives in and out when it asks, and decide about the files no free tool could repair. At the
 very end, with every drive unplugged, you put back the Windows settings it changed (7. Put Windows back as it was).
+
+**This checklist ticks itself** as far as it can: the program ticks each box it sees done, and its page says beside
+the box what it saw. You tick the rest. A box you untick stays unticked, until the program sees it done again.
 
 ## The rules
 
@@ -57,7 +60,7 @@ very end, with every drive unplugged, you put back the Windows settings it chang
 - [ ] **2. The rehearsal → First: make Windows leave new disks switched off.**
 - [ ] Plug `SPARE` in **exactly the way the recovered SSD will be plugged in**: the same USB case or adapter (the very same one, not just the same kind), the same port and cable.
 - [ ] In the list, click **This is SPARE: check it**. You want *"SPARE arrived switched off"*. If it says SPARE arrived **switched on**, click **Switch SPARE off**, unplug SPARE, plug it back in exactly the same way, and click **This is SPARE: check it** again: now you want *"SPARE arrived switched off"*. It says to **stop** (removable media, or switched on again)? Then don't plug the recovered SSD in that way: tell Claude. When it has passed, unplug SPARE (it stays switched off until Start needs it).
-- [ ] **3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. Leave **Play every video through** ticked unless you're in a hurry (it runs last, overnight, and can be stopped).
+- [ ] **3. The folders:** check the three it suggests — the image in `IMAGE` on a drive of the PC with about 1,000 GB free (on your PC, `C:`: `D:` is too small), the copies in `WORK` on `SPARE`, the second copy in `COPY 2` beside the image. **Play every video through:** once everything is copied, Start measures how long the videos take on this PC and shows it beside the box and in 4. Start — tick or untick it then, until their turn comes (they run last, overnight, and can be stopped). Left out, they can be played through later.
 
 ---
 

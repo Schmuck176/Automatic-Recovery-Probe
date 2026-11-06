@@ -259,6 +259,98 @@ pub fn volume_read_only(_letter: &str) -> Option<bool> {
 }
 
 // ---------------------------------------------------------------------------
+// How busy the processor is, and how much memory is free: the extra checks
+// run more tools at once while the processor has room (extra.rs).
+// ---------------------------------------------------------------------------
+
+/// The processor's time since the PC started, all its threads together, in
+/// its own units: (busy, all). Two readings apart give how busy it was in
+/// between.
+#[cfg(windows)]
+pub fn cpu_times() -> Option<(u64, u64)> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    extern "system" {
+        fn GetSystemTimes(idle: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
+    }
+    let (mut idle, mut kernel, mut user) = (FileTime::default(), FileTime::default(), FileTime::default());
+    if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+        return None;
+    }
+    let v = |t: &FileTime| ((t.high as u64) << 32) | t.low as u64;
+    // (The kernel's time includes the idle time.)
+    let all = v(&kernel).saturating_add(v(&user));
+    Some((all.saturating_sub(v(&idle)), all))
+}
+
+#[cfg(not(windows))]
+pub fn cpu_times() -> Option<(u64, u64)> {
+    let text = std::fs::read_to_string("/proc/stat").ok()?;
+    cpu_times_in(text.lines().next()?)
+}
+
+/// "cpu  user nice system idle iowait irq softirq steal ..." -> (busy, all).
+#[cfg(not(windows))]
+fn cpu_times_in(line: &str) -> Option<(u64, u64)> {
+    let mut f = line.split_whitespace();
+    if f.next()? != "cpu" {
+        return None;
+    }
+    let n: Vec<u64> = f.take(8).map(|x| x.parse().unwrap_or(0)).collect();
+    if n.len() < 4 {
+        return None;
+    }
+    let all: u64 = n.iter().sum();
+    let idle = n[3] + n.get(4).copied().unwrap_or(0);
+    Some((all.saturating_sub(idle), all))
+}
+
+/// How busy the processor was between two readings of `cpu_times`, from 0 to 1.
+pub fn busy_between(a: (u64, u64), b: (u64, u64)) -> Option<f64> {
+    let all = b.1.checked_sub(a.1)?;
+    let busy = b.0.checked_sub(a.0)?;
+    (all > 0).then(|| (busy as f64 / all as f64).clamp(0.0, 1.0))
+}
+
+/// Memory free for programs to use now, in bytes.
+#[cfg(windows)]
+pub fn memory_free() -> Option<u64> {
+    #[repr(C)]
+    struct MemoryStatusEx {
+        length: u32,
+        _memory_load: u32,
+        _total_phys: u64,
+        avail_phys: u64,
+        _total_page_file: u64,
+        _avail_page_file: u64,
+        _total_virtual: u64,
+        _avail_virtual: u64,
+        _avail_extended_virtual: u64,
+    }
+    extern "system" {
+        fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+    }
+    let mut s: MemoryStatusEx = unsafe { std::mem::zeroed() };
+    s.length = std::mem::size_of::<MemoryStatusEx>() as u32;
+    if unsafe { GlobalMemoryStatusEx(&mut s) } == 0 {
+        return None;
+    }
+    Some(s.avail_phys)
+}
+
+#[cfg(not(windows))]
+pub fn memory_free() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let line = text.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+// ---------------------------------------------------------------------------
 // Files that must survive a power cut whole.
 // ---------------------------------------------------------------------------
 
@@ -288,6 +380,23 @@ pub fn write_safely(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> 
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
+    #[test]
+    fn how_busy_the_processor_is_is_read() {
+        let a = super::cpu_times_in("cpu  100 0 50 800 50 0 0 0 0 0").unwrap();
+        assert_eq!(a, (150, 1000));
+        let b = super::cpu_times_in("cpu  400 0 150 1100 150 0 0 0 0 0").unwrap();
+        // 400 more busy of 800 more in all.
+        assert_eq!(super::busy_between(a, b), Some(0.5));
+        assert_eq!(super::busy_between(b, a), None, "readings the wrong way round say nothing");
+        assert_eq!(super::busy_between(a, a), None);
+        assert!(super::cpu_times_in("intr 1 2 3").is_none());
+        // This PC's own, and its memory.
+        let (busy, all) = super::cpu_times().expect("/proc/stat");
+        assert!(busy <= all && all > 0);
+        assert!(super::memory_free().is_some_and(|m| m > 0));
+    }
+
     #[test]
     fn a_file_written_safely_replaces_the_old_one_whole() {
         let dir = std::env::temp_dir().join(format!("rp-sys-{}", std::process::id()));

@@ -1418,6 +1418,11 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             if f.contains_key("auto_search") && !lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
                 auto::older_copies_added(app, false);
             }
+            // The same for the videos, ticked after the extra checks left
+            // them out: Start carries on from the extra checks.
+            if f.get("auto_videos").is_some_and(|v| v != "0") && !lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
+                auto::videos_asked_for(app, false);
+            }
             Ok(String::new())
         })(),
         "alarm-read" => {
@@ -1448,6 +1453,12 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
         "open" => {
             let p = g("path");
             if crate::win::open_folder(Path::new(&p)) {
+                // (The hand-off folder opened: the checklist's box for it ticks.)
+                let mut a = lock(app);
+                if a.last.get("handoff").is_some_and(|j| j.outputs.first().is_some_and(|f| auto::same_folder(f, &p))) {
+                    a.settings.insert("handoff_opened".to_string(), local_now());
+                    a.save();
+                }
                 Ok(String::new())
             } else {
                 Err(format!("could not open {p}"))
@@ -2109,6 +2120,11 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
             }
         }
     }
+    // The boxes the program has seen done: ticked by it.
+    let seen = checklist_seen(app);
+    if let Err(e) = cl::tick_seen(&ticks_path, &items, &mut ticks, &seen, &crate::fmt::when_now()) {
+        notes.push(e);
+    }
     let history = crate::verify::history(&results);
     let st = cl::statuses(&items, &ticks, &history);
     let done = cl::ticked(&items, &ticks, &st);
@@ -2155,7 +2171,128 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
             }
         }
     }
-    cl::state_json(&phases, &items, &done, &st, numbers, &target.display().to_string(), &notes.join(" "))
+    cl::state_json(&phases, &items, &done, &st, &ticks, numbers, &target.display().to_string(), &notes.join(" "))
+}
+
+/// What the program has seen done, for the checklist's boxes it ticks
+/// itself (checklist::SEEN) - only what it knows without asking Windows
+/// anything slow, or reading a disk.
+fn checklist_seen(app: &Arc<Mutex<App>>) -> HashMap<&'static str, crate::checklist::Seen> {
+    use crate::checklist::Seen;
+    // (Asked before the lock: these take it themselves.)
+    let windows_left = !back::changes(app).is_empty();
+    let restart = if cfg!(windows) { crate::winset::restart_pending() } else { Some(false) };
+    let held_off = crate::cli::new_disks_held_off_known(Duration::MAX) == Some(true);
+    let a = lock(app);
+    let mut out: HashMap<&'static str, Seen> = HashMap::new();
+    let mut put = |name: &'static str, when: Option<String>, what: String| {
+        out.insert(name, Seen { when: when.filter(|w| !w.trim().is_empty()), what });
+    };
+    let shown = |w: &str| if w.trim().is_empty() { String::new() } else { format!(" ({})", crate::fmt::when_shown(w)) };
+    let job = |kind: &str| a.last.get(kind).filter(|j| j.state == "done");
+    let stage = |key: &str| a.auto.stages.iter().find(|s| s.key == key);
+    let stage_done = |key: &str| stage(key).is_some_and(|s| s.state == "done" || s.state == "skipped");
+    let elevated = a.elevated || !cfg!(windows);
+    if elevated {
+        put("open", None, "The program is open, with administrator rights.".to_string());
+    }
+    let map = a.setting("mapfile");
+    if elevated && !map.is_empty() && Path::new(&map).is_file() && restart == Some(false) {
+        put("checkpc", None, "Check this PC: administrator rights, the mapfile, and Windows is not waiting to restart.".to_string());
+    }
+    if let Some(j) = job("selftest").filter(|j| j.data.contains("\"passed\":true")) {
+        put("selftest", Some(j.started_at.clone()), format!("The self-test passed{}.", shown(&j.started_at)));
+    }
+    if a.setting("aim_test") == "passed" {
+        let w = a.last.get("aimtest").map(|j| j.started_at.clone()).unwrap_or_default();
+        put("aim", Some(w.clone()), format!("AIM Toolkit works: it opened a test image read-only{}.", shown(&w)));
+    }
+    use crate::tools::Tool;
+    if [Tool::SevenZip, Tool::Ffmpeg, Tool::Mp3val, Tool::Untrunc, Tool::Qpdf].iter().all(|t| crate::tools::find(*t, &a.home).is_some()) {
+        put("tools", None, "7-Zip, FFmpeg, MP3val, untrunc and qpdf are all found.".to_string());
+    }
+    let rehearsal = a.setting("rehearsal");
+    let rehearsed_at = a.setting("rehearsal_when");
+    let image_made = !a.setting("image").is_empty() && !a.setting("image_sha").is_empty();
+    if rehearsal == "passed" {
+        put("newdisks", Some(rehearsed_at.clone()), format!("Windows left SPARE switched off in the rehearsal{}.", shown(&rehearsed_at)));
+        put("rehearsal", Some(rehearsed_at.clone()), format!("The rehearsal passed: SPARE arrived switched off{}.", shown(&rehearsed_at)));
+    } else if held_off {
+        put("newdisks", None, "Windows leaves new disks switched off.".to_string());
+    }
+    if !rehearsal.is_empty() {
+        put("spare_in", Some(rehearsed_at.clone()), format!("SPARE was plugged in and checked{}.", shown(&rehearsed_at)));
+    }
+    let (image_dir, work, copy2) = (a.setting("auto_image_dir"), a.setting("auto_work"), a.setting("auto_copy2"));
+    if (image_made || !image_dir.trim().is_empty()) && !work.trim().is_empty() && !copy2.trim().is_empty() {
+        let image = if image_dir.trim().is_empty() { "made".to_string() } else { format!("in {}", image_dir.trim()) };
+        put("folders", None, format!("The folders are chosen: the image {image}, WORK in {}, the second copy in {}.", work.trim(), copy2.trim()));
+    }
+    let began = |key: &str| stage(key).map(|s| s.started_at.clone()).unwrap_or_default();
+    if stage_done("ready") {
+        put("start", Some(began("ready")), format!("Start began{}.", shown(&began("ready"))));
+    }
+    if stage_done("image") || image_made {
+        put("ssd_in", Some(began("image")), format!("The image is made and checked{}: the recovered SSD was plugged in for it.", shown(&began("image"))));
+    }
+    let out_at = a.setting("ssd_unplugged_at");
+    if !out_at.is_empty() {
+        put("ssd_out", Some(out_at.clone()), format!("The recovered SSD was seen unplugged{}.", shown(&out_at)));
+    }
+    if stage_done("copy") {
+        put("spare_back", Some(began("copy")), format!("SPARE was there: Start copied everything into WORK{}.", shown(&began("copy"))));
+    }
+    if !a.auto.stages.is_empty() && a.auto.resume_at() >= a.auto.stages.len() {
+        // When it was done: the end of the last stage that ran.
+        let end = a
+            .auto
+            .stages
+            .iter()
+            .filter_map(|s| crate::fmt::instant(&s.started_at).map(|t| t + s.seconds as i64))
+            .max()
+            .map(crate::fmt::when_of)
+            .unwrap_or_default();
+        put("start_done", Some(end.clone()), format!("Start is done{}: every stage ran.", shown(&end)));
+    }
+    // What is left: what the hand-off made, if it ran (or found nothing to do).
+    let handoff = job("handoff");
+    let nothing_damaged = stage("handoff").is_some_and(|s| s.state == "skipped");
+    let count = |k: &str| handoff.and_then(|j| crate::fmt::json_u64(&j.data, k));
+    let handed = |k: &str| nothing_damaged || count(k) == Some(0);
+    let handoff_at = if nothing_damaged { began("handoff") } else { handoff.map(|j| j.started_at.clone()).unwrap_or_default() };
+    let none_left = handed("mac") && handed("paid") && handed("own");
+    let opened = a.setting("handoff_opened");
+    if !opened.is_empty() {
+        put("handoff_open", Some(opened.clone()), format!("The hand-off folder was opened{}.", shown(&opened)));
+    } else if none_left {
+        put("handoff_open", Some(handoff_at.clone()), "Nothing was left to hand off, so there is no hand-off folder to read.".to_string());
+    }
+    if handed("mac") {
+        put("mac", Some(handoff_at.clone()), "Nothing was left for the Mac.".to_string());
+    }
+    if handed("paid") {
+        put("paid", Some(handoff_at.clone()), "Nothing was left for a paid repair tool.".to_string());
+    }
+    if handed("own") {
+        put("office", Some(handoff_at.clone()), "Nothing was left for its own program (Word, Excel, PowerPoint).".to_string());
+    }
+    if let Some(j) = job("bringback") {
+        put("bringback", Some(j.started_at.clone()), format!("Bring back ran{}.", shown(&j.started_at)));
+    } else if none_left {
+        put("bringback", Some(handoff_at.clone()), "Nothing was handed off, so there is nothing to bring back.".to_string());
+    }
+    if let Some(j) = job("evaluate").filter(|j| !j.data.contains("\"what\":\"Photos library")) {
+        put("library", Some(j.started_at.clone()), "No Photos library has damage inside it.".to_string());
+    }
+    let finalised = a.setting("finalised");
+    if !finalised.is_empty() && !a.setting("copy2_made").is_empty() {
+        put("finalise", Some(finalised.clone()), format!("Finalise is done{}: the second copy is made and both copies checked.", shown(&finalised)));
+    }
+    let back_at = a.setting("windows_back_at");
+    if !back_at.is_empty() && !windows_left {
+        put("windows_back", Some(back_at.clone()), format!("Windows is put back as it was{}.", shown(&back_at)));
+    }
+    out
 }
 
 /// A box ticked or unticked on the page.
@@ -3069,6 +3206,134 @@ mod tests {
         let said = finalise::changed_since(&app).unwrap();
         assert!(said.starts_with("Finalise again") && said.contains(r"D:\COPY 2"), "{said}");
         assert!(!lock(&app).setting("finalise_again").is_empty(), "and the page is told");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn app_in(dir: &Path, settings: &[(&str, &str)]) -> Arc<Mutex<App>> {
+        Arc::new(Mutex::new(App {
+            elevated: false,
+            home: dir.to_path_buf(),
+            results: dir.join("results"),
+            settings: settings.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::new(),
+        }))
+    }
+
+    /// The checklist ticks what the program has seen done - the self-test,
+    /// the rehearsal, the folders, Start's stages, what was left, Finalise -
+    /// with what it saw, and its copy shows them ticked. What it has not
+    /// seen stays for the person.
+    #[test]
+    fn the_checklist_ticks_what_the_program_has_seen_done() {
+        use crate::checklist as cl;
+        let dir = std::env::temp_dir().join(format!("arp-checklist-seen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("results")).unwrap();
+        let app = app_in(
+            &dir,
+            &[
+                ("rehearsal", "passed"),
+                ("rehearsal_when", "2026-10-25 12:38:56"),
+                ("auto_image_dir", r"C:\IMAGE"),
+                ("auto_work", r"E:\WORK"),
+                ("auto_copy2", r"C:\COPY 2"),
+                ("aim_test", "passed"),
+            ],
+        );
+        let job = |state: &str, at: &str, data: &str| Job { state: state.into(), started_at: at.into(), data: data.into(), ..Default::default() };
+        {
+            let mut a = lock(&app);
+            a.last.insert("selftest".into(), job("done", "2026-11-05 23:01:36", "{\"passed\":true,\"problems\":0}"));
+            for s in a.auto.stages.iter_mut().take(5) {
+                s.state = "done".into();
+                s.started_at = "2026-11-06 10:00:00".into();
+            }
+        }
+        let seen = checklist_seen(&app);
+        assert_eq!(seen["selftest"].when.as_deref(), Some("2026-11-05 23:01:36"));
+        assert!(seen["rehearsal"].what.contains("SPARE arrived switched off"), "{:?}", seen["rehearsal"]);
+        assert!(seen["folders"].what.contains(r"E:\WORK"), "{:?}", seen["folders"]);
+        for name in ["start", "ssd_in", "spare_back", "newdisks", "spare_in", "aim", "open"] {
+            assert!(seen.contains_key(name), "{name}: {:?}", seen.keys());
+        }
+        for name in ["start_done", "ssd_out", "finalise", "windows_back", "mac", "bringback", "library"] {
+            assert!(!seen.contains_key(name), "{name} not seen yet");
+        }
+        // Start done, nothing left for the Mac or a paid tool, one Office file.
+        {
+            let mut a = lock(&app);
+            for s in a.auto.stages.iter_mut() {
+                s.state = "done".into();
+                s.started_at = "2026-11-06 12:00:00".into();
+                s.seconds = 60;
+            }
+            a.last.insert("handoff".into(), job("done", "2026-11-06 12:00:00", "{\"mac\":0,\"paid\":0,\"own\":1,\"nothing\":0}"));
+            a.last.insert("evaluate".into(), job("done", "2026-11-06 11:59:00", "{\"damaged_packages\":[]}"));
+            a.settings.insert("ssd_unplugged_at".into(), "2026-11-06 11:00:00".into());
+        }
+        let seen = checklist_seen(&app);
+        assert!(seen["start_done"].when.as_deref().is_some_and(|w| w.starts_with("2026-11-06 12:01:00")), "{:?}", seen["start_done"]);
+        assert!(seen["mac"].what.contains("Nothing was left for the Mac"));
+        assert!(seen.contains_key("paid") && !seen.contains_key("office"), "{:?}", seen.keys());
+        assert!(!seen.contains_key("bringback") && !seen.contains_key("handoff_open"), "something was handed off");
+        assert!(seen.contains_key("library") && seen.contains_key("ssd_out"));
+        // Through the checklist itself: ticked, with what was seen, in the copy too.
+        let json = checklist_sync(&app);
+        let (_, items) = cl::parse(cl::TEXT);
+        let ticks = cl::Ticks::load(&dir.join("results").join(cl::TICKS_NAME));
+        let names = cl::seen_names(&items);
+        let key_of = |n: &str| items[names.iter().position(|x| *x == Some(n)).unwrap()].key.clone();
+        for n in ["selftest", "rehearsal", "folders", "start_done", "mac", "paid", "library"] {
+            assert!(ticks.on(&key_of(n)), "{n} ticked");
+        }
+        assert!(!ticks.on(&key_of("office")) && !ticks.on(&key_of("bringback")));
+        assert!(json.contains("\"seen\":[{"), "{json}");
+        let copy = std::fs::read_to_string(cl::find_copy(&dir).expect("the copy")).unwrap();
+        assert!(copy.contains(&format!("- [x] {}", key_of("selftest"))), "the copy shows it ticked");
+        assert!(copy.contains(&format!("- [ ] {}", key_of("office"))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Play every video through ticked after the extra checks left the
+    /// videos out: Start carries on from the extra checks (the repairs only
+    /// looking among older copies for what they tried before). Not when it
+    /// is unticked, nor before the extra checks ran, nor with nothing left.
+    #[test]
+    fn videos_asked_for_after_the_extra_checks_bring_start_back_to_them() {
+        let dir = std::env::temp_dir().join(format!("arp-videos-later-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("results")).unwrap();
+        let app = app_in(&dir, &[("auto_work", r"E:\WORK"), ("auto_videos", "0"), ("videos_to_play", "12\t5368709120\tE:\\WORK"), ("video_speed", "894785\tE:\\WORK")]);
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let extra_at = auto::STAGES.iter().position(|(k, _)| *k == "extra").unwrap();
+        // Before the extra checks: ticking is all it takes.
+        assert!(act(&app, &form(&[("action", "set"), ("auto_videos", "1")])).contains("\"ok\":true"));
+        assert!(lock(&app).auto.stages.iter().all(|s| s.state == "pending"));
+        // The extra checks left them out, and Start is done.
+        assert!(act(&app, &form(&[("action", "set"), ("auto_videos", "0")])).contains("\"ok\":true"));
+        for s in lock(&app).auto.stages.iter_mut() {
+            s.state = "done".into();
+        }
+        assert!(!auto::videos_asked_for(&app, false), "not ticked");
+        assert!(act(&app, &form(&[("action", "set"), ("auto_videos", "1")])).contains("\"ok\":true"));
+        {
+            let a = lock(&app);
+            assert_eq!(a.auto.resume_at(), extra_at, "Start carries on from the extra checks");
+            assert!(a.auto.stages[..extra_at].iter().all(|s| s.state == "done"));
+            assert_eq!(a.setting("repair_look_only"), "1");
+            let (n, b) = auto::videos_to_play(&a, r"E:\WORK").unwrap();
+            assert_eq!(auto::videos_time_words(n, b, auto::video_speed(&a, r"e:\work\")), "about 1 h 40 min on this PC for the 12 videos (5.0 GB)");
+        }
+        // Nothing left to play: nothing to go back for.
+        for s in lock(&app).auto.stages.iter_mut() {
+            s.state = "done".into();
+        }
+        lock(&app).settings.remove("videos_to_play");
+        assert!(!auto::videos_asked_for(&app, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
