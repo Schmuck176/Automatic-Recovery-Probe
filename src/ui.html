@@ -2592,7 +2592,7 @@ function videosQuestion() {
   if (!v || !v.n) return null;
   const words = esc(videosWords(v));
   if (ex.state === "done" || ex.state === "skipped") {
-    if (!ticked) return { tone: "warn", text: `<b>The extra checks left the videos out:</b> ${words} to play them through. Asked for now, Start goes back to them, then repairs what they turn up.`, btn: running ? "" : play(true) };
+    if (!ticked) return { tone: "warn", text: `<b>The extra checks left the videos out:</b> ${words} to play them through.${running ? " Asked for now, Start goes back to them once it has got through its stages." : " Play them through now, and Start goes back to them, then repairs what they turn up."}`, btn: play(!running) };
     return running ? { tone: "", text: `<b>The videos come after this:</b> Play every video through is ticked, so once Start has got through its stages it goes back to them - ${words} - and repairs what they turn up.`, btn: leave } : null;
   }
   // Their turn has not come yet.
@@ -2727,7 +2727,7 @@ function renderAuto() {
   const vl = videosLeft();
   const exNow = ((S.auto && S.auto.stages) || []).find((s) => s.key === "extra");
   put($("videos-hint"), vl && vl.n
-    ? `${ic("timer")}${esc(videosWords(vl).replace(/^./, (c) => c.toUpperCase()))} still to play, measured on this PC. You can tick or untick this until their turn comes (they come last), and untick it while they play to leave the rest out.`
+    ? `${ic("timer")}${esc(videosWords(vl).replace(/^./, (c) => c.toUpperCase()))} still to play. You can tick or untick this until their turn comes (they come last), and untick it while they play to leave the rest out.`
     : exNow && (exNow.state === "done" || exNow.state === "skipped")
       ? `No videos are left to play through.`
       : `Start measures how long they take on this PC once it has copied everything, and shows it here and in 4. Start: you can tick or untick this until their turn comes (they come last), and untick it while they play to leave the rest out.`);
