@@ -2183,6 +2183,22 @@ videos: the processor is); no ticks at all in the automatic checklist.
   videos asked for after the extra checks), auto_check 124/124,
   auto_ui_check 44/44 and ui_check 67/67 with both fonts, test_mapcheck
   94/94, resume_check (seeds 163, 5 and 167, 20 interruptions each) 17/17.
+- CI run 42143927835 (bd39797), green on both systems (after 42139277472
+  found the cut-off repair on Linux, and a test that took the program for
+  an administrator only off Windows). Windows: unit tests 230, map check
+  tests 44/44, Windows disks 19/19, disk protection 21/21, unplugged 42/42,
+  page 68/68, download 6/6, automatic 132/132 (the videos measured after
+  the copying; the checklist ticked 11 boxes itself), Automatic tab 44/44,
+  resume 17/17; Linux: unit tests 230 (and 230 with overflow checks), map
+  check tests 94/94, Linux kernel 23/23, the Mac script 56/56, page 67/67,
+  automatic 131/131, Automatic tab 44/44, resume 17/17.
+- Delivered 6 Nov 2026, about 01:55 GMT: version 2026-11-06 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,381,568 bytes, SHA-256
+  33ca0bd6c07c2997c98a8e0ce4138e8bb35a90805f7d9a0ed3c1ca76af360c0c (staged
+  back and compared). main moved to it; the 2026-11-04 (4) main is kept as
+  branch version-2026-11-04-4. The PC as before: nothing run since the
+  self-test at 23:01, the box unticked, no folders chosen yet. The hourly
+  check-ins for this work are deleted once the user has the report.
 
 ## Not done / ideas for later
 
