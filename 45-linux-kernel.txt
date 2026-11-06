@@ -1,0 +1,42 @@
+What stops Linux from opening the drive:
+     damage to nothing (control): Linux mounts the drive and lists 213 files and folders
+     damage to the main boot sector: Linux will NOT mount the drive: mount: /home/runner/work/_temp/kc/experiments/mnt: wrong fs type, bad option, bad superblock on /dev/loop0p2, missing codepage or helper program, or other error.
+       dmesg(1) may have more information after failed mount system call. ([  216.262511] exFAT-fs (loop0p2): invalid boot record signature / [  216.262550] exFAT-fs (loop0p2): failed to read boot sector / [  216.262559] exFAT-fs (loop0p2): failed to recognize exfat type)
+     damage to the boot checksum sector: Linux will NOT mount the drive: mount: /home/runner/work/_temp/kc/experiments/mnt: wrong fs type, bad option, bad superblock on /dev/loop0p2, missing codepage or helper program, or other error.
+       dmesg(1) may have more information after failed mount system call. ([  216.555089] exFAT-fs (loop0p2): Invalid boot checksum (boot checksum : 0x00000000, checksum : 0xd923add9) / [  216.555148] exFAT-fs (loop0p2): invalid boot region / [  216.555159] exFAT-fs (loop0p2): failed to recognize exfat type)
+     damage to one backup boot sector: Linux mounts the drive and lists 213 files and folders
+     damage to the whole backup boot region: Linux mounts the drive and lists 213 files and folders
+     damage to the start of the FAT: Linux will NOT mount the drive: mount: /home/runner/work/_temp/kc/experiments/mnt: can't read superblock on /dev/loop0p2.
+       dmesg(1) may have more information after failed mount system call. ([  217.566286] exFAT-fs (loop0p2): error, invalid access to FAT free cluster (entry 0x00000004) / [  217.566325] exFAT-fs (loop0p2): failed to count the number of clusters in root / [  217.566340] exFAT-fs (loop0p2): failed to recognize exfat type)
+     damage to one FAT sector further in: Linux mounts the drive and lists 213 files and folders
+     damage to the top folder's first records (label, bitmap, up-case): Linux will NOT mount the drive: mount: /home/runner/work/_temp/kc/experiments/mnt: wrong fs type, bad option, bad superblock on /dev/loop0p2, missing codepage or helper program, or other error.
+       dmesg(1) may have more information after failed mount system call. ([  218.173488]  loop0: p1 p2 / [  218.196669] exFAT-fs (loop0p2): failed to load alloc-bitmap / [  218.196707] exFAT-fs (loop0p2): failed to recognize exfat type)
+     damage to one sector of the allocation bitmap: Linux will NOT mount the drive: mount: /home/runner/work/_temp/kc/experiments/mnt: can't read superblock on /dev/loop0p2.
+       dmesg(1) may have more information after failed mount system call. ([  218.461693]  loop0: p1 p2 / [  218.487942] exFAT-fs (loop0p2): failed to load alloc-bitmap / [  218.487979] exFAT-fs (loop0p2): failed to recognize exfat type)
+     damage to one sector of the up-case table: Linux mounts the drive and lists 213 files and folders
+     damage to the main partition table: Linux finds no partitions
+     damage to the backup partition table: Linux mounts the drive and lists 213 files and folders
+ok   deliberate-512b (47 files and folders hidden by the damage)
+ok   deliberate-4k (47 files and folders hidden by the damage)
+ok   deliberate-32k (47 files and folders hidden by the damage)
+ok   deliberate-128k (47 files and folders hidden by the damage)
+ok   hidden-folder (0 files and folders hidden by the damage)
+ok   fat-damage (0 files and folders hidden by the damage)
+ok   copy-on-bigger-disk (0 files and folders hidden by the damage)
+ok   random-1000 (2 files and folders hidden by the damage)
+ok   random-1001 (22 files and folders hidden by the damage)
+ok   random-1002 (0 files and folders hidden by the damage)
+ok   random-1003 (10 files and folders hidden by the damage)
+ok   random-1004 (44 files and folders hidden by the damage)
+ok   random-1005 (10 files and folders hidden by the damage)
+ok   random-1006 (0 files and folders hidden by the damage)
+ok   random-1007 (0 files and folders hidden by the damage)
+ok   random-1008 (0 files and folders hidden by the damage)
+ok   random-1009 (0 files and folders hidden by the damage)
+ok   random-1010 (19 files and folders hidden by the damage)
+ok   random-1011 (17 files and folders hidden by the damage)
+ok   random-1012 (16 files and folders hidden by the damage)
+ok   random-1013 (0 files and folders hidden by the damage)
+ok   random-1014 (0 files and folders hidden by the damage)
+ok   random-1015 (29 files and folders hidden by the damage)
+Linux kernel exFAT checks: 23 of 23 disks agree (357 hidden files and folders confirmed)

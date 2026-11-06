@@ -1,0 +1,97 @@
+ok   zsh is there to run the script
+--- first run:
+-f [R0009].jpg ... repaired: saved again by the Mac's own decoder
+b [R0002].jpg ... repaired: saved again by the Mac's own decoder
+a [R0001].heic ... repaired: saved again by the Mac's own decoder
+c [R0003].jpg ... not repaired: the Mac could not decode it either
+d [R0004].mov ... repaired: copied into a new file by the Mac's own video framework
+e [R0005].cr2 ... salvaged: what the Mac decodes saved as a TIFF (a RAW can't be saved as RAW again)
+g [R0008].docx ... by hand: open it in its own app, and if it opens save a copy into returned/repaired with the same name
+Report [R0007].pages: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name
+
+Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.
+Everything is in the folder "returned". Take this USB stick back to the PC and click "Bring back".
+
+ok   first run: the script runs to its end (code 0)
+ok   first run: it says 'Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.'
+ok   first run: repaired/a [R0001].heic is in returned
+ok   first run: repaired/b [R0002].jpg is in returned
+ok   first run: repaired/d [R0004].mov is in returned
+ok   first run: salvaged/e [R0005] (as TIFF).tif is in returned
+ok   first run: repaired/-f [R0009].jpg is in returned
+ok   first run: the version saved there by hand is kept as it was
+ok   first run: a name that starts with a dash is tried like any other
+ok   first run: the HEIC is saved again by the Mac's decoder
+ok   first run: the video keeps when and where it was recorded
+ok   first run: nothing half-made is left in returned
+ok   first run: a file inside the Pages document is not tried by itself
+ok   first run: READ ME and the Mac's housekeeping are not tried
+ok   first run: the files it tried are not changed
+ok   first run: the log says what it did
+ok   first run: the log names each file
+--- run again:
+-f [R0009].jpg ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+b [R0002].jpg ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+a [R0001].heic ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+c [R0003].jpg ... not repaired: the Mac could not decode it either
+d [R0004].mov ... repaired: copied into a new file by the Mac's own video framework (one was in returned already: that one is kept as it is)
+e [R0005].cr2 ... salvaged: what the Mac decodes saved as a TIFF (a RAW can't be saved as RAW again) (one was in returned already: that one is kept as it is)
+g [R0008].docx ... by hand: open it in its own app, and if it opens save a copy into returned/repaired with the same name
+Report [R0007].pages: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name
+
+Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.
+Everything is in the folder "returned". Take this USB stick back to the PC and click "Bring back".
+
+ok   run again: the script runs to its end (code 0)
+ok   run again: it says 'Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.'
+ok   run again: repaired/a [R0001].heic is in returned
+ok   run again: repaired/b [R0002].jpg is in returned
+ok   run again: repaired/d [R0004].mov is in returned
+ok   run again: salvaged/e [R0005] (as TIFF).tif is in returned
+ok   run again: repaired/-f [R0009].jpg is in returned
+ok   run again: the version saved there by hand is kept as it was
+ok   run again: a name that starts with a dash is tried like any other
+ok   run again: a version saved by hand over the one the Mac made is kept as it is
+ok   run again: and it says so
+ok   run again: the HEIC is saved again by the Mac's decoder
+ok   run again: the video keeps when and where it was recorded
+ok   run again: nothing half-made is left in returned
+ok   run again: a file inside the Pages document is not tried by itself
+ok   run again: READ ME and the Mac's housekeeping are not tried
+ok   run again: the files it tried are not changed
+ok   run again: the log says what it did
+ok   run again: the log names each file
+--- run again, with an older avconvert:
+-f [R0009].jpg ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+b [R0002].jpg ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+a [R0001].heic ... repaired: saved again by the Mac's own decoder (one was in returned already: that one is kept as it is)
+c [R0003].jpg ... not repaired: the Mac could not decode it either
+d [R0004].mov ... repaired: copied into a new file by the Mac's own video framework
+e [R0005].cr2 ... salvaged: what the Mac decodes saved as a TIFF (a RAW can't be saved as RAW again) (one was in returned already: that one is kept as it is)
+g [R0008].docx ... by hand: open it in its own app, and if it opens save a copy into returned/repaired with the same name
+Report [R0007].pages: by hand - open it in its own app; if it opens, File > Save a copy into returned/repaired with the same name
+
+Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.
+Everything is in the folder "returned". Take this USB stick back to the PC and click "Bring back".
+
+ok   run again, with an older avconvert: the script runs to its end (code 0)
+ok   run again, with an older avconvert: it says 'Done: 4 repaired, 1 salvaged, 1 not repaired, 2 to do by hand.'
+ok   run again, with an older avconvert: repaired/a [R0001].heic is in returned
+ok   run again, with an older avconvert: repaired/b [R0002].jpg is in returned
+ok   run again, with an older avconvert: repaired/d [R0004].mov is in returned
+ok   run again, with an older avconvert: salvaged/e [R0005] (as TIFF).tif is in returned
+ok   run again, with an older avconvert: repaired/-f [R0009].jpg is in returned
+ok   run again, with an older avconvert: the version saved there by hand is kept as it was
+ok   run again, with an older avconvert: a name that starts with a dash is tried like any other
+ok   run again, with an older avconvert: a version saved by hand over the one the Mac made is kept as it is
+ok   run again, with an older avconvert: and it says so
+ok   run again, with an older avconvert: the HEIC is saved again by the Mac's decoder
+ok   run again, with an older avconvert: the video is made all the same, without the option it does not know
+ok   run again, with an older avconvert: nothing half-made is left in returned
+ok   run again, with an older avconvert: a file inside the Pages document is not tried by itself
+ok   run again, with an older avconvert: READ ME and the Mac's housekeeping are not tried
+ok   run again, with an older avconvert: the files it tried are not changed
+ok   run again, with an older avconvert: the log says what it did
+ok   run again, with an older avconvert: the log names each file
+
+56 of 56 checks passed
