@@ -1,0 +1,120 @@
+What stops Windows from opening the drive:
+     damage to nothing (control): Windows opens the drive (E:) and lists 213 files and folders
+     damage to the main boot sector: Windows CANNOT open the drive (it sees: Unknown)
+     damage to the boot checksum sector: Windows CANNOT open the drive (it sees: Unknown)
+     damage to one backup boot sector: Windows CANNOT open the drive (it sees: Unknown)
+     damage to the whole backup boot region: Windows CANNOT open the drive (it sees: Unknown)
+     damage to the start of the FAT: Windows CANNOT open the drive (it sees: Unknown)
+     damage to one FAT sector further in: Windows opens the drive (E:) and lists 213 files and folders
+     damage to the top folder's first records (label, bitmap, up-case): Windows CANNOT open the drive (it sees: Unknown)
+     damage to one sector of the allocation bitmap: Windows opens the drive (E:) and lists 213 files and folders
+     damage to one sector of the up-case table: Windows opens the drive (E:) and lists 213 files and folders
+     (no drive letter: 
+At line:1 char:1
++ Get-Partition -DiskNumber 2 | Where-Object { $_.GptType -eq '{ebd0a0a ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (2:UInt32) [Get-Partition], CimJobException
+    + FullyQualifiedErrorId : CmdletizationQuery_NotFound_DiskNumber,Get-Partition)
+     damage to the main partition table: Windows CANNOT open the drive (it sees: Get-Partition : No MSFT_Partition objects found with property 'DiskNumber' equal to '2'.  Verify the value of the 
+property and retry.
+At line:1 char:1
++ Get-Partition -DiskNumber 2 | Where-Object { $_.GptType -eq '{ebd0a0a ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (2:UInt32) [Get-Partition], CimJobException
+    + FullyQualifiedErrorId : CmdletizationQuery_NotFound_DiskNumber,Get-Partition)
+     damage to the backup partition table: Windows opens the drive (E:) and lists 213 files and folders
+How Windows reads a folder of 300 files with one record (file 150) damaged:
+ok   one letter of a name changed (checksum wrong): Windows lists 0 of the folder's files, and opens by full path just the ones predicted; the map check's comparison: Windows reports ['Many'] as corrupted
+ok   the name part of a record blanked (a blank inside a record): Windows lists 150 of the folder's files (file 000.txt .. file 149.txt), and opens by full path just the ones predicted
+ok   a record's first part marked deleted, its other parts not (stray parts): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record's first part blanked (a blank record): Windows lists 150 of the folder's files (file 000.txt .. file 149.txt), and opens by full path just the ones predicted
+ok   a record of a kind that does not exist (type 86): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record only the top folder may hold (type 83, a label): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a vendor record where a file record was (type A1): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record claiming no parts (0): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record claiming too few parts (1): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record claiming too many parts (5): Windows lists 298 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record claiming more parts than a record can have (19): Windows lists 293 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record claiming 200 parts: Windows lists 233 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record whose name length is too long for its parts: Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record whose second part is marked deleted: Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   a record whose second part is a vendor part (type E0): Windows lists 299 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   one sector of the folder blanked: Windows lists 149 of the folder's files (file 000.txt .. file 148.txt), and opens by full path just the ones predicted
+ok   one sector of the folder holding random bytes: Windows lists 294 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+ok   one sector of the folder holding other random bytes: Windows lists 294 of the folder's files (file 000.txt .. file 299.txt), and opens by full path just the ones predicted
+deliberate-4k:
+     undamaged: Windows mounts it as E: and reads all 213 files and folders as written
+     3 files sit before the damaged record of a folder Windows gives up on: Windows lists 0 of them (the map check says none)
+     a record with a wrong checksum: Windows does not list it (Photos\2020\RappOrt annuel 3.pdf)
+     damaged: Windows lists 132 files and folders; 76 are hidden by the damage, as predicted
+ok   deliberate-4k
+deliberate-32k:
+     undamaged: Windows mounts it as E: and reads all 213 files and folders as written
+     3 files sit before the damaged record of a folder Windows gives up on: Windows lists 0 of them (the map check says none)
+     a record with a wrong checksum: Windows does not list it (Photos\2020\RappOrt annuel 3.pdf)
+     damaged: Windows lists 132 files and folders; 76 are hidden by the damage, as predicted
+ok   deliberate-32k
+hidden-folder:
+     undamaged: Windows mounts it as E: and reads all 213 files and folders as written
+     damaged: Windows lists 213 files and folders; 0 are hidden by the damage, as predicted
+ok   hidden-folder
+copy-on-bigger-disk:
+     undamaged: Windows mounts it as E: and reads all 213 files and folders as written
+     damaged: Windows lists 213 files and folders; 0 are hidden by the damage, as predicted
+ok   copy-on-bigger-disk
+leftover-records:
+     undamaged: Windows mounts it as E: and reads all 19 files and folders as written
+     damaged: Windows lists 12 files and folders; 3 are hidden by the damage, as predicted
+ok   leftover-records
+random-3001:
+     undamaged: Windows mounts it as E: and reads all 25 files and folders as written
+     damaged: Windows lists 25 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3001
+random-3002:
+     undamaged: Windows mounts it as E: and reads all 164 files and folders as written
+     damaged: Windows lists 4 files and folders; 10 are hidden by the damage, as predicted
+ok   random-3002
+random-3003:
+     undamaged: Windows mounts it as E: and reads all 110 files and folders as written
+     damaged: Windows lists 47 files and folders; 39 are hidden by the damage, as predicted
+ok   random-3003
+random-3004:
+     undamaged: Windows mounts it as E: and reads all 51 files and folders as written
+     damaged: Windows lists 49 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3004
+random-3005:
+     undamaged: Windows mounts it as E: and reads all 103 files and folders as written
+     damaged: Windows lists 20 files and folders; 42 are hidden by the damage, as predicted
+ok   random-3005
+random-3006:
+     undamaged: Windows mounts it as E: and reads all 31 files and folders as written
+     damaged: Windows lists 17 files and folders; 5 are hidden by the damage, as predicted
+ok   random-3006
+random-3007:
+     undamaged: Windows mounts it as E: and reads all 113 files and folders as written
+     damaged: Windows lists 113 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3007
+random-3008:
+     undamaged: Windows mounts it as E: and reads all 31 files and folders as written
+     damaged: Windows lists 16 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3008
+random-3009:
+     undamaged: Windows mounts it as E: and reads all 122 files and folders as written
+     damaged: Windows lists 29 files and folders; 34 are hidden by the damage, as predicted
+ok   random-3009
+random-3010:
+     undamaged: Windows mounts it as E: and reads all 61 files and folders as written
+     damaged: Windows lists 59 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3010
+random-3011:
+     undamaged: Windows mounts it as E: and reads all 53 files and folders as written
+     damaged: Windows lists 13 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3011
+random-3012:
+     undamaged: Windows mounts it as E: and reads all 111 files and folders as written
+     damaged: Windows lists 111 files and folders; 0 are hidden by the damage, as predicted
+ok   random-3012
+windows-formatted:
+     Windows-formatted disk: 2 damaged files found exactly; Windows cannot list 42 files, 38 of them reported as hidden, 4 had their own record destroyed
+ok   windows-formatted
+Windows checks: 19 of 19 agree with Windows itself (the folder experiments count as one)

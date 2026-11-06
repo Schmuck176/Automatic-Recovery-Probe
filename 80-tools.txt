@@ -1,0 +1,5 @@
+7z: /c/Program Files/7-Zip/7z.exe
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+qpdf version 12.4.2
+untrunc: D:\a\_temp/tools-dl/untrunc/untrunc_x64/untrunc.exe
+mp3val: D:\a\_temp/tools-dl/mp3val/mp3val.exe
