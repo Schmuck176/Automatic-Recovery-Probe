@@ -2275,6 +2275,31 @@ scratchpad's checkins.txt; the plan and progress in nov9-plan.md).
   list on the left, the steps tab, the checklist's chips, panel and "only
   these"), test_mapcheck 94/94, resume_check (seeds 5 and 173, 20
   interruptions each) 17/17.
+- Tried on a copy of the PC's own files (results\automatic-checklist-ticks.txt,
+  recovery-probe-state.txt, the copy in Obsidian MD files): 30 boxes, the 8
+  ticks the program made on 7 Nov kept, the copy brought up to the new text
+  with them, the labels box "to do". The PC as seen on 10 Nov: last used
+  7 Nov 21:03 (the self-test); Get ready and the rehearsal done, the folders
+  not chosen, Start not begun - so the labels box comes at its right moment.
+- CI run 42760306154 (ef524b0), green on both systems. (Linux on its second
+  attempt: the first stalled 19 minutes in "npx playwright install
+  --with-deps chromium" - apt waiting on azure.archive.ubuntu.com - before
+  any of the page's checks; cancelled and run again, 5 minutes.) Windows:
+  unit tests 232, map check tests 44/44, Windows disks 19/19, disk
+  protection 21/21, unplugged 42/42, page 68/68, download 6/6, automatic
+  136/136, Automatic tab 59/59, resume 17/17; Linux: unit tests 232 (and
+  232 with overflow checks), map check tests 94/94, Linux kernel 23/23, the
+  Mac script 56/56, page 67/67, automatic 135/135, Automatic tab 59/59,
+  resume 17/17.
+- Delivered 10 Nov 2026, about 05:45 GMT: version 2026-11-10 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,425,600 bytes, SHA-256
+  4cae6f6e84ce203c509161ab45d43f59f912c45dab674fa3f282db640c107ecc (staged
+  back and compared). main moved to it; the 2026-11-06 (1) main is kept as
+  branch version-2026-11-06-1. The hourly check-ins for this work are
+  deleted once the user has the report. Still open from 6 Nov: the five
+  suggestions (phone notifications; one finish time for Start; checking the
+  old Phase -1 settings; a one-page report; not trying failed repairs
+  again) - the user has not chosen among them.
 
 ## Not done / ideas for later
 
