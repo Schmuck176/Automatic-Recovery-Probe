@@ -138,12 +138,24 @@ The parts of the Automatic tab:
    Start sets what it needs again when it carries on). Step 9 of the
    program's steps has the same button, by the same rule.
 
-The checklist (now 29 boxes, `docs/automatic-checklist.md`) and the program's
+The checklist (now 30 boxes, `docs/automatic-checklist.md`) and the program's
 steps one at a time are the other two tabs. The checklist ticks itself where the
-program can see a box done - 22 of the 29, besides the 3 checkpoints that tick
+program can see a box done - 22 of the 30, besides the 3 checkpoints that tick
 when their safety check passes - each with what it saw beside it, and its copy
 in Obsidian follows; a box unticked by hand stays so until the program sees it
-done again. The page shows each stage's results
+done again. Every box says who ticks it. The boxes only the person can tick -
+the program cannot see them done - are marked ✋ in the text and stand out on
+the page (amber, "Yours to tick", with why the program cannot): five always
+(a label on each drive itself, keeping SPARE somewhere else, using the files from copies, a copy elsewhere of
+what cannot be lost, undoing what was changed in Windows by hand), and four
+when files are left for them (the Mac, a paid repair tool, Office's own repair,
+a Photos library with damage inside - where nothing was left, the program
+ticks the box). So that none is skipped, each shows in the Automatic recovery
+tab where its turn comes, with its own tick box (the same box): the labels in
+1. Get ready, what is left for the person in 5. What is left, and the rest in
+a part of their own after 7, **8. Afterwards: what only you can
+do**; the parts' states and "Now" count them ("Yours: 2 to do"), and the steps
+tab shows them in step 3, in step 8 and at the end of step 9. The page shows each stage's results
 in the steps tab as if its button had been clicked, and both programs read the
 same results folder, so Recovery Probe can carry on from anything this one did.
 

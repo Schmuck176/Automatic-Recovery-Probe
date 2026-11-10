@@ -204,6 +204,7 @@ ol.rail-list > li:not(:last-child)::after {
 .yourturn b { font: 600 1.06rem/1.3 var(--head); }
 .yourturn p { grid-column: 2; margin: 0; color: var(--ink); max-width: none; }
 .yourturn.calm { border-width: 1px; }
+.yourturn .row { grid-column: 1 / -1; margin-top: 6px; }
 .now-label { margin: 0 0 6px; font: 600 0.88rem var(--head); color: var(--ink-soft); }
 .now-next button { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; }
 @media (max-width: 1099px) {
@@ -523,7 +524,57 @@ ul.phases .warn { color: var(--unread); }
 .checklist li.box > input.tick { position: absolute; left: 9px; top: 9px; width: 20px; height: 20px; margin: 0; accent-color: var(--read); cursor: pointer; }
 .checklist li.box > input.tick:disabled { cursor: default; }
 .checklist li.box.done > .box-text { color: var(--ink-soft); }
-.checklist li.box.next { background: color-mix(in srgb, var(--focus) 15%, transparent); }
+/* Who ticks a box: the program, a safety check - or only you (amber, like
+   "your turn": the program can't see those done). */
+.checklist li.box .who {
+  float: right; margin: 1px 0 4px 12px; display: inline-flex; align-items: center; gap: 5px; padding: 1px 10px 1px 7px;
+  border-radius: 999px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink-soft);
+  font: 600 0.8rem/1.55 var(--head); white-space: nowrap;
+}
+.checklist li.box .who .ic { width: 1.05em; height: 1.05em; }
+.checklist li.box .who.you { background: var(--turn-bg); color: var(--turn); border-color: var(--turn-line); }
+.checklist li.box .who.maybe { border-style: dashed; }
+.checklist li.box.mine { background: color-mix(in srgb, var(--turn-bg) 50%, transparent); box-shadow: inset 4px 0 0 var(--turn-line); }
+.checklist li.box.mine.done { background: transparent; }
+.checklist li.box .whynote { margin-top: 3px; font-size: 0.9rem; color: var(--turn); }
+.checklist li.box.done .whynote { color: var(--ink-soft); }
+/* Only the boxes that are yours: the rest of the checklist out of the way. */
+.checklist.only-mine li.box:not(.yours), .checklist.only-mine section.ph.no-yours,
+.checklist.only-mine section.ph > :not(.phase-title):not(ul.boxes) { display: none; }
+.mine-top { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.mine-top > p { margin: 0; max-width: none; }
+.mine-top > p .ic { color: var(--turn); }
+ul.minelinks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; }
+ul.minelinks li { display: grid; grid-template-columns: 1.4em 1fr; align-items: baseline; gap: 0 10px; }
+ul.minelinks li > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; }
+ul.minelinks a { text-decoration: none; font-weight: 600; }
+ul.minelinks .mk { display: inline-flex; width: 1.4em; color: var(--turn); }
+ul.minelinks li.done .mk, ul.minelinks li.none .mk { color: var(--read); }
+/* The same boxes in the program's own parts (5. What is left, 8.
+   Afterwards), each with its tick box. */
+.yoursdo { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--turn-bg); border: 1px solid var(--turn-line); }
+.yoursdo > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font: 600 1.08rem/1.3 var(--head); color: var(--turn); }
+.yoursdo > h3 .count { margin-left: auto; font-size: 0.88rem; }
+.yoursdo > p { margin: 6px 0 0; max-width: none; }
+/* (Their turn has not come yet: quiet, to read ahead.) */
+.yoursdo.later { background: transparent; border-style: dashed; border-color: var(--rule-strong); }
+.yoursdo.later > h3 { color: var(--ink-soft); }
+.yoursdo.later ul.minelist > li:not(.done) { border-left-color: var(--rule-strong); }
+ul.minelist { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+ul.minelist > li {
+  position: relative; padding: 10px 14px 10px 46px; border-radius: 10px; background: var(--sheet);
+  border: 1px solid var(--rule); border-left: 4px solid var(--turn-line);
+}
+ul.minelist > li.done { border-left-color: var(--read); }
+ul.minelist input.minetick { position: absolute; left: 13px; top: 12px; width: 20px; height: 20px; margin: 0; accent-color: var(--read); cursor: pointer; }
+ul.minelist .mine-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+ul.minelist label { font: 600 1.04rem/1.35 var(--head); cursor: pointer; }
+ul.minelist .mine-note { margin: 3px 0 0; font-weight: 600; color: var(--turn); max-width: none; }
+ul.minelist .mine-text { margin-top: 4px; }
+ul.minelist li.done .mine-text { color: var(--ink-soft); }
+ul.minelist .mine-why { margin: 5px 0 0; max-width: none; }
+/* (The next box: blue, as "next" is in the list on the left. Amber is yours.) */
+.checklist li.box.next { background: var(--act-bg); }
 .checklist li.box.checkpoint { background: var(--sheet); border: 1px solid var(--rule); padding: 10px 12px 10px 44px; margin: 12px 0; }
 .checklist li.box.checkpoint > input.tick { left: 12px; top: 13px; }
 .checklist li.box.flash { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -914,6 +965,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
               <button class="second" id="b-ready-test"><svg class="ic" aria-hidden="true"><use href="#i-flask-conical"></use></svg>Run the self-test</button>
             </div>
             <div id="ar-ready"></div>
+            <div id="ar-ready-mine"></div>
           </li>
 
           <li class="part" id="a-rehearse">
@@ -994,6 +1046,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-laptop"></use></svg>What is left: the Mac, or a paid tool</h2><span class="state" id="ast-left"></span></div>
             <p class="lead">What no free tool could repair is made ready in <code>REPAIR\hand-off</code>: for the Mac, for a paid repair tool, or for the file's own program. When repaired files come back, <b>Bring back</b> puts each one in its place and checks everything again.</p>
             <div id="ar-left"><p class="soft">This fills in once Start is done.</p></div>
+            <div id="ar-left-mine"></div>
           </li>
 
           <li class="part" id="a-final">
@@ -1017,6 +1070,13 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <p class="lead">To protect the recovered SSD and to work faster, the program changed a few Windows settings. They stay that way until you put them back here, and the button only works once every drive is unplugged: the recovered SSD, the 4 TB SSD and SPARE. That way the recovered SSD can never arrive switched on.</p>
             <div id="ar-back"><p class="soft">Looking at what the program changed…</p></div>
           </li>
+
+          <li class="part" id="a-after">
+            <span class="part-num" aria-hidden="true">8</span>
+            <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-hand"></use></svg>Afterwards: what only you can do</h2><span class="state" id="ast-after"></span></div>
+            <p class="lead">Everything above, the program does itself or sees done, and ticks in the checklist. These last things it cannot see, so they are yours to do and yours to tick: here or in the checklist, it is the same box.</p>
+            <div id="ar-after"><p class="soft">Loading the checklist…</p></div>
+          </li>
         </ol>
       </div>
 
@@ -1027,7 +1087,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
 
       <div id="view-steps" role="tabpanel" aria-labelledby="tab-steps" hidden>
         <div class="panel intro" style="margin: 0 0 22px"><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>
-          <p>These are the program's own steps, one at a time: the same work <b>Start</b> does by itself, and what Start did shows here too. Use them to look at a result in detail. Do a step again from here only if Claude asks you to: <b>Automatic recovery</b> does them all, in the right order, and keeps track of what is done.</p></div>
+          <p>These are the program's own steps, one at a time: the same work <b>Start</b> does by itself, and what Start did shows here too. Use them to look at a result in detail. Do a step again from here only if Claude asks you to: <b>Automatic recovery</b> does them all, in the right order, and keeps track of what is done. What only you can do, and the program cannot see done, shows here too, with its box to tick: in step 3, in step 8 and at the end of step 9.</p></div>
         <section class="map" aria-labelledby="map-lead">
           <p class="lead" id="map-lead">Choose the mapfile in step 2 to see where the old drive was damaged.</p>
           <div id="map-picture"></div>
@@ -1056,6 +1116,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <span class="part-num" aria-hidden="true">3</span>
             <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield-check"></use></svg>Connect the recovered SSD, protected</h2><span class="state" id="st-connect"></span></div>
             <p>When a drive is plugged in, Windows starts using it straight away and can write to it on its own. On the only copy of your files that must not happen, so here it arrives switched off and the program marks it read-only. Windows stays set to leave new disks switched off until you put it back yourself (step 9), which works only once every drive is unplugged.</p>
+            <div id="sr-mine-ready"></div>
             <div id="connect"></div>
           </li>
 
@@ -1141,12 +1202,14 @@ PERFORMANCE OF THIS SOFTWARE. -->
             <h3>4. Evaluate</h3>
             <div class="row"><button class="second" id="b-evaluate"><svg class="ic" aria-hidden="true"><use href="#i-clipboard-check"></use></svg>Evaluate what is damaged</button></div>
             <div id="r-evaluate"></div>
+            <div id="sr-mine-left"></div>
           </li>
 
           <li class="part" id="s-finish">
             <span class="part-num" aria-hidden="true">9</span>
             <div class="part-head"><h2><svg class="ic" aria-hidden="true"><use href="#i-power-off"></use></svg>Finish</h2><span class="state" id="st-finish"></span></div>
             <div id="finish"></div>
+            <div id="sr-mine-after"></div>
           </li>
         </ol>
       </div>
@@ -2237,7 +2300,7 @@ function renderFeed() {
 function render() {
   if (!S) return;
   renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
-  renderPlaces(); renderJourney(); renderBack(); renderNow(); renderRail(); renderFeed(); renderTitle();
+  renderPlaces(); renderJourney(); renderBack(); renderMine(); renderNow(); renderRail(); renderFeed(); renderTitle();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -2661,7 +2724,10 @@ function renderAuto() {
   put($("ar-ready"), h);
   $("b-ready").disabled = readyBusy;
   $("b-ready-test").disabled = running;
-  setAuto("ready", readyOk ? "done" : "", readyOk ? "Ready" : "");
+  // (The drives' own labels are yours to do here: the program can't see them.)
+  const readyTodo = (mineOf("ready") || []).filter((m) => m.state === "todo").length;
+  setAuto("ready", readyTodo ? "turn" : readyOk ? "done" : "",
+    readyTodo ? (readyOk ? "Ready · " : "") + `Yours: ${readyTodo} to do` : readyOk ? "Ready" : "");
 
   // 2. The rehearsal.
   const verdict = setting("rehearsal");
@@ -2836,7 +2902,12 @@ function renderAuto() {
   const fromNow = $("ab-from") ? $("ab-from").value : null;
   if (ho || ar || bb) put(leftBox, h);
   if (fromNow !== null && $("ab-from") && $("ab-from").dataset.touched) $("ab-from").value = fromNow;
-  setAuto("left", ho ? "done" : "", ho ? "Ready" : "");
+  // (Files left for the Mac, a paid tool, Office's own repair or a Photos
+  // library: yours to do - or to tick as left as they are - before it is done.)
+  const mineLeft = mineOf("left") || [];
+  const leftTodo = mineLeft.filter((m) => m.state === "todo").length;
+  setAuto("left", leftTodo ? "turn" : ho ? "done" : "",
+    leftTodo ? `Yours: ${leftTodo} to do` : !ho ? "" : mineLeft.some((m) => m.state === "done") ? "Done" : "Ready");
 
   // 6. Finalise. (Something brought back or put back since the last one:
   // the second copy does not have it until Finalise runs again.)
@@ -2854,6 +2925,111 @@ function renderAuto() {
     fi && fi.state === "done" ? "Done " + (fi.started_at || "") : fi && fi.state === "failed" ? "Needs attention" : fi && fi.state === "running" ? "Running…" : "");
 }
 function copiesHere() { return disks.filter((d) => isCopy(d) && !d.system); }
+
+// ------------------------------------------------------------ yours to do
+// The checklist's boxes the program cannot tick (it can't see them done), in
+// the program's own parts, each with its tick box - the same box as in the
+// checklist: "ready" in 1. Get ready (the label on each drive itself), "left"
+// in 5. What is left (files left for the Mac, a paid tool, Office's own
+// repair, a Photos library), "after" in 8. Afterwards.
+function mineOf(part) {
+  if (!CL || !CLS || !CLS.mine) return null;
+  return CLS.mine.filter((m) => CL.items[m.i].part === part).map((m) => Object.assign({ it: CL.items[m.i] }, m));
+}
+// The four afterwards: their turn comes once Finalise is done and Windows is
+// put back (7).
+function afterDue() { return !!setting("finalised") && !!BACK && !BACK.changes.length; }
+function mineItem(m, where) {
+  const on = m.state === "done", id = `mt-${where}-${m.i}`;
+  return `<li class="${on ? "done" : "todo"}"><input type="checkbox" class="minetick" data-i="${m.i}" id="${id}"${on ? " checked" : ""}>` +
+    `<div class="mine-head"><label for="${id}">${esc(m.it.title)}</label>${on ? fact("good", "check", "Ticked" + (m.when ? " " + esc(m.when) : "")) : ""}</div>` +
+    (m.note && !on ? `<p class="mine-note">${esc(m.note)}</p>` : "") +
+    `<div class="mine-text">${m.it.html}</div>` +
+    `<p class="small soft mine-why">${ic("info")} Why it is yours to tick: ${esc(m.it.why)}</p></li>`;
+}
+// Before any drive goes in: its own label.
+function mineReadyHtml(where) {
+  const list = mineOf("ready");
+  if (!list || !list.length) return "";
+  const d = list.filter((m) => m.state === "done").length;
+  return `<div class="yoursdo" id="mine-ready-${where}"><h3>${ic("hand")}${where === "s" ? "First, yours to do" : "Yours to do here"}<span class="count">${d} of ${list.length} ticked</span></h3>` +
+    (d === list.length ? "" : `<p class="small">Do this before any drive is plugged in. The program cannot see it done, so it cannot tick it: tick it yourself, here or in the checklist (it is the same box).</p>`) +
+    `<ul class="minelist">${list.map((m) => mineItem(m, where)).join("")}</ul></div>`;
+}
+function mineLeftHtml(where) {
+  const list = mineOf("left");
+  if (!list) return "";
+  const mine = list.filter((m) => m.state === "todo" || m.state === "done");
+  const none = list.filter((m) => m.state === "none");
+  if (!mine.length) {
+    // (Not known yet what will be left - or nothing was.)
+    if (!none.length) return `<p class="small soft">${ic("hand")} If files are left for the Mac, a paid repair tool, Office's own repair or a Photos library, those are yours to do: each shows here then, with a box to tick.</p>`;
+    return none.length === list.length ? `<p class="small soft">${ic("circle-check")} Nothing here is left for you to do: the program has ticked these boxes in the checklist.</p>` : "";
+  }
+  const d = mine.filter((m) => m.state === "done").length;
+  return `<div class="yoursdo" id="mine-left-${where}"><h3>${ic("hand")}Yours to do here<span class="count">${d} of ${mine.length} ticked</span></h3>` +
+    `<p class="small">The program cannot see these done, so it cannot tick them. Tick each one when it is done, or when you have decided to leave those files as they are: it is the same box as in the checklist.</p>` +
+    `<ul class="minelist">${mine.map((m) => mineItem(m, where)).join("")}</ul>` +
+    (none.length ? `<p class="small soft">${ic("circle-check")} Nothing was left for: ${none.map((m) => esc(m.it.title)).join("; ")} (ticked by the program).</p>` : "") + `</div>`;
+}
+function mineAfterHtml(where) {
+  const list = mineOf("after");
+  if (!list) return `<p class="soft">Loading the checklist…</p>`;
+  if (!list.length) return "";
+  const d = list.filter((m) => m.state === "done").length;
+  return `<div class="yoursdo${afterDue() || d === list.length ? "" : " later"}" id="mine-after-${where}"><h3>${ic("hand")}${where === "s" ? "Then: what only you can do" : "Only you can do these"}<span class="count">${d} of ${list.length} ticked</span></h3>` +
+    (afterDue() || d === list.length ? "" : `<p class="small">${ic("clock")} Their turn comes at the very end, after 6. Finalise and 7. Put Windows back as it was. You can read them now, and tick one as soon as it is done.</p>`) +
+    `<ul class="minelist">${list.map((m) => mineItem(m, where)).join("")}</ul></div>`;
+}
+// What is yours to do now, in the order of the parts: the labels (1), what is
+// left for you in 5, and - once their turn has come - the four afterwards.
+function mineDue() {
+  const ready = (mineOf("ready") || []).filter((m) => m.state === "todo");
+  const left = (mineOf("left") || []).filter((m) => m.state === "todo");
+  const after = afterDue() ? (mineOf("after") || []).filter((m) => m.state === "todo") : [];
+  // (Where "Show me" goes: the first of them, in the tab that is open.)
+  const part = ready.length ? "ready" : left.length ? "left" : "after";
+  const goto = { auto: { ready: "a-ready", left: "a-left", after: "a-after" }, steps: { ready: "s-connect", left: "s-repair", after: "s-finish" } };
+  return { ready, left, after, all: ready.concat(left, after), go: (v) => (goto[v] || goto.auto)[part] };
+}
+function renderMine() {
+  put($("ar-ready-mine"), mineReadyHtml("a"));
+  put($("sr-mine-ready"), mineReadyHtml("s"));
+  put($("ar-left-mine"), mineLeftHtml("a"));
+  put($("sr-mine-left"), mineLeftHtml("s"));
+  put($("ar-after"), mineAfterHtml("a"));
+  put($("sr-mine-after"), mineAfterHtml("s"));
+  // The steps tab: its step says so too (unless it is running, or stopped on something).
+  const readyTodo = (mineOf("ready") || []).filter((m) => m.state === "todo").length;
+  const con = stepState.connect || ["", ""];
+  if (readyTodo && (con[0] === "done" || con[0] === "")) setStep("connect", "turn", (con[1] ? con[1] + " · " : "") + `Yours: ${readyTodo} to do`);
+  const leftTodo = (mineOf("left") || []).filter((m) => m.state === "todo").length;
+  const repairNow = (stepState.repair || [""])[0];
+  if (leftTodo && (repairNow === "done" || repairNow === "")) setStep("repair", "turn", `Yours: ${leftTodo} to do`);
+  const list = mineOf("after");
+  if (!list || !list.length) { setAuto("after", "", ""); return; }
+  const n = list.length, d = list.filter((m) => m.state === "done").length;
+  setAuto("after", d === n ? "done" : afterDue() ? "turn" : "",
+    d === n ? `All ${n} done` : afterDue() ? `Yours: ${n - d} to do` : d ? `${d} of ${n} done` : "After 7");
+  if (!(BACK && BACK.changes.length)) setStep("finish", afterDue() && d < n ? "turn" : "", afterDue() && d < n ? `Yours: ${n - d} to do` : "");
+}
+// A box ticked in one of the program's own parts: the checklist's own box.
+document.addEventListener("change", async (e) => {
+  const box = e.target;
+  if (!box.classList || !box.classList.contains("minetick")) return;
+  const on = box.checked;
+  box.disabled = true;
+  try {
+    const r = await act({ action: "tick", i: box.dataset.i, on: on ? "1" : "0" });
+    CLS = r.state;
+  } catch (err) {
+    box.checked = !on;
+    box.disabled = false;
+    note(CL && CL.items[Number(box.dataset.i)].part === "left" ? "left" : "back", "err", err.message);
+    return;
+  }
+  renderChecklist();
+});
 
 // Where the files go: the recovered SSD, the image, the copies, the repairs,
 // the second copy - each lit up as Start gets it done.
@@ -3151,6 +3327,7 @@ function defenderRow() {
 const PARTS = [
   ["ready", "Get ready"], ["rehearse", "The rehearsal with SPARE"], ["folders", "The folders"],
   ["start", "Start"], ["left", "What is left"], ["final", "Finalise"], ["back", "Put Windows back"],
+  ["after", "Afterwards: yours to do"],
 ];
 const STEPS = [
   ["test", "Check the program works"], ["map", "Your ddrescue mapfile"], ["connect", "Connect the SSD, protected"],
@@ -3209,6 +3386,14 @@ function renderNow() {
   if (A.banner) t += `<div class="yourturn calm">${ic("info")}<b>When you're ready</b><p>${esc(A.banner)}</p></div>`;
   const vq = running && j.kind === "auto" ? videosQuestion() : null;
   if (vq) t += `<div class="yourturn calm">${ic("film")}<b>The videos</b><p>${vq.text}</p>${vq.btn ? `<div class="row">${vq.btn}</div>` : ""}</div>`;
+  // What only you can do, and the program cannot see done: so none is skipped.
+  const due = mineDue();
+  if (!waiting && due.all.length) {
+    const first = due.all[0], n = due.all.length;
+    const go = view === "checklist" ? `data-box="${first.i}"` : `data-goto="${due.go(view)}"`;
+    t += `<div class="yourturn calm" id="now-mine">${ic("hand")}<b>Yours to do: ${n}</b><p>${esc(first.it.title)}${n > 1 ? `, and ${n - 1} more` : ""}. The program cannot see ${n > 1 ? "these" : "this"} done: tick ${n > 1 ? "each" : "it"} yourself.</p>` +
+      `<div class="row"><button class="second" ${go}>${ic("chevron-right")}Show me</button></div></div>`;
+  }
   put($("now-turn"), t);
   // (While Start waits, its last line says the same as "What to do".)
   $("job-last").hidden = !!waiting;
@@ -3241,6 +3426,8 @@ $("rail").addEventListener("click", (e) => {
 $("now").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-goto]");
   if (b) goTo(b.dataset.goto);
+  const x = e.target.closest("button[data-box]");
+  if (x) showBox(Number(x.dataset.box));
 });
 // Which part is on screen: the one crossing a line a fifth of the way down.
 const seen = new IntersectionObserver((entries) => {
@@ -3430,6 +3617,8 @@ function showBox(i) {
   showView("checklist", false);
   const li = $("it-" + i);
   if (!li) return;
+  // (Only the boxes that are yours are shown, and this is not one: all of them again.)
+  if (onlyMine && !li.classList.contains("yours")) { onlyMine = false; renderChecklist(); }
   li.scrollIntoView({ block: "center" });
   li.classList.add("flash");
   setTimeout(() => li.classList.remove("flash"), 1600);
@@ -3468,7 +3657,7 @@ $("cl-body").addEventListener("change", async (e) => {
   box.disabled = false;
   renderChecklist();
 });
-$("cl-body").addEventListener("click", (e) => {
+document.addEventListener("click", (e) => {
   const a = e.target.closest && e.target.closest(".steplink");
   if (!a) return;
   e.preventDefault();
@@ -3489,12 +3678,28 @@ function boxText(i) {
   return t.length > 150 ? t.slice(0, 148) + "…" : t;
 }
 
+// Who ticks a box now: the program (when it sees it done), a safety check,
+// or only you. A box that is yours when files are left for it ("ifany") is
+// the program's once it has found none, and yours once it has found some.
+const WHO = {
+  you: ["Yours to tick", "hand", "you"], ifany: ["Yours, if any are left", "hand", "you maybe"],
+  check: ["A safety check ticks this", "badge-check", ""], program: ["The program ticks this", "monitor-check", ""],
+};
+function whoNow(i, m) {
+  const w = CL.items[i].who;
+  if (w !== "ifany") return w;
+  return !m || m.state === "wait" ? "ifany" : m.state === "none" ? "program" : "you";
+}
+let onlyMine = false; // the checklist shows only the boxes that are yours
+
 function renderChecklist() {
   if (!CL || !CLS) return;
   const st = {};
   for (const s of CLS.status) st[s.i] = s;
   const seen = {};
   for (const s of CLS.seen || []) seen[s.i] = s;
+  const mineBy = {};
+  for (const m of CLS.mine || []) mineBy[m.i] = m;
   document.querySelectorAll("#cl-body input.tick").forEach((box) => {
     const i = Number(box.dataset.i);
     const on = CLS.ticked[i] === 1;
@@ -3502,6 +3707,20 @@ function renderChecklist() {
     const li = $("it-" + i);
     li.classList.toggle("done", on);
     li.classList.toggle("next", CLS.next === i);
+    // Who ticks it: said on every box, and the ones that are yours stand out.
+    const m = mineBy[i], who = whoNow(i, m), [label, icon, cls] = WHO[who] || WHO.program;
+    let chip = li.querySelector(".who");
+    if (!chip) { chip = document.createElement("span"); li.insertBefore(chip, li.querySelector(".box-text")); }
+    chip.className = "who " + cls;
+    put(chip, ic(icon) + `<span>${esc(label)}</span>`);
+    li.classList.toggle("mine", who === "you" || who === "ifany");
+    const why = who === "you" ? (m && m.note ? m.note + " " : "") + CL.items[i].why + (on ? "" : CL.items[i].who === "ifany" ? " Tick it yourself when it is done, or when you have decided to leave those files as they are." : " Tick it yourself when it is done.")
+      : who === "ifany" ? "Yours to do if Start leaves files for it. If it leaves none, the program ticks this." : "";
+    let wn = li.querySelector(".whynote");
+    if (why) {
+      if (!wn) { wn = document.createElement("div"); wn.className = "whynote"; li.appendChild(wn); }
+      wn.textContent = why;
+    } else if (wn) wn.remove();
     // Ticked by the program: what it saw.
     let sn = li.querySelector(".seennote");
     if (seen[i] && on) {
@@ -3537,14 +3756,27 @@ function renderChecklist() {
     const mark = bad ? `<span class="tick warn">${ic("circle-x")}</span>` : c.done === c.total ? `<span class="tick">${ic("circle-check")}</span>` : '<span class="tick"></span>';
     return `<li>${mark}<a href="#ph-${p}" data-ph="${p}">${esc(ph.title)}</a> <span class="small soft">${c.done} of ${c.total}</span></li>`;
   }).join("");
+  // The boxes that are yours: named at the top, each a link to its box.
+  const MINE_WORD = { todo: "to do", done: "ticked", wait: "yours if files are left for it", none: "nothing was left for it: ticked by the program" };
+  const MINE_MARK = { todo: "hand", done: "circle-check", wait: "circle-dashed", none: "circle-check" };
+  const all = CLS.mine || [];
+  const yours = all.filter((m) => m.state !== "none");
+  const yoursDone = yours.filter((m) => m.state === "done").length;
+  const mineTop = !all.length ? "" : `<div class="mine-top">
+    <p>${ic("hand")} <b>${yours.length} ${yours.length === 1 ? "box is" : "boxes are"} yours to tick</b> (${yoursDone} ticked so far). The program cannot see these done, so it cannot tick them. They are marked ✋ and <b>Yours to tick</b> below, and each one shows in the Automatic recovery tab where its turn comes (1. Get ready, 5. What is left and 8. Afterwards), so that none is skipped.</p>
+    <ul class="minelinks">${all.map((m) => `<li class="${m.state}"><span class="mk">${ic(MINE_MARK[m.state] || "hand")}</span><div><a href="#it-${m.i}" data-box="${m.i}">${esc(CL.items[m.i].title)}</a><span class="small soft">${esc(MINE_WORD[m.state] || "")}${m.state === "todo" && m.note ? ": " + esc(m.note) : ""}</span></div></li>`).join("")}</ul>
+    <label class="check"><input type="checkbox" id="only-mine"${onlyMine ? " checked" : ""}> <span>Show only these boxes in the checklist below</span></label></div>`;
   put($("cl-top"), `<b>${CLS.done} of ${CLS.total} boxes ticked</b>
     <div class="progress" aria-hidden="true"><div style="width:${pct}%"></div></div>
     <ul class="phases">${phases}</ul>
-    <p class="small soft">The program ticks the boxes it sees done, and says beside each one what it saw; tick the
-    others here when they're done (a box you untick stays unticked, until the program sees it done again). The boxes
-    with ✅ tick themselves when the safety check (step 7, <i>Check the copies are unchanged</i>) passes after the boxes
-    before them. Your copy of this checklist, <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
+    <p class="small soft">Every box says who ticks it. The program ticks the boxes it sees done, and says beside each
+    one what it saw (a box you untick stays unticked, until the program sees it done again). The boxes with ✅ tick
+    themselves when the safety check (step 7, <i>Check the copies are unchanged</i>) passes after the boxes before
+    them. Your copy of this checklist, <span class="path">${esc(CLS.copy)}</span>, is kept the same as this one.</p>
+    ${mineTop}
     ${CLS.copy_note ? msg("warn", esc(CLS.copy_note)) : ""}`);
+  $("cl-body").classList.toggle("only-mine", onlyMine);
+  document.querySelectorAll("#cl-body section.ph").forEach((sec) => sec.classList.toggle("no-yours", !sec.querySelector("li.box.yours")));
   document.querySelectorAll("#cl-top a[data-ph]").forEach((a) => a.onclick = (e) => {
     e.preventDefault();
     const sec = $("ph-" + a.dataset.ph);
@@ -3562,15 +3794,31 @@ function renderChecklist() {
       `<button class="second" data-step="7">${ic("badge-check")}Go to step 7</button>`);
   }
   if (!failed.length && !due && CLS.next !== null) {
-    w += msg("", `<b>Next on the checklist:</b> ${esc(phaseName(CL.items[CLS.next].phase))}. ${esc(boxText(CLS.next))}`,
+    // (A box that is yours: said so - the program will not tick it for you.)
+    const nextWho = whoNow(CLS.next, mineBy[CLS.next]);
+    w += msg("", `<b>Next on the checklist${nextWho === "you" ? ", and yours to tick" : ""}:</b> ${esc(phaseName(CL.items[CLS.next].phase))}. ${esc(boxText(CLS.next))}`,
       `<button class="second" data-show="${CLS.next}">${ic("list-checks")}Show it</button>`);
   }
-  if (!failed.length && CLS.next === null && CLS.total) w += msg("ok", "<b>Every box is ticked.</b> Keep up the checks twice a year (Phase 8).");
+  if (!failed.length && CLS.next === null && CLS.total) w += msg("ok", "<b>Every box is ticked.</b> Keep up the checks twice a year: plug SPARE in and click Finalise again.");
   put($("where"), w);
   document.querySelectorAll("#where [data-show]").forEach((b) => b.onclick = () => showBox(Number(b.dataset.show)));
   document.querySelectorAll("#where [data-step]").forEach((b) => b.onclick = () => goStep(Number(b.dataset.step)));
-  renderRail();
+  // (The program's own parts show the boxes that are yours: drawn again too.)
+  if (S) render(); else renderRail();
 }
+// The boxes that are yours, named at the top of the checklist: to a box, and
+// only those shown.
+$("cl-top").addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("a[data-box]");
+  if (!a) return;
+  e.preventDefault();
+  showBox(Number(a.dataset.box));
+});
+$("cl-top").addEventListener("change", (e) => {
+  if (e.target.id !== "only-mine") return;
+  onlyMine = e.target.checked;
+  renderChecklist();
+});
 
 // In Edge's own window (no tabs or address bar), the first time it opens:
 // fill the screen, so everything is in its place side by side. Edge would

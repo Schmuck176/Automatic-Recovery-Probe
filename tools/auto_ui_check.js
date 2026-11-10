@@ -32,6 +32,8 @@ const key = "autouikey0123456789abcdef";
 // Icons shown with no words beside them (in their own element or the one
 // around it), which the page must never have: a picture alone says nothing
 // sure. (Hidden ones don't count.)
+// "(12 of 29)" -> 29.
+function CLtotal(tab) { return Number((tab.match(/of (\d+)\)/) || [0, 0])[1]); }
 function iconsWithoutWords(page) {
   return page.evaluate(() => {
     const bad = [];
@@ -314,9 +316,135 @@ function iconsWithoutWords(page) {
     check(seen.n >= 8 && seen.ticked && /Ticked by the program: The self-test passed/.test(seen.selftest),
       "the checklist ticks what the program has seen done, saying what it saw (" + seen.n + " boxes)");
     await shot("auto-checklist-seen", true);
+    // Every box says who ticks it, and the boxes only the person can tick
+    // stand out: marked ✋, "Yours to tick", with why the program cannot.
+    const who = await page.evaluate(() => {
+      const boxes = [...document.querySelectorAll("#cl-body li.box")];
+      const mine = CLS.mine;
+      const stand = boxes.filter((li) => li.classList.contains("mine"));
+      return {
+        chips: boxes.every((li) => li.querySelector(".who") && li.querySelector(".who").textContent.trim().length > 4),
+        stand: stand.length,
+        chipYours: document.querySelectorAll("#cl-body .who.you").length,
+        expected: mine.filter((m) => m.state !== "none").length,
+        after: mine.filter((m) => CL.items[m.i].part === "after").length,
+        why: stand.every((li) => li.querySelector(".whynote") && li.querySelector(".whynote").textContent.trim().length > 30),
+        marked: boxes.filter((li) => li.classList.contains("yours")).length,
+        hands: boxes.filter((li) => li.classList.contains("yours")).every((li) => li.textContent.includes("\u270b")),
+        others: boxes.filter((li) => !li.classList.contains("yours")).every((li) => !li.textContent.includes("\u270b") && /The program ticks this|A safety check ticks this/.test(li.querySelector(".who").textContent)),
+        top: document.getElementById("cl-top").textContent.replace(/\s+/g, " "),
+        links: document.querySelectorAll("#cl-top ul.minelinks li").length,
+      };
+    });
+    check(who.chips && who.after === 4 && who.marked === 9 && who.hands && who.others && who.links === 9,
+      "every box in the checklist says who ticks it, and the nine that are (or may be) the person's are marked");
+    check(who.stand === who.expected && who.chipYours === who.expected && who.why && /(boxes are|box is) yours to tick/.test(who.top),
+      "the boxes that are yours stand out, each saying why the program cannot tick it (" + who.stand + " now)");
+    // Only those shown, and all again.
+    await page.check("#only-mine");
+    const only = await page.evaluate(() => [...document.querySelectorAll("#cl-body li.box")].filter((li) => li.offsetParent !== null).length);
+    await page.uncheck("#only-mine");
+    const allAgain = await page.evaluate(() => [...document.querySelectorAll("#cl-body li.box")].filter((li) => li.offsetParent !== null).length);
+    check(only === 9 && allAgain === CLtotal(await page.textContent("#tab-count")), "the checklist can show only the boxes that are yours (" + only + " of " + allAgain + ")");
     await page.click("#tab-auto");
+    // 1. Get ready: the label on each drive itself is yours to do before any
+    // drive goes in - shown there with its box, on the part's chip, in the
+    // list on the left and in "Now" (first: it is the first of them).
+    const lab = await page.evaluate(() => ({
+      n: document.querySelectorAll("#ar-ready-mine input.minetick").length,
+      text: document.getElementById("ar-ready-mine").textContent.replace(/\s+/g, " "),
+      state: document.getElementById("ast-ready").textContent.trim(),
+      cls: document.getElementById("a-ready").className,
+      now: (document.getElementById("now-mine") || { textContent: "" }).textContent.replace(/\s+/g, " "),
+      go: (document.querySelector("#now-mine button[data-goto]") || { dataset: {} }).dataset.goto,
+      rail: [...document.querySelectorAll("#rail .rail-item")].map((a) => a.textContent.replace(/\s+/g, " ").trim())[0],
+      steps: document.querySelectorAll("#sr-mine-ready input.minetick").length,
+      copy: CLS.copy,
+    }));
+    check(lab.n === 1 && /Label each drive itself/.test(lab.text) && /RECOVERED 2 TB/.test(lab.text) && /Why it is yours to tick/.test(lab.text)
+      && /Ready · Yours: 1 to do/.test(lab.state) && /\bturn\b/.test(lab.cls) && /Yours: 1 to do/.test(lab.rail),
+      "1. Get ready shows the label on each drive as yours to do, with its box (" + lab.state + ")");
+    check(/Yours to do: \d+/.test(lab.now) && /Label each drive itself/.test(lab.now) && lab.go === "a-ready" && lab.steps === 1,
+      "Now names it first and shows where; the steps tab has it in step 3 (" + lab.now.slice(0, 50).trim() + ")");
+    const labBefore = Number((await page.textContent("#tab-count")).match(/\((\d+) of/)[1]);
+    await page.click("#ar-ready-mine input.minetick");
+    const labTicked = await page.waitForFunction((n) => document.getElementById("tab-count").textContent.startsWith("(" + (n + 1) + " of ") &&
+      document.getElementById("ast-ready").textContent.trim() === "Ready" && document.getElementById("a-ready").classList.contains("done") &&
+      !!document.querySelector("#sr-mine-ready li.done input.minetick:checked"),
+      labBefore, { timeout: 10000 }).then(() => true, () => false);
+    check(labTicked && /- \[x\] \u270b \*\*Label each drive itself\*\*/.test(fs.readFileSync(lab.copy, "utf8")),
+      "ticked there, it is ticked in the checklist, its copy and the steps tab, and 1. Get ready is done (" + (await text("#ast-ready")).trim() + ")");
+    // 8. Afterwards: the four only the person can do, each with its tick box -
+    // the same box as in the checklist, and its copy.
+    const aft = await page.evaluate(() => ({
+      n: document.querySelectorAll("#ar-after input.minetick").length,
+      state: document.getElementById("ast-after").textContent,
+      due: afterDue(),
+      why: document.querySelectorAll("#ar-after .mine-why").length,
+      copy: CLS.copy,
+    }));
+    check(aft.n === 4 && aft.why === 4 && (aft.due ? /Yours: 4 to do/ : /After 7/).test(aft.state),
+      "8. Afterwards shows the four things only you can do, each with its box (" + aft.state.trim() + ")");
+    const tickedBefore = Number((await page.textContent("#tab-count")).match(/\((\d+) of/)[1]);
+    await page.click("#ar-after input.minetick >> nth=0");
+    const tickedThere = await page.waitForFunction((n) => document.getElementById("tab-count").textContent.startsWith("(" + (n + 1) + " of ") &&
+      !!document.querySelector("#ar-after li.done input.minetick:checked") && /Ticked/.test(document.querySelector("#ar-after li.done").textContent),
+      tickedBefore, { timeout: 10000 }).then(() => true, () => false);
+    const copyText = fs.readFileSync(aft.copy, "utf8");
+    check(tickedThere && /- \[x\] \u270b Keep `SPARE` somewhere else/.test(copyText) && (aft.due ? /Yours: 3 to do/ : /1 of 4 done/).test(await text("#ast-after")),
+      "a box ticked there is ticked in the checklist and in its copy (" + (await text("#ast-after")).trim() + ")");
+    await page.click("#ar-after input.minetick >> nth=0");
+    const untick = await page.waitForFunction((n) => document.getElementById("tab-count").textContent.startsWith("(" + n + " of "), tickedBefore, { timeout: 10000 }).then(() => true, () => false);
+    check(untick && /- \[ \] \u270b Keep `SPARE` somewhere else/.test(fs.readFileSync(aft.copy, "utf8")), "and unticked there, unticked again");
+    // 5. What is left: what is left for the Mac, a paid tool, Office's own
+    // repair or a Photos library is yours to do - shown there with its box,
+    // in "Now", and in the steps tab too.
+    const mine = await page.evaluate(async () => {
+      const real = window.loadChecklist, keep = JSON.parse(JSON.stringify(CLS)), fin = S.settings.finalised;
+      window.loadChecklist = async () => {};
+      const by = {};
+      CL.items.forEach((it, i) => { if (it.name) by[it.name] = i; });
+      const set = (name, state, note) => { const m = CLS.mine.find((x) => x.i === by[name]); m.state = state; m.note = note || ""; CLS.ticked[by[name]] = state === "none" ? 1 : 0; };
+      set("mac", "todo", "3 files are waiting for the Mac, in hand-off\\1 For the Mac.");
+      set("paid", "todo", "12 files are left that no free tool could repair, in hand-off\\2 For a paid repair tool.");
+      set("office", "none", "Nothing was left for its own program (Word, Excel, PowerPoint).");
+      set("library", "wait", "");
+      renderChecklist();
+      const r = {
+        boxes: document.querySelectorAll("#ar-left-mine input.minetick").length,
+        left: document.getElementById("ar-left-mine").textContent.replace(/\s+/g, " "),
+        state: document.getElementById("ast-left").textContent.trim(),
+        rail: [...document.querySelectorAll("#rail .rail-item")].map((a) => a.textContent.replace(/\s+/g, " ").trim()),
+        now: (document.getElementById("now-mine") || { textContent: "" }).textContent.replace(/\s+/g, " "),
+        go: (document.querySelector("#now-mine button[data-goto]") || { dataset: {} }).dataset.goto,
+        stepsLeft: document.querySelectorAll("#sr-mine-left input.minetick").length,
+        stepsAfter: document.querySelectorAll("#sr-mine-after input.minetick").length,
+        stepRepair: document.getElementById("st-repair").textContent.trim(),
+        box: document.getElementById("it-" + by.mac).textContent.replace(/\s+/g, " "),
+        office: document.getElementById("it-" + by.office).querySelector(".who").textContent.trim(),
+        library: document.getElementById("it-" + by.library).querySelector(".who").textContent.trim(),
+      };
+      // (Every box of 5 ticked by the person: nothing of theirs left there.)
+      set("mac", "done", ""); set("paid", "done", ""); CLS.ticked[by.mac] = 1; CLS.ticked[by.paid] = 1;
+      renderChecklist();
+      r.done = document.getElementById("ast-left").textContent.trim();
+      CLS = keep; S.settings.finalised = fin;
+      window.loadChecklist = real;
+      renderChecklist();
+      return r;
+    });
+    check(mine.boxes === 2 && /3 files are waiting for the Mac/.test(mine.left) && /Nothing was left for: Office documents/.test(mine.left) && /Yours: 2 to do/.test(mine.state),
+      "5. What is left shows what is left for you to do, each with its box (" + mine.state + ")");
+    check(/Yours to do: \d+/.test(mine.now) && /For the Mac/.test(mine.now) && mine.rail.some((x) => /What is left.*Yours: 2 to do/.test(x)),
+      "and Now and the list on the left say so (" + mine.now.slice(0, 60) + ")");
+    check(mine.stepsLeft === 2 && mine.stepsAfter === 4 && /Yours: 2 to do/.test(mine.stepRepair), "the steps tab shows them too, in step 8 and at the end of step 9");
+    check(mine.go === "a-left", "with the labels ticked, Now's Show me goes to 5. What is left");
+    check(/Yours to tick/.test(mine.box) && /3 files are waiting for the Mac/.test(mine.box) && /The program ticks this/.test(mine.office) && /Yours, if any are left/.test(mine.library),
+      "in the checklist, a box is yours once files are left for it, the program's when none are, and says which while it is not known");
+    check(!/Yours/.test(mine.done), "ticked by you, 5. What is left has nothing of yours left (" + mine.done + ")");
+    await shot("auto-yours", true);
     // Every icon on the page comes with words saying what it is for.
-    check((await page.locator("#rail .rail-item").count()) === 7, "the list on the left names the seven parts");
+    check((await page.locator("#rail .rail-item").count()) === 8, "the list on the left names the eight parts");
     // 7. Put Windows back: its own part, after Finalise (here nothing was changed).
     await page.evaluate(() => loadBack());
     const back = await page.waitForFunction(() => /Nothing to put back|Done/.test(document.getElementById("ast-back").textContent) &&

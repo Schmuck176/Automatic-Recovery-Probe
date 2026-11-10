@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-11-06 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-11-10 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -21,7 +21,12 @@ again. Then it makes the rest ready for the Mac or a paid repair tool.
 very end, with every drive unplugged, you put back the Windows settings it changed (7. Put Windows back as it was).
 
 **This checklist ticks itself** as far as it can: the program ticks each box it sees done, and its page says beside
-the box what it saw. You tick the rest. A box you untick stays unticked, until the program sees it done again.
+the box what it saw. A box you untick stays unticked, until the program sees it done again.
+
+**The boxes marked ✋ are yours to tick:** the program can't see them done, so it can't tick them. So that none is
+skipped, its page shows each one where its turn comes, with a box to tick there too: in **1. Get ready**, in
+**5. What is left** and in **8. Afterwards**. (In Phase 4, where nothing was left for a ✋ box — no files for the Mac,
+say — the program ticks it.)
 
 ## The rules
 
@@ -34,7 +39,7 @@ the box what it saw. You tick the rest. A box you untick stays unticked, until t
 4. **If the program stops and says a check found something, stop too.** Read what it says; if it isn't clear, ask
    Claude before pressing Start again.
 5. **Put a label on each drive itself**, not only on its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. SPARE and
-   the recovered SSD take turns in the same case, so they are easy to mix up.
+   the recovered SSD take turns in the same case, so they are easy to mix up. (It has a box of its own in Phase 1.)
 6. **Only one program at a time:** the old Recovery Probe (`recovery-probe.exe`) stays closed while this one is open.
 
 > **How the program works:** double-click `automatic-recovery-probe.exe` in `C:\RECOVERY-TOOLS` and click **Yes**
@@ -52,6 +57,7 @@ the box what it saw. You tick the rest. A box you untick stays unticked, until t
 - [ ] **Run the self-test.** A few seconds: it must say *"Every check passed: the program works on this PC."*
 - [ ] **AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *"AIM Toolkit works"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)
 - [ ] **The tools:** 7-Zip, FFmpeg, MP3val and untrunc should show a version (you installed them). If **qpdf** shows **Download it**, click it (it comes from qpdf's own GitHub page, checked by its SHA-256), then **Check this PC** again.
+- [ ] ✋ **Label each drive itself** (rule 5), not only its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.
 
 ---
 
@@ -88,13 +94,16 @@ the box what it saw. You tick the rest. A box you untick stays unticked, until t
 no free tool could repair, and where each of those went in `SPARE\REPAIR\hand-off`. Files that open or play as they
 are, with a glitch where data was lost, are not handed off: nothing can bring that part back.
 
+The boxes marked ✋ here are yours when files are left for them (tick one when it is done, or when you have decided to
+leave those files as they are); where nothing was left for one, the program ticks it.
+
 - [ ] Click **Open the hand-off folder** and read `READ ME.txt`.
-- [ ] 🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.
-- [ ] **Paid repair tools**, only if you decide some files are worth it: use only the copies in `2 For a paid repair tool`; look at the tool's free preview first. Save each repaired file into `hand-off\returned`, keeping its number (`[R0012]`) in its name.
-- [ ] **Office documents**, if any (`3 For their own program`): Word, Excel or PowerPoint → File → Open → arrow beside Open → **Open and Repair**; save into `hand-off\returned` with the same name.
+- [ ] ✋ 🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.
+- [ ] ✋ **Paid repair tools**, only if you decide some files are worth it: use only the copies in `2 For a paid repair tool`; look at the tool's free preview first. Save each repaired file into `hand-off\returned`, keeping its number (`[R0012]`) in its name.
+- [ ] ✋ **Office documents**, if any (`3 For their own program`): Word, Excel or PowerPoint → File → Open → arrow beside Open → **Open and Repair**; save into `hand-off\returned` with the same name.
 - [ ] **Bring back:** for what comes from the Mac, choose the USB stick; for what was saved on this PC, leave the folder as it is (the whole `hand-off` folder). Click **Bring back**: it puts every repaired file back exactly where it belongs, and checks everything again.
 - [ ] **✅ Checkpoint** — Bring back checks every copy by itself; this ticks when that check passes.
-- [ ] 🍎 **A Photos library with damage inside** (What is left names it): copy the whole library from `SPARE` to the Mac, hold **⌥ Option** while opening Photos and choose the copy; only if it won't open or looks wrong, repair the copy (old checklist, Phase 7, steps 5–12). The library in `WORK` stays as it is.
+- [ ] ✋ 🍎 **A Photos library with damage inside** (What is left names it): copy the whole library from `SPARE` to the Mac, hold **⌥ Option** while opening Photos and choose the copy; only if it won't open or looks wrong, repair the copy (old checklist, Phase 7, steps 5–12). The library in `WORK` stays as it is.
 
 ---
 
@@ -103,10 +112,13 @@ are, with a glitch where data was lost, are not handed off: nothing can bring th
 - [ ] **6. Finalise.** It makes `RECORDS` beside `WORK` (the results, the mapfile, the checklists), copies `WORK`, `REPAIR` and `RECORDS` into `COPY 2`, and checks both copies and the image. It leaves Windows' settings as they are: they go back in 7, below, once every drive is unplugged.
 - [ ] **✅ The final check — both copies** — this ticks when Finalise's checks of both copies pass.
 - [ ] **7. Put Windows back as it was.** In File Explorer, right-click `SPARE` → **Eject**, then unplug it (the recovered SSD and the 4 TB SSD are in their drawers already). The button stays greyed out until the page sees none of them plugged in. Click it: new disks arrive switched on again, and the other settings the program changed go back. Beside each one, a **Show me** button opens Windows' own page for it, to see for yourself.
-- [ ] Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.
-- [ ] **To use your files day to day,** copy what you want out of `COPY 2\WORK` into your own folders (Pictures, Documents…) — copy, don't move. Never open-and-save, rename or delete anything inside `WORK` or `COPY 2`: they are the checked copies Finalise checks twice a year (it puts back from `WORK` anything changed in `COPY 2`).
-- [ ] The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.
-- [ ] Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
+
+**Afterwards — only you can do these** (the program's page: **8. Afterwards**):
+
+- [ ] ✋ Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.
+- [ ] ✋ **To use your files day to day,** copy what you want out of `COPY 2\WORK` into your own folders (Pictures, Documents…) — copy, don't move. Never open-and-save, rename or delete anything inside `WORK` or `COPY 2`: they are the checked copies Finalise checks twice a year (it puts back from `WORK` anything changed in `COPY 2`).
+- [ ] ✋ The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.
+- [ ] ✋ Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.
 
 ---
 

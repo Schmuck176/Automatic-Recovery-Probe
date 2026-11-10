@@ -2120,8 +2120,9 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
             }
         }
     }
-    // The boxes the program has seen done: ticked by it.
-    let seen = checklist_seen(app);
+    // The boxes the program has seen done: ticked by it. (And what there is
+    // to do for the boxes that are the person's when there is something.)
+    let (seen, waiting) = checklist_seen(app);
     if let Err(e) = cl::tick_seen(&ticks_path, &items, &mut ticks, &seen, &crate::fmt::when_now()) {
         notes.push(e);
     }
@@ -2171,13 +2172,16 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
             }
         }
     }
-    cl::state_json(&phases, &items, &done, &st, &ticks, numbers, &target.display().to_string(), &notes.join(" "))
+    cl::state_json(&phases, &items, &done, &st, &ticks, &waiting, numbers, &target.display().to_string(), &notes.join(" "))
 }
 
 /// What the program has seen done, for the checklist's boxes it ticks
 /// itself (checklist::SEEN) - only what it knows without asking Windows
-/// anything slow, or reading a disk.
-fn checklist_seen(app: &Arc<Mutex<App>>) -> HashMap<&'static str, crate::checklist::Seen> {
+/// anything slow, or reading a disk. And, for the boxes that are the
+/// person's when there is something for them (checklist::IF_ANY), what there
+/// is: files left for the Mac, a Photos library with damage inside.
+#[allow(clippy::type_complexity)]
+fn checklist_seen(app: &Arc<Mutex<App>>) -> (HashMap<&'static str, crate::checklist::Seen>, HashMap<&'static str, String>) {
     use crate::checklist::Seen;
     // (Asked before the lock: these take it themselves.)
     let windows_left = !back::changes(app).is_empty();
@@ -2276,6 +2280,27 @@ fn checklist_seen(app: &Arc<Mutex<App>>) -> HashMap<&'static str, crate::checkli
     if handed("own") {
         put("office", Some(handoff_at.clone()), "Nothing was left for its own program (Word, Excel, PowerPoint).".to_string());
     }
+    // Something was left: the person's to do, and how much.
+    let mut waiting: HashMap<&'static str, String> = HashMap::new();
+    let files = |n: u64| if n == 1 { "1 file is".to_string() } else { format!("{} files are", crate::fmt::commas(n)) };
+    for (name, key, folder, what) in [
+        ("mac", "mac", crate::handoff::FOR_MAC, "waiting for the Mac"),
+        ("paid", "paid", crate::handoff::FOR_PAID, "left that no free tool could repair"),
+        ("office", "own", crate::handoff::FOR_OWN, "waiting for Word, Excel or PowerPoint"),
+    ] {
+        if let Some(n) = count(key).filter(|n| *n > 0) {
+            waiting.insert(name, format!("{} {what}, in hand-off\\{folder}.", files(n)));
+        }
+    }
+    if let Some(j) = job("evaluate") {
+        let n = j.data.matches("\"what\":\"Photos library").count();
+        if n > 0 {
+            waiting.insert(
+                "library",
+                if n == 1 { "What is left names a Photos library with damage inside.".to_string() } else { format!("What is left names {n} Photos libraries with damage inside.") },
+            );
+        }
+    }
     if let Some(j) = job("bringback") {
         put("bringback", Some(j.started_at.clone()), format!("Bring back ran{}.", shown(&j.started_at)));
     } else if none_left {
@@ -2292,7 +2317,7 @@ fn checklist_seen(app: &Arc<Mutex<App>>) -> HashMap<&'static str, crate::checkli
     if !back_at.is_empty() && !windows_left {
         put("windows_back", Some(back_at.clone()), format!("Windows is put back as it was{}.", shown(&back_at)));
     }
-    out
+    (out, waiting)
 }
 
 /// A box ticked or unticked on the page.
@@ -3255,7 +3280,8 @@ mod tests {
                 s.started_at = "2026-11-06 10:00:00".into();
             }
         }
-        let seen = checklist_seen(&app);
+        let (seen, waiting) = checklist_seen(&app);
+        assert!(waiting.is_empty(), "nothing known to be left yet: {waiting:?}");
         assert_eq!(seen["selftest"].when.as_deref(), Some("2026-11-05 23:01:36"));
         assert!(seen["rehearsal"].what.contains("SPARE arrived switched off"), "{:?}", seen["rehearsal"]);
         assert!(seen["folders"].what.contains(r"E:\WORK"), "{:?}", seen["folders"]);
@@ -3277,12 +3303,15 @@ mod tests {
             a.last.insert("evaluate".into(), job("done", "2026-11-06 11:59:00", "{\"damaged_packages\":[]}"));
             a.settings.insert("ssd_unplugged_at".into(), "2026-11-06 11:00:00".into());
         }
-        let seen = checklist_seen(&app);
+        let (seen, waiting) = checklist_seen(&app);
         assert!(seen["start_done"].when.as_deref().is_some_and(|w| w.starts_with("2026-11-06 12:01:00")), "{:?}", seen["start_done"]);
         assert!(seen["mac"].what.contains("Nothing was left for the Mac"));
         assert!(seen.contains_key("paid") && !seen.contains_key("office"), "{:?}", seen.keys());
         assert!(!seen.contains_key("bringback") && !seen.contains_key("handoff_open"), "something was handed off");
         assert!(seen.contains_key("library") && seen.contains_key("ssd_out"));
+        // The Office file left is the person's to do, and the program says so.
+        assert_eq!(waiting.len(), 1, "{waiting:?}");
+        assert_eq!(waiting["office"], r"1 file is waiting for Word, Excel or PowerPoint, in hand-off\3 For their own program.");
         // Through the checklist itself: ticked, with what was seen, in the copy too.
         let json = checklist_sync(&app);
         let (_, items) = cl::parse(cl::TEXT);
@@ -3297,6 +3326,35 @@ mod tests {
         let copy = std::fs::read_to_string(cl::find_copy(&dir).expect("the copy")).unwrap();
         assert!(copy.contains(&format!("- [x] {}", key_of("selftest"))), "the copy shows it ticked");
         assert!(copy.contains(&format!("- [ ] {}", key_of("office"))));
+        // The boxes that are the person's, and where each stands: nothing
+        // for the Mac (the program ticked it), the Office file to do, and the
+        // four afterwards.
+        let at = |n: &str| names.iter().position(|x| *x == Some(n)).unwrap();
+        let mine = |i: usize| {
+            let from = json.find(&format!("{{\"i\":{i},\"state\":\"")).unwrap_or_else(|| panic!("box {i} in {json}"));
+            json[from..].split('}').next().unwrap().to_string()
+        };
+        assert!(json.contains("\"mine\":[{"), "{json}");
+        assert!(mine(at("mac")).contains("\"state\":\"none\",\"note\":\"Nothing was left for the Mac.\""), "{}", mine(at("mac")));
+        assert!(mine(at("office")).contains("\"state\":\"todo\",\"note\":\"1 file is waiting for Word"), "{}", mine(at("office")));
+        let who = cl::who_ticks(&items);
+        let yours: Vec<usize> = (0..items.len()).filter(|&i| matches!(who[i], cl::Who::You(_))).collect();
+        assert_eq!(yours.len(), 5, "the labels, and the four afterwards");
+        assert!(yours.iter().all(|&i| mine(i).contains("\"state\":\"todo\"")), "{json}");
+        // Ticked by the person: done - and unticked, to do again.
+        let json = tick(&app, &yours[0].to_string(), true).unwrap();
+        let m = |json: &str, i: usize| json[json.find(&format!("{{\"i\":{i},\"state\":\"")).unwrap()..].split('}').next().unwrap().to_string();
+        assert!(m(&json, yours[0]).contains("\"state\":\"done\""), "{}", m(&json, yours[0]));
+        assert!(!m(&json, yours[0]).contains("\"when\":\"\""), "when it was ticked: {}", m(&json, yours[0]));
+        let json = tick(&app, &yours[0].to_string(), false).unwrap();
+        assert!(m(&json, yours[0]).contains("\"state\":\"todo\""));
+        // A Photos library with damage inside: the person's too.
+        lock(&app).last.insert(
+            "evaluate".into(),
+            job("done", "2026-11-06 12:30:00", "{\"damaged_packages\":[{\"path\":\"Photos\\\\Old.photoslibrary\",\"what\":\"Photos library\"}]}"),
+        );
+        let (_, waiting) = checklist_seen(&app);
+        assert_eq!(waiting["library"], "What is left names a Photos library with damage inside.");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

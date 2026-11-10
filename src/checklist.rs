@@ -34,6 +34,39 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-11-10 (1): the boxes only the person can tick are marked ✋.
+    (
+        "🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.",
+        "✋ 🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.",
+    ),
+    (
+        "**Paid repair tools**, only if you decide some files are worth it: use only the copies in `2 For a paid repair tool`; look at the tool's free preview first. Save each repaired file into `hand-off\\returned`, keeping its number (`[R0012]`) in its name.",
+        "✋ **Paid repair tools**, only if you decide some files are worth it: use only the copies in `2 For a paid repair tool`; look at the tool's free preview first. Save each repaired file into `hand-off\\returned`, keeping its number (`[R0012]`) in its name.",
+    ),
+    (
+        "**Office documents**, if any (`3 For their own program`): Word, Excel or PowerPoint → File → Open → arrow beside Open → **Open and Repair**; save into `hand-off\\returned` with the same name.",
+        "✋ **Office documents**, if any (`3 For their own program`): Word, Excel or PowerPoint → File → Open → arrow beside Open → **Open and Repair**; save into `hand-off\\returned` with the same name.",
+    ),
+    (
+        "🍎 **A Photos library with damage inside** (What is left names it): copy the whole library from `SPARE` to the Mac, hold **⌥ Option** while opening Photos and choose the copy; only if it won't open or looks wrong, repair the copy (old checklist, Phase 7, steps 5–12). The library in `WORK` stays as it is.",
+        "✋ 🍎 **A Photos library with damage inside** (What is left names it): copy the whole library from `SPARE` to the Mac, hold **⌥ Option** while opening Photos and choose the copy; only if it won't open or looks wrong, repair the copy (old checklist, Phase 7, steps 5–12). The library in `WORK` stays as it is.",
+    ),
+    (
+        "Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.",
+        "✋ Keep `SPARE` somewhere else (a relative's, work). Set a phone reminder every six months: plug it in, double-click the program, **Finalise** again — it checks both copies and the image, and names any file that has changed.",
+    ),
+    (
+        "**To use your files day to day,** copy what you want out of `COPY 2\\WORK` into your own folders (Pictures, Documents…) — copy, don't move. Never open-and-save, rename or delete anything inside `WORK` or `COPY 2`: they are the checked copies Finalise checks twice a year (it puts back from `WORK` anything changed in `COPY 2`).",
+        "✋ **To use your files day to day,** copy what you want out of `COPY 2\\WORK` into your own folders (Pictures, Documents…) — copy, don't move. Never open-and-save, rename or delete anything inside `WORK` or `COPY 2`: they are the checked copies Finalise checks twice a year (it puts back from `WORK` anything changed in `COPY 2`).",
+    ),
+    (
+        "The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.",
+        "✋ The things you truly can't lose (usually the family photos) somewhere else as well, such as cloud storage.",
+    ),
+    (
+        "Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+        "✋ Undo what the old checklist's Phase −1 changed by hand: Windows Update service back to **Automatic (Delayed Start)** and **Resume updates**; the restart setting back on; Power Options back to **Balanced**; the Defender exclusion you added for `SPARE` (Windows Security → Virus & threat protection → Manage settings → Exclusions; the ones the program added, 7. Put Windows back as it was took off); AutoPlay back on if you want it. Then reconnect and let Windows catch up.",
+    ),
     // 2026-11-06 (1): how long the videos take is measured after the
     // copying, and the box can be ticked or unticked until their turn.
     (
@@ -127,6 +160,7 @@ const KNOWN_CHECKLISTS: &[u64] = &[
     848015863591311911,  // 2026-11-04 (2)
     11539334781635225096, // 2026-11-04 (3)
     7714998951816333085,  // 2026-11-04 (4)
+    4259271601855601757,  // 2026-11-06 (1)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 
@@ -387,6 +421,168 @@ pub const SEEN: &[(&str, &str)] = &[
     ("finalise", "**6. Finalise.**"),
     ("windows_back", "**7. Put Windows back as it was.**"),
 ];
+
+/// The boxes only the person can tick (marked ✋ in the text): a name, a
+/// piece of the box's text that no other box has, a short title for it, why
+/// the program cannot tick it, and the part of the program's page it shows
+/// in ("ready": 1. Get ready; "after": 8. Afterwards). The page shows them
+/// apart, and in its own parts too, so that none is skipped.
+pub const YOURS: &[(&str, &str, &str, &str, &str)] = &[
+    (
+        "labels",
+        "**Label each drive itself**",
+        "Label each drive itself",
+        "The program can't see a label stuck on a drive.",
+        "ready",
+    ),
+    (
+        "spare_away",
+        "Keep `SPARE` somewhere else",
+        "Keep SPARE somewhere else, and a reminder every six months",
+        "The program can't see where SPARE is kept, or the reminder on your phone.",
+        "after",
+    ),
+    (
+        "daily",
+        "**To use your files day to day,**",
+        "Use your files from copies, not from WORK or COPY 2",
+        "The program can't see which folders you use day to day.",
+        "after",
+    ),
+    (
+        "elsewhere",
+        "The things you truly can't lose",
+        "What you can't lose, somewhere else as well",
+        "The program can't see your cloud storage, or any other place you keep a copy.",
+        "after",
+    ),
+    (
+        "by_hand",
+        "Undo what the old checklist's Phase −1 changed by hand",
+        "Undo what you changed in Windows by hand",
+        "The program puts back only what it changed itself: it can't tell what you changed by hand from how you like Windows set.",
+        "after",
+    ),
+];
+
+/// The boxes the person does when there is something for them, and the
+/// program ticks only when there is not (marked ✋ too): the name in SEEN, a
+/// short title, and why the program cannot tick it once there is something.
+pub const IF_ANY: &[(&str, &str, &str)] = &[
+    ("mac", "For the Mac", "The program can't see what is done on the Mac."),
+    ("paid", "A paid repair tool, if some files are worth it", "Whether a file is worth a paid tool is yours to decide."),
+    ("office", "Office documents: Open and Repair", "Word, Excel and PowerPoint repair a file in their own windows: the program can't see that."),
+    ("library", "A Photos library with damage inside", "Photos opens and repairs its library on the Mac: the program can't see that."),
+];
+
+/// Who ticks a box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Who {
+    /// The program, when it sees it done.
+    Program,
+    /// Only the person (an index into YOURS).
+    You(usize),
+    /// The person, if there is something for it; the program, if there is
+    /// not (an index into IF_ANY).
+    IfAny(usize),
+    /// A checkpoint: its safety check.
+    Check,
+}
+
+impl Who {
+    pub fn word(&self) -> &'static str {
+        match self {
+            Who::Program => "program",
+            Who::You(_) => "you",
+            Who::IfAny(_) => "ifany",
+            Who::Check => "check",
+        }
+    }
+    /// The name, short title and reason of a box that is (or may be) the
+    /// person's.
+    pub fn yours(&self) -> Option<(&'static str, &'static str, &'static str)> {
+        match self {
+            Who::You(k) => Some((YOURS[*k].0, YOURS[*k].2, YOURS[*k].3)),
+            Who::IfAny(k) => Some(IF_ANY[*k]),
+            _ => None,
+        }
+    }
+    /// The part of the program's page a box that is the person's shows in:
+    /// 1. Get ready ("ready"), 5. What is left ("left"), or 8. Afterwards
+    /// ("after").
+    pub fn part(&self) -> &'static str {
+        match self {
+            Who::IfAny(_) => "left",
+            Who::You(k) => YOURS[*k].4,
+            _ => "",
+        }
+    }
+}
+
+/// Who ticks each box.
+pub fn who_ticks(items: &[Item]) -> Vec<Who> {
+    let names = seen_names(items);
+    items
+        .iter()
+        .zip(names)
+        .map(|(it, name)| {
+            if it.checkpoint {
+                Who::Check
+            } else if let Some(k) = name.and_then(|n| IF_ANY.iter().position(|(x, _, _)| *x == n)) {
+                Who::IfAny(k)
+            } else if name.is_some() {
+                Who::Program
+            } else {
+                // (A box the program has nothing to look for is the person's:
+                // one not in YOURS yet still shows as theirs, by its own text.)
+                YOURS.iter().position(|(_, part, _, _, _)| it.key.contains(part)).map(Who::You).unwrap_or(Who::Program)
+            }
+        })
+        .collect()
+}
+
+/// Where a box that is (or may be) the person's stands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mine {
+    pub item: usize,
+    /// "todo": theirs to do now; "done": ticked by them; "none": nothing was
+    /// left for it (the program ticked it); "wait": not known yet whether
+    /// there will be anything for it.
+    pub state: &'static str,
+    /// What there is for it ("3 files are waiting in 1 For the Mac."), or
+    /// what the program saw.
+    pub note: String,
+    /// When it was ticked.
+    pub when: String,
+}
+
+/// The boxes that are the person's, and where each stands. `waiting`: what
+/// there is to do for the if-any ones (by name), where the program knows.
+pub fn mine(items: &[Item], done: &[bool], ticks: &Ticks, waiting: &HashMap<&str, String>) -> Vec<Mine> {
+    who_ticks(items)
+        .iter()
+        .enumerate()
+        .filter_map(|(i, w)| {
+            let (name, _, _) = w.yours()?;
+            let tick = ticks.map.get(&items[i].key).filter(|t| t.on);
+            let when = tick.map(|t| crate::fmt::when_shown(&t.when).to_string()).unwrap_or_default();
+            let by_program = tick.is_some_and(|t| !t.seen.is_empty());
+            let (state, note) = if by_program {
+                ("none", tick.map(|t| t.seen.clone()).unwrap_or_default())
+            } else if done[i] {
+                ("done", String::new())
+            } else if matches!(w, Who::You(_)) {
+                ("todo", String::new())
+            } else {
+                match waiting.get(name) {
+                    Some(what) => ("todo", what.clone()),
+                    None => ("wait", String::new()),
+                }
+            };
+            Some(Mine { item: i, state, note, when })
+        })
+        .collect()
+}
 
 /// For each box, what the program looks for to tick it (None: only the
 /// person ticks it - or, a checkpoint, its safety check).
@@ -1039,10 +1235,14 @@ fn list(entries: &[(usize, usize, Kind, String)], by_line: &HashMap<usize, usize
         match (kind, by_line.get(line)) {
             (Kind::Box, Some(&i)) => {
                 let cp = items[i].checkpoint;
+                // (Marked ✋: the person's own, or theirs when there is
+                // something for it. The page shows these apart.)
+                let yours = items[i].key.starts_with('✋');
                 out.push_str(&format!(
-                    "<li class=\"box{}\" id=\"it-{i}\"><input type=\"checkbox\" class=\"tick\" data-i=\"{i}\" \
+                    "<li class=\"box{}{}\" id=\"it-{i}\"><input type=\"checkbox\" class=\"tick\" data-i=\"{i}\" \
                      aria-labelledby=\"bt-{i}\"><div class=\"box-text\" id=\"bt-{i}\">{}</div>{}",
                     if cp { " checkpoint" } else { "" },
+                    if yours { " yours" } else { "" },
                     inline(text),
                     if cp { format!("<div class=\"cp\" data-cp=\"{i}\"></div>") } else { String::new() }
                 ));
@@ -1070,9 +1270,27 @@ pub fn page_json(text: &str) -> String {
         .iter()
         .map(|p| format!("{{\"title\":{},\"number\":{}}}", json_str(&p.title), json_str(&p.number)))
         .collect();
+    let who = who_ticks(&items);
     let it: Vec<String> = items
         .iter()
-        .map(|i| format!("{{\"phase\":{},\"checkpoint\":{},\"text\":{}}}", i.phase, i.checkpoint, json_str(&i.key)))
+        .zip(&who)
+        .map(|(i, w)| {
+            let (name, title, why) = w.yours().unwrap_or(("", "", ""));
+            format!(
+                "{{\"phase\":{},\"checkpoint\":{},\"text\":{},\"who\":\"{}\",\"name\":{},\"part\":\"{}\",\"title\":{},\"why\":{},\
+                 \"html\":{}}}",
+                i.phase,
+                i.checkpoint,
+                json_str(&i.key),
+                w.word(),
+                json_str(name),
+                w.part(),
+                json_str(title),
+                json_str(why),
+                // (For the program's own parts: the box's words, without its ✋.)
+                json_str(&if w.yours().is_some() { inline(i.key.trim_start_matches(['✋', ' '])) } else { String::new() })
+            )
+        })
         .collect();
     format!(
         "{{\"html\":{},\"phases\":[{}],\"items\":[{}]}}",
@@ -1089,10 +1307,24 @@ pub fn state_json(
     done: &[bool],
     st: &[Status],
     ticks: &Ticks,
+    waiting: &HashMap<&str, String>,
     numbers: Option<(u64, u64)>,
     copy_path: &str,
     copy_note: &str,
 ) -> String {
+    // The boxes that are the person's, and where each stands.
+    let mine: Vec<String> = mine(items, done, ticks, waiting)
+        .iter()
+        .map(|m| {
+            format!(
+                "{{\"i\":{},\"state\":\"{}\",\"note\":{},\"when\":{}}}",
+                m.item,
+                m.state,
+                json_str(&m.note),
+                json_str(&m.when)
+            )
+        })
+        .collect();
     // The boxes the program ticked, from what it saw: that, and when.
     let seen: Vec<String> = items
         .iter()
@@ -1113,7 +1345,7 @@ pub fn state_json(
     let num = |v: Option<u64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
     format!(
         "{{\"ticked\":[{}],\"status\":[{}],\"phases\":[{}],\"done\":{},\"total\":{},\"next\":{},\"numbers\":{},\
-         \"numbers_text\":{},\"copy\":{},\"copy_note\":{},\"seen\":[{}]}}",
+         \"numbers_text\":{},\"copy\":{},\"copy_note\":{},\"seen\":[{}],\"mine\":[{}]}}",
         done.iter().map(|&d| if d { "1" } else { "0" }).collect::<Vec<_>>().join(","),
         st.iter()
             .map(|s| format!("{{\"i\":{},\"state\":\"{}\",\"text\":{}}}", s.item, s.state.word(), json_str(&s.text)))
@@ -1129,7 +1361,8 @@ pub fn state_json(
             .unwrap_or_else(|| "null".to_string()),
         json_str(copy_path),
         json_str(copy_note),
-        seen.join(",")
+        seen.join(","),
+        mine.join(",")
     )
 }
 
@@ -1404,6 +1637,114 @@ mod tests {
         assert!(theirs.iter().any(|k| k.contains("Undo what the old checklist")), "{theirs:?}");
     }
 
+    /// Every box says who ticks it - the program, a safety check, or the
+    /// person - and the boxes that are (or may be) the person's are the ones
+    /// marked ✋ in the text, each with a short title and why the program
+    /// cannot tick it.
+    #[test]
+    fn every_box_says_who_ticks_it_and_the_persons_are_marked() {
+        let (phases, items) = parse(TEXT);
+        let who = who_ticks(&items);
+        let names = seen_names(&items);
+        for (i, it) in items.iter().enumerate() {
+            let marked = it.key.starts_with("✋ ");
+            assert_eq!(marked, who[i].yours().is_some(), "{:?}: {}", who[i], it.key);
+            match who[i] {
+                Who::Check => assert!(it.checkpoint),
+                Who::Program => assert!(names[i].is_some() && !it.checkpoint, "nothing ticks this box: {}", it.key),
+                Who::You(k) => {
+                    assert!(names[i].is_none() && it.key.contains(YOURS[k].1));
+                    // (Its part of the page is where its phase is done.)
+                    let phase = match who[i].part() {
+                        "ready" => "1",
+                        "after" => "5",
+                        other => panic!("{other}: {}", it.key),
+                    };
+                    assert_eq!(phases[it.phase].number, phase, "{}", it.key);
+                }
+                Who::IfAny(k) => {
+                    assert_eq!(names[i], Some(IF_ANY[k].0));
+                    assert_eq!(who[i].part(), "left");
+                    assert_eq!(phases[it.phase].number, "4", "what is left: {}", it.key);
+                }
+            }
+        }
+        let count = |f: fn(&Who) -> bool| who.iter().filter(|w| f(w)).count();
+        assert_eq!(count(|w| matches!(w, Who::You(_))), YOURS.len());
+        assert_eq!(count(|w| matches!(w, Who::IfAny(_))), IF_ANY.len());
+        assert_eq!(count(|w| matches!(w, Who::Check)), 3);
+        // Each of the person's has its own piece of text, title and reason.
+        for (name, part, title, why, _) in YOURS {
+            assert_eq!(items.iter().filter(|it| it.key.contains(part)).count(), 1, "{name}");
+            assert!(!title.is_empty() && why.starts_with("The program"), "{name}");
+        }
+        // The afterwards ones come after everything the program does: the last boxes.
+        let first_after = who.iter().position(|w| w.part() == "after").unwrap();
+        assert!(who[first_after..].iter().all(|w| w.part() == "after"), "{:?}", &who[first_after..]);
+        assert_eq!(who.iter().filter(|w| w.part() == "after").count(), 4);
+        assert_eq!(who.iter().filter(|w| w.part() == "ready").count(), 1);
+        // The page is told: who, the title, why, and the box's words without its ✋.
+        let page = page_json(TEXT);
+        assert_eq!(page.matches("\"who\":\"you\"").count(), YOURS.len());
+        assert_eq!(page.matches("\"who\":\"ifany\"").count(), IF_ANY.len());
+        assert_eq!(page.matches("\"who\":\"check\"").count(), 3);
+        assert!(page.contains("\"who\":\"you\",\"name\":\"spare_away\",\"part\":\"after\",\"title\":\"Keep SPARE somewhere else"), "{page}");
+        assert!(page.contains("\"html\":\"Keep <code>SPARE</code> somewhere else"), "without the ✋");
+        assert_eq!(page.matches("<li class=\\\"box yours\\\"").count(), YOURS.len() + IF_ANY.len(), "marked in the HTML too");
+        assert!(page.contains("\"who\":\"program\",\"name\":\"\",\"part\":\"\",\"title\":\"\",\"why\":\"\",\"html\":\"\""));
+        // A tick made before the boxes were marked follows its box.
+        // (Not the box that is new with them: the labels.)
+        for (name, part, _, _, _) in YOURS.iter().filter(|y| y.0 != "labels") {
+            let now = items.iter().find(|it| it.key.contains(part)).unwrap();
+            assert_eq!(renamed(now.key.trim_start_matches("✋ ")), now.key, "{name}");
+        }
+    }
+
+    /// Where each of the person's boxes stands: to do, done, nothing left
+    /// for it (the program ticked it), or not known yet.
+    #[test]
+    fn the_persons_boxes_say_where_they_stand() {
+        let dir = std::env::temp_dir().join(format!("rp-checklist-mine-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join(TICKS_NAME);
+        let (_, items) = parse(TEXT);
+        let names = seen_names(&items);
+        let at = |name: &str| names.iter().position(|n| *n == Some(name)).unwrap();
+        let who = who_ticks(&items);
+        let yours: Vec<usize> = (0..items.len()).filter(|&i| matches!(who[i], Who::You(_))).collect();
+        let mut ticks = Ticks::load(&path);
+        let state = |ticks: &Ticks, waiting: &HashMap<&str, String>| -> HashMap<usize, Mine> {
+            let st = statuses(&items, ticks, &[]);
+            let done = ticked(&items, ticks, &st);
+            mine(&items, &done, ticks, waiting).into_iter().map(|m| (m.item, m)).collect()
+        };
+        // Nothing known yet: the four afterwards are to do, the rest wait.
+        let none = HashMap::new();
+        let m = state(&ticks, &none);
+        assert_eq!(m.len(), YOURS.len() + IF_ANY.len());
+        assert!(yours.iter().all(|i| m[i].state == "todo"));
+        assert!(["mac", "paid", "office", "library"].iter().all(|n| m[&at(n)].state == "wait"));
+        // Files left for the Mac: to do, with how many. Nothing for a paid
+        // tool: the program ticks it. One of the four ticked by hand: done.
+        let mut waiting: HashMap<&str, String> = HashMap::new();
+        waiting.insert("mac", "3 files are waiting for the Mac.".to_string());
+        let mut seen: HashMap<&str, Seen> = HashMap::new();
+        seen.insert("paid", Seen { when: Some("2026-11-09 10:00:00".into()), what: "Nothing was left for a paid repair tool.".into() });
+        tick_seen(&path, &items, &mut ticks, &seen, "2026-11-09 10:00:01 +00:00").unwrap();
+        ticks.set(&path, &items[yours[1]].key, true, "2026-11-09 10:05:00 +00:00").unwrap();
+        let m = state(&ticks, &waiting);
+        assert_eq!((m[&at("mac")].state, m[&at("mac")].note.as_str()), ("todo", "3 files are waiting for the Mac."));
+        assert_eq!((m[&at("paid")].state, m[&at("paid")].note.as_str()), ("none", "Nothing was left for a paid repair tool."));
+        assert_eq!(m[&at("office")].state, "wait");
+        assert_eq!(m[&yours[1]].state, "done");
+        assert!(m[&yours[1]].when.starts_with("2026-11-09 10:05"), "{:?}", m[&yours[1]]);
+        assert_eq!(m[&yours[0]].state, "todo");
+        // The Mac's box ticked by hand (done, or left as they are): done.
+        ticks.set(&path, &items[at("mac")].key, true, "2026-11-09 11:00:00 +00:00").unwrap();
+        assert_eq!(state(&ticks, &waiting)[&at("mac")].state, "done");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// The program ticks what it saw done, once: an untick by hand stands,
     /// until it sees it done again, later. Its ticks say what it saw, and are
     /// read back as such.
@@ -1448,7 +1789,8 @@ mod tests {
         // The page is told what the program saw, for its own ticks only.
         let st = statuses(&items, &ticks, &[]);
         let done = ticked(&items, &ticks, &st);
-        let json = state_json(&phases, &items, &done, &st, &ticks, None, "copy", "");
+        let json = state_json(&phases, &items, &done, &st, &ticks, &HashMap::new(), None, "copy", "");
+        assert!(json.contains("\"mine\":[{\"i\":"), "{json}");
         assert!(json.contains(&format!("{{\"i\":{selftest},\"text\":\"The self-test passed again.\"")), "{json}");
         assert!(!json.contains(&format!("{{\"i\":{start},")), "{json}");
         std::fs::remove_dir_all(&dir).ok();

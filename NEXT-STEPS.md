@@ -2200,6 +2200,82 @@ videos: the processor is); no ticks at all in the automatic checklist.
   self-test at 23:01, the box unticked, no folders chosen yet. The hourly
   check-ins for this work are deleted once the user has the report.
 
+## 10 Nov 2026: the boxes only the person can tick, shown where their turn comes
+
+The user (9 Nov, 23:51 GMT): for the checklist's boxes the program cannot
+tick from what it knows has happened: make them stand out in "The
+checklist", show them in "Automatic recovery" in a logical order so they
+are not skipped going through 1 to 7 ("hold the user's hand ... make sure
+they don't forget to do things"), maybe in the steps tab too; and plan for
+usage running out (Pro plan): resume by itself (hourly check-ins, in the
+scratchpad's checkins.txt; the plan and progress in nov9-plan.md).
+
+- **Which boxes** (`checklist.rs`: `YOURS`, `IF_ANY`, `who_ticks`, `mine`):
+  of the 30 boxes, 3 are checkpoints (a safety check ticks them), 18 the
+  program always sees done, and 9 are, or can be, the person's:
+  - 5 always: **Label each drive itself** (new box, Phase 1: rule 5 had no
+    box, and nothing but the person can see a label), keeping SPARE
+    somewhere else with the six-monthly reminder, using the files from
+    copies, what can't be lost somewhere else as well, undoing what the old
+    Phase -1 changed by hand;
+  - 4 when files are left for them (Phase 4): the Mac, a paid repair tool,
+    Office's own repair, a Photos library with damage inside. Where the
+    hand-off left none, the program ticks the box as before; where it left
+    some, the box is the person's, with how many and in which folder
+    ("3 files are waiting for the Mac, in hand-off\1 For the Mac.");
+    before What is left has run, it is not known yet ("Yours, if any are
+    left").
+- **In the checklist's text** (so the copy in Obsidian shows it too): these
+  boxes begin with ✋, the top says what ✋ means and where the page shows
+  them, Phase 4 says when they are the person's, Phase 5 has a line before
+  the four ("Afterwards - only you can do these"). The 8 old boxes' new
+  wordings are in RENAMED (their ticks follow); the 2026-11-06 (1) text is
+  known (4259271601855601757).
+- **The checklist tab**: every box says who ticks it ("The program ticks
+  this", "A safety check ticks this", "Yours to tick", "Yours, if any are
+  left"); a box that is the person's and not ticked is amber with a bar at
+  its left and a line saying why the program cannot tick it; at the top, a
+  panel lists them all with where each stands (to do, with how many files;
+  ticked; nothing was left for it), each a link to its box, and "Show only
+  these boxes". The next box is blue now (amber means yours); the line at
+  the top says "Next on the checklist, and yours to tick" when it is.
+  (Also: with every box ticked the page said "Phase 8"; there is none - it
+  says to keep up the checks twice a year.)
+- **Automatic recovery**: each of them shows where its turn comes, with its
+  own tick box (the same box: ticked there, ticked in the checklist and
+  its copy; `api/act` "tick"):
+  - **1. Get ready**: the labels ("Do this before any drive is plugged in");
+  - **5. What is left**: what the hand-off left for the Mac, a paid tool,
+    Office, a Photos library - each with how many and where; tick when done,
+    or when decided to leave those files as they are;
+  - **8. Afterwards: what only you can do** (new part, after 7. Put Windows
+    back): the four at the end; quiet until Finalise is done and Windows is
+    put back ("After 7"), then "Yours: 4 to do".
+  The parts' chips and the list on the left count them ("Ready · Yours: 1
+  to do", "Yours: 2 to do", "All 4 done"), so "Next on this page" stays on
+  a part until its boxes are ticked; "Now" has a card "Yours to do: N" with
+  the first of them by name and Show me (to the part, the step or the box,
+  by the tab that is open).
+- **The steps tab**: the same blocks in step 3 (the labels, before the
+  drive goes in), step 8 (what is left) and at the end of step 9 (the
+  four); the steps' chips say "Yours: N to do" too.
+- `api/checklist` items: `who` (program, check, you, ifany), `name`,
+  `part` (ready, left, after), `title`, `why`, `html`; `api/checklist-state`:
+  `mine` [{i, state: todo, done, none or wait, note, when}].
+- Decided here, to tell the user: the new label box and part 8 are
+  additions they did not name; and a part is not "done" in the list on the
+  left while a box of the person's in it is unticked.
+- Version 2026-11-10 (1).
+- Tests here: unit tests 232 (and 232 with overflow checks; new: every box
+  says who ticks it and the person's are marked; the person's boxes say
+  where they stand; the page's state carries them), auto_check 128/128
+  (who ticks each box; the labels and the four afterwards the person's;
+  what the hand-off left, with how many; tick and untick), auto_ui_check
+  59/59 and ui_check 67/67 with both fonts (1. Get ready, 5, 8, Now, the
+  list on the left, the steps tab, the checklist's chips, panel and "only
+  these"), test_mapcheck 94/94, resume_check (seeds 5 and 173, 20
+  interruptions each) 17/17.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

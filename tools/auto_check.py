@@ -533,6 +533,38 @@ def main():
                     for _, ds, fs in os.walk(os.path.join(hand, sub)) for f in fs + ds if re.search(r"\[R\d{4,}\]", f)]
         check(said_ready and len(numbered) == int(said_ready.group(1)),
               "the hand-off holds the %s files it says are ready (%d there)" % (said_ready and said_ready.group(1), len(numbered)))
+        # The checklist says who ticks each box, and which are the person's
+        # own: the drives' labels and the four afterwards always; for the Mac, a paid tool, Office's
+        # own repair and a Photos library, when the hand-off left files for
+        # them (with how many) - where it left none, the program ticked them.
+        cl_page = prog.get("api/checklist")
+        cs = prog.get("api/checklist-state")
+        whos = [it["who"] for it in cl_page["items"]]
+        mine = {cl_page["items"][m["i"]]["name"]: m for m in cs.get("mine") or []}
+        check(whos.count("you") == 5 and whos.count("ifany") == 4 and whos.count("check") == 3 and len(mine) == 9
+              and all(it["title"] and it["why"] and it["html"] and "\u270b" in it["text"] for it in cl_page["items"] if it["who"] in ("you", "ifany"))
+              and all("\u270b" not in it["text"] for it in cl_page["items"] if it["who"] in ("program", "check")),
+              "the checklist says who ticks each box: 5 only you (marked), 4 yours if files are left for them, 3 by safety checks")
+        parts = {cl_page["items"][m["i"]]["name"]: cl_page["items"][m["i"]]["part"] for m in cs.get("mine") or []}
+        check(all(mine[n]["state"] == "todo" for n in ("labels", "spare_away", "daily", "elsewhere", "by_hand"))
+              and parts["labels"] == "ready" and parts["mac"] == "left" and parts["by_hand"] == "after",
+              "the drives' labels (1. Get ready) and the four afterwards (8) are yours to do: the program does not tick them")
+        left_ok = True
+        for name, sub in (("mac", "1 For the Mac"), ("paid", "2 For a paid repair tool"), ("office", "3 For their own program")):
+            n = len([f for _, ds, fs in os.walk(os.path.join(hand, sub)) for f in fs + ds if re.search(r"\[R\d{4,}\]", f)])
+            m = mine[name]
+            want = "todo" if n else "none"
+            ok = m["state"] == want and (not n or (m["note"].startswith("%d file" % n) and sub in m["note"]))
+            print("  %s: %d there, %s (%s)" % (sub, n, m["state"], m["note"]))
+            left_ok = left_ok and ok
+        check(left_ok, "what the hand-off left for the Mac, a paid tool or Office is yours to do, with how many; the rest the program ticked")
+        # A box of the person's ticked (from any tab: the same action), and unticked.
+        i_mac = next(m["i"] for n, m in mine.items() if n == "spare_away")
+        after = prog.do(action="tick", i=str(i_mac), on="1")["state"]
+        st = next(m for m in after["mine"] if m["i"] == i_mac)
+        back = prog.do(action="tick", i=str(i_mac), on="0")["state"]
+        check(st["state"] == "done" and st["when"] and next(m for m in back["mine"] if m["i"] == i_mac)["state"] == "todo",
+              "ticked by the person it is done (with when), and unticked it is to do again")
         # What just happened: the page's lines, kept in the results folder too.
         feed = [e["text"] for e in s.get("feed") or []]
         check(feed and feed[0].startswith("Start is done"), "what just happened ends with Start done (%s)" % feed[:1])
