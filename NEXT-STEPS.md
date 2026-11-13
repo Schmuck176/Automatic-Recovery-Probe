@@ -2386,6 +2386,36 @@ scratchpad's nov10-plan.md, check-ins in checkins-nov10.txt.)
   the settings, the copy in Obsidian MD files): 31 boxes, the 8 ticks
   kept, the copy brought up to the new text; names given there: the box
   ticked, the table filled in.
+- CI: the first run (43473860850, 5270a65) failed in the unit tests on both
+  systems, each for a test's own reason, not the program's:
+  - Linux: `identical_videos_are_played_once_and_the_biggest_first` (from
+    6 Nov) named which of two identical videos is played - the one its
+    folder's listing gives first, which depends on the file system (it
+    failed on that runner, and here with TMPDIR on tmpfs). Either is
+    right now (6ca8e96).
+  - Windows: the new `the_copy_lists_the_drives_names` compared the copy
+    with the checklist's text byte for byte, and on Windows the text is
+    checked out with CRLF. Compared apart from line endings now (8a0bf2a;
+    every unit test passes here with the text in CRLF too).
+  Every other step of that run passed on both systems. Run 43478756234
+  (8a0bf2a), green on both. Windows: unit tests 242, map check tests
+  44/44, Windows disks 19/19, disk protection 21/21, unplugged 42/42,
+  page 68/68, download 6/6, automatic 141/141, Automatic tab 74/74, both
+  pages with the drives named 69/69 and 75/75, resume 17/17; Linux: unit
+  tests 242 (and 242 with overflow checks), map check tests 94/94, Linux
+  kernel 23/23, the Mac script 56/56, page 67/67, automatic 140/140,
+  Automatic tab 74/74, both pages named 68/68 and 75/75, resume 17/17.
+  (The Linux page step has a 15-minute limit now: fetching the browser's
+  packages stalled once, on 10 Nov, for as long as the job was given.)
+- The program CI built: automatic-recovery-probe.exe, 6,525,952 bytes,
+  SHA-256 6df399fb3886b40312fe1c8964b643169430257273c64be9b3576cc104c9747a
+  (in the session's outputs, v2026-11-13 (1)).
+- NOT YET ON THE PC (13 Nov 2026, 18:35 GMT): the program was open there
+  (C:\RECOVERY-TOOLS\automatic-recovery-probe.exe locked; nothing running
+  in it - its results unchanged since 10 Nov), so its file could not be
+  replaced. The user is asked to close it; check-ins try again. Until it
+  is installed, main stays at 2026-11-10 (1) (4e2445d) and dev holds this
+  version.
 
 ## Not done / ideas for later
 
