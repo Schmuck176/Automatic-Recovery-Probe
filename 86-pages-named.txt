@@ -1,0 +1,155 @@
+ok   the program prints the page's address
+ok   a wrong key gets nothing (404)
+ok   an action without the key header is refused (403)
+     api/state answered in 3 ms
+     api/find-mapfiles answered in 2 ms
+     api/disks answered in 7 ms
+ok   the program lists the disks quickly (7 ms)
+ok   the page opens on the Automatic tab
+ok   this run is made with the drives named: every check below is made with the names shown all over the page
+ok   the checklist is built in, with the box ticked in the copy in Obsidian taken in (4 of 31) (3 ticked by the program)
+ok   the page says what is next on the checklist
+ok   a box ticked on the page is kept, and the copy in Obsidian follows
+ok   the download manifest is put beside it (and not Recovery Probe's)
+ok   the map shows the unread places
+ok   the mapfile in the program's folder is chosen by itself
+ok   step 1: the self-test passes
+ok   step 3: the test disk can be chosen
+ok   step 3: the test disk is recognised as the copy
+ok   step 3: a drive exactly as big as the old one, set up for itself (like SPARE), is not taken for the copy
+ok   step 3: only the copy is marked as the copy (Disk 90: test disk image, 16 MB, fileread-only)
+ok   step 3: a drive clicked by hand stays chosen while the copy is there
+ok   step 3: the copy is chosen when it arrives after another drive was clicked, and not when it was there already (["target/selftest-build/disk.img",null,"target/selftest-build/disk.img",null,null])
+ok   step 3: another disk gets no Protect button
+ok   step 4: the image is made and checked (The image D:\a\_temp\ui-named\image\recovered-ssd.img is made and checked. The r)
+ok   step 4: the image and its checksum are there
+ok   step 4: the image holds exactly the disk's bytes
+ok   step 4: the image can be checked again later, without the SSD
+ok   step 5 reads the image from now on
+ok   step 5: the damaged photo is named
+ok   step 5: files Windows cannot list are shown
+ok   the map now says what each place held
+ok   step 5: how much the files take in all is shown
+ok   the repairs say how many damaged files there are so far, and their size, from the map check (1 files, 25771 bytes)
+ok   the checklist's Your numbers are filled in from step 5 (96, 341 KB)
+ok   step 5: the full report stays open while the page refreshes
+ok   step 6: all 96 files are copied (Copied 96 files (341 KB) and 9 folders into D:\a\_temp\ui-na)
+ok   step 6: a name Windows cannot use is made safe
+ok   step 6: a file Windows cannot list is copied
+ok   step 6: the safety check finds every file step 5 found in the list of copies (Safety checkStageFilesSizeResult1. On the SSD (step 5)in 9 folders (step 5's results in map-check-20261113-1830)96341 KBOK2. Copied (step 6))
+ok   step 7: the folder to check is the one step 6 copied into
+ok   step 7: the damaged photo is marked NEVER_READ
+ok   checklist: the checkpoint is due once the boxes before it are ticked
+ok   checklist: a checkpoint can't be ticked by hand while it is due (This box ticks itself when the safety check passes: step 7 →)
+ok   step 7: every copy is exactly what was copied (All 101 copies are exactly what was copied off the disk (533 KB).Safety checkSta)
+ok   step 7: the safety check has the same files at all three stages (Safety checkStageFilesSizeResult1. On the SSD (step 5)in 9 folders (step 5's results in map-check-20261113-1830)96341 KBOK2. Copied (step 6)and 5 pieces of data)
+ok   checklist: the checkpoint ticks itself when the check passes
+ok   step 7: a copy deleted by mistake is caught at the last stage, and named (1 of 101 copies are NOT what was copied off the disk: 0 changed, 1 missing.  missing: Big )
+ok   checklist: after a check that found something, the checkpoint says stop
+ok   step 8: put back is refused while the last check found something (The last safety check of this folder (2026-11-13 18:30:40) found somet)
+ok   step 7: with it back, nothing is missing again
+ok   step 7: every check so far is listed - the image, the copying, a check, the one that found the deleted copy (✗), and the check after
+ok   step 7: every check is in results\safety-checks.csv, with all its numbers
+ok   checklist: with the file back and a check that passes, the checkpoint is ticked again
+ok   step 8: the damaged files are copied out (Copied 37 damaged files out into D:\a\_temp\ui-named\REPAIR\to-repair, each with its numbe)
+ok   step 8: the damaged photo is in REPAIR with its number (IMG_0003 [R0028].JPG), and repair-list.csv says where it belongs
+ok   step 8: the repaired photo is put back (Put back 1 repaired files, each exactly where its original was in WORK, with the original')
+ok   step 8: WORK now holds the repaired version, at the same place
+ok   step 8: the damaged original is kept in REPAIR\originals
+ok   step 7 again: the copies check knows about the repaired version (All 101 copies are exactly what was copied off the disk (533 KB) - or, for 1 of them, exactly the re)
+ok   step 7 again: the safety check counts the repaired photo as here
+ok   step 8: the evaluation says what is put back and what is still damaged (37 damaged files: 1 repaired and put back, 36 still to repair.No packages (libraries, apps, document)
+ok   step 8: undo puts the original back in WORK
+ok   the steps tab: every icon has words beside it
+ok   the checklist's “step 7” goes to step 7 (18 px from the top)
+ok   an empty folder is refused with a reason
+ok   while the program is closed, the page says so, and keeps saying it (true, true)
+ok   after closing and opening the program, step 5's results are still there
+ok   the checklist's ticks are still there too (11 of 11)
+ok   on a phone-sized window nothing sticks out sideways (-15 px)
+ok   the checklist on a phone-sized window: nothing sticks out sideways (-15 px)
+ok   no errors in the page
+ok   no errors in the page at any point
+Page checks: 69 of 69 passed
+ok   this run is made with the drives named: every check below is made with the names shown all over the page (71 labels now)
+ok   the page opens on the Automatic tab
+ok   the steps are in their own tab
+ok   Get ready finds the mapfile
+ok   Get ready lists the tools
+ok   the self-test passes and Get ready says Ready
+ok   the folders are chosen
+ok   a folder pasted in quotes (File Explorer's Copy as path) is taken without them (D:\a\_temp\aui-named\SPARE\WORK | D:\a\_temp\aui-named\SPARE\WORK)
+ok   the folders say what they need, from the mapfile (Needs 16 MB · the whole SSD, in one file
+D: Temporary Storag | Needs up to 16 MB · the old drive's size, until the map chec)
+ok   Start runs
+ok   while Start runs, the window's title says how it gets on (Checking everything is ready · Automatic Recovery Probe)
+ok   Start finishes: Start is done: every stage ran.
+ok   Now says what just happened, newest first, each with its time (18:31 Start is done: every stage ran | 18:31 Stage 15 done: Getting the rest ready for the Mac or a paid tool (0 s): 36 files are ready in D:\a\_temp\aui-named\SPARE\REPAIR\hand-off for whoever can do better)
+ok   the window's title says Start is done (Start is done · Automatic Recovery Probe)
+ok   every stage is done or skipped (14 done, 1 skipped)
+ok   WORK says what it holds, and the picture shows the sizes (Holds 533 KB · 96 files
+D: Temporary Storage · 145 GB free of 150 GB
+R)
+ok   the live numbers: GB and files done, by kind, each kind with its ring, and the file being worked on (5.0 GB of 20 GB copied1,234 of 5,000 filesPhotos1,000 of 4,000 · 4.0 GB of 15 GBVideos234 of 1,000 · 1.0 GB of 5.0 GBNow)
+ok   sizes are rounded to MB or GB (300 MB, 4.3 GB, 932 GB, 1,863 GB)
+ok   the time left and the percentage read naturally (less than a minute left; about 10 min left; about 2 h 10 min left; about 4 h left)
+ok   when it will be done reads as a time on the clock, and what happened by day (done around 18:40; done around 20:30 tomorrow)
+ok   the SSD's strip says what was read, slowly or not at all, its speed sagging and its temperature, and fits a narrow window (start373 GB of 932 GB readend (932 GB)readread slowly: 1 placecould not be read: 4 KB in 1)
+ok   and says when reading is paused while it cools down
+ok   Windows notifications are on to begin with
+ok   Windows notifications are turned off and on by their box
+ok   the steps tab shows the map check and the copying done
+ok   What is left shows the repairs
+ok   Finalise finishes
+ok   the second copy's folder says so too: not up to date, none there yet, then made and checked (Made 2026-11-13 18:31:06 · not up to date: Finalise againD: Temporary Storage · 145 GB free of 150 GB; Needs about 533 KB · WORK and REPAIR againD: Temporary Storage · 145 GB free of 150 GB)
+ok   after something is brought back, 6. Finalise asks to be run again (Run it again; then Done 2026-11-13 18:31:06)
+ok   and after its folder is changed, says there is no second copy there yet
+ok   with stages to run again, 4. Start says there is more to do, and Carry on (More to do: Carry on; Carry on)
+ok   the videos' box says how long they take on this PC, once measured (About 6 h 40 min on this PC for the 1,234 videos (410 GB) still to play. You can tick or u)
+ok   before their turn, 4. Start asks with the time it takes: Leave them out, or Play them through
+ok   left out, 4. Start offers to play them through now - and with none left, asks nothing
+ok   while they play, the live numbers say how far, how long yet and how many at once (50 GB of 420 GB3,000 of 4,234 checks madeVideos played through: 120 of 1,234 · 40 GB of 410 GB · about 5 h 10 min left ·)
+ok   the checklist ticks what the program has seen done, saying what it saw (14 boxes)
+ok   every box in the checklist says who ticks it, and the nine that are (or may be) the person's are marked
+ok   the boxes that are yours stand out, each saying why the program cannot tick it (7 now)
+ok   the checklist can show only the boxes that are yours (9 of 31)
+ok   1. Get ready says what the program expects each of the three drives to be, before the box for their labels (The recovered SSD, 2 TB | The 4 TB SSD, 4 TB | SPARE, 1 TB)
+ok   no names given yet: each field is empty and suggests a name, and the page shows no name anywhere (Not named yet)
+ok   a name typed shows how it will look on the page, and that it is not saved yet
+ok   two drives with the same name, or one named as the program names another, are refused with why - and nothing is kept
+ok   names given are kept as typed, tidied; one left empty takes the program's suggestion (Blue Samsung | 4 TB COPY | Dad's <old> & "drive")
+ok   from then on the page shows each name as a label beside the program's word for the drive - the words themselves stay as they were (75 labels; "Dad's <old> & \"drive\"")
+ok   once in each paragraph, however often it names the drive - and not in the list on the left, the page's head or Your drives itself (1,1)
+ok   a folder's path (SPARE\WORK) and the suggested label (SPARE 1 TB) get none; SPARE alone does (3 paths, 11 labelled)
+ok   a heading keeps its words together with its label (Connect the recovered SSD, protected|true|2)
+ok   the box for the labels says what to write, the checklist ticks Your drives and lists the names - in its copy too
+ok   whatever the page says later has the names beside it too (Plug SPARE in now, then the recovered SSD. | 2)
+ok   a drive called SPARE in Windows is SPARE, and so is one called what SPARE was named here - no other (true,true,false,false,false)
+ok   the names can be left off the page (the box for the labels still says them), and shown again
+ok   with no names, the page is exactly what it was before: its own words were never changed
+ok   and only a drive called SPARE in Windows is SPARE again
+ok   1. Get ready shows the label on each drive as yours to do, with its box (Ready · Yours: 1 to do)
+ok   Now names it first and shows where; the steps tab has it in step 3 (Yours to do: 7Label each drive itself, and 6 more.)
+ok   ticked there, it is ticked in the checklist, its copy and the steps tab, and 1. Get ready is done (Ready)
+ok   8. Afterwards shows the four things only you can do, each with its box (Yours: 4 to do)
+ok   a box ticked there is ticked in the checklist and in its copy (Yours: 3 to do)
+ok   and unticked there, unticked again
+ok   5. What is left shows what is left for you to do, each with its box (Yours: 2 to do)
+ok   and Now and the list on the left say so (Yours to do: 6For the Mac, and 5 more. The program cannot se)
+ok   the steps tab shows them too, in step 8 and at the end of step 9
+ok   with the labels ticked, Now's Show me goes to 5. What is left
+ok   in the checklist, a box is yours once files are left for it, the program's when none are, and says which while it is not known
+ok   ticked by you, 5. What is left has nothing of yours left (Done)
+ok   the list on the left names the eight parts
+ok   7. Put Windows back as it was says Windows is as it was (Windows is as it was: the program has changed nothing that needs putting back.
+S)
+ok   Finalise no longer says it puts Windows' settings back
+ok   every icon has words beside it
+ok   at 2560 px: where you are, the guide and Now side by side
+ok   at half the screen: Now under where you are, the guide beside them
+ok   at 900 px: where you are on top, and nothing running in the way
+ok   nothing sticks out of a narrow window (-15 px)
+ok   no errors in the page
+
+75 of 75 checks passed
+With the drives named: the step-by-step page passed, the Automatic tab passed
