@@ -1,0 +1,12 @@
+Usage: fsck.exfat
+	-r | --repair        Repair interactively
+	-y | --repair-yes    Repair without ask
+	-n | --repair-no     No repair
+	-p | --repair-auto   Repair automatically
+	-a                   Repair automatically
+	-b | --ignore-bad-fs Try to recover even if exfat is not found
+	-s | --rescue        Assign orphaned clusters to files
+	-V | --version       Show version
+	-v | --verbose       Print debug
+	-h | --help          Show help
+exfatprogs version : 1.2.2
