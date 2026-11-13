@@ -1685,7 +1685,8 @@ mod tests {
         let (_, items) = parse(TEXT);
         let done = vec![false; items.len()];
         let plain = markdown(TEXT, &items, &done, None);
-        assert_eq!(plain, TEXT, "nothing given: the text as it is");
+        // (Line endings aside: on Windows the text itself may be checked out with CRLF.)
+        assert_eq!(plain, TEXT.replace("\r\n", "\n"), "nothing given: the text as it is");
         assert!(plain.contains("> | The recovered SSD | 2 TB: the copy ddrescue made of your dead 1 TB drive. Plugged in once, for the image |  |\n"), "{plain}");
         assert!(drives_rows_in(&plain).is_empty(), "no name in it yet");
         // Given: each in its drive's row (a | in a name does not end its cell).
