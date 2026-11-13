@@ -1670,7 +1670,14 @@ mod tests {
         let exes = BTreeMap::from([(Check::Video, exe)]);
         let opts = options(&work, &base, Arc::new(|| true));
         let o = check_all(&opts, &exes, false, Outcome::default(), &mut |_| {}, &mut |_, _| {}, &|| false).unwrap();
-        assert_eq!(played(&base), vec!["a.mp4", "bad1.mov", "small.mp4"], "the biggest first, each content once");
+        // (Of two identical copies, the one played is the one its folder's
+        // listing gives first: by name on NTFS, as the file system has them
+        // elsewhere - so here either may be it.)
+        let first = played(&base);
+        assert!(
+            first.len() == 3 && (first[0] == "a.mp4" || first[0] == "a copy.mp4") && first[1..] == ["bad1.mov", "small.mp4"],
+            "the biggest first, each content once: {first:?}"
+        );
         assert_eq!(o.twins, 2);
         assert_eq!(o.counts[&Check::Video], (5, 2), "five checked, both bad1.mov damaged");
         let mut damaged: Vec<&str> = o.findings.iter().map(|f| f.path.as_str()).collect();
