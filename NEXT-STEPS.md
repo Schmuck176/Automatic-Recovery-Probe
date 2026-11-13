@@ -2301,6 +2301,92 @@ scratchpad's checkins.txt; the plan and progress in nov9-plan.md).
   old Phase -1 settings; a one-page report; not trying failed repairs
   again) - the user has not chosen among them.
 
+## 13 Nov 2026: the person names the drives
+
+The user (10 Nov, 16:18 GMT): "Can you make it so that i can label the
+removable drives myself whatever i want by adding a section that allows me
+to tell you the names of the drives with a description of what you expect
+the drives to be before i decide on their names. Make sure this works with
+the rest of the program and nothing breaks." (Work begun 10 Nov, stopped by
+usage for three days, finished 13 Nov; plan and progress in the
+scratchpad's nov10-plan.md, check-ins in checkins-nov10.txt.)
+
+- **The names** (`src/names.rs`): three drives - the recovered SSD, the
+  4 TB SSD, SPARE - each with a name of the person's own, kept in the
+  settings (`name_recovered`, `name_copy`, `name_spare`; `names_at` says
+  when they were given). The action `names` (recovered, copy, spare;
+  `forget=1` for as if never given - no button for that, the checks use
+  it) tidies them (one line, single spaces), takes the checklist's
+  suggestion for one left empty (RECOVERED 2 TB, 4 TB COPY, SPARE 1 TB),
+  and refuses, with why: more than 40 characters; something that cannot
+  be shown (control characters, writing turned round); two drives with the
+  same name; a name that is the program's word or suggestion for another
+  drive. The generic `set` refuses these keys, so nothing gets round the
+  check. A name changes nothing on any drive.
+- **1. Get ready: Your drives** (`ui.html`, `#a-drives`, before the box
+  for the labels): one row per drive saying what the program expects it
+  to be - what it is, when it is plugged in, how the program knows it
+  (the two copies of the old drive look the same to it: only the label
+  tells them apart) - and beside that the field for its name, with how it
+  will look on the page as it is typed. Save the names (or Enter), Use
+  the suggested names; "Not named yet / Not saved yet / Named".
+- **Where the names show**:
+  - the page: a small label beside the program's own word for the drive,
+    the first time each paragraph, button or heading names it - everywhere,
+    by one mechanism (`nameText`, `nameIn`, a MutationObserver), so no
+    place is forgotten and what is drawn later is covered too. The page's
+    own text is never changed: the label is an empty element whose words
+    CSS draws from `data-name` (so every check that reads the page reads
+    what it did). Not in a path (`SPARE\WORK`), the suggested label
+    (SPARE 1 TB), the list on the left, the page's head or Your drives
+    itself (`data-nonames`). Words straight inside a row or grid are kept
+    together first (`.dwrap`). "Show my names beside the program's words
+    on this page" (setting `names_show`) turns the labels off; none given
+    (or forgotten), the page is exactly as it was;
+  - the box for the labels (1. Get ready, step 3, the checklist): "Write
+    these on the labels", with the three names (until named: the
+    suggestions, and "You have not named your drives yet");
+  - the notifications (`notify::toast` through `names::beside`): "Plug in
+    the recovered SSD ("Blue Samsung") ...";
+  - the checklist: a new box, **Your drives** (the program ticks it when
+    the names are given; 31 boxes now, 23 the program's), rule 5 and the
+    labels' box reworded (RENAMED: its tick follows), and a table "Your
+    drives" whose last column the program fills in - in the copy in
+    Obsidian too (`markdown_keeping`; `normal` blanks those cells, so a
+    copy with names is still the program's own text; none given, names
+    written into the copy by hand stay). The 2026-11-10 (1) text is known
+    (7750294922806221425);
+  - Windows: a drive called what SPARE was named here is known as SPARE
+    just as one called SPARE is (`names::is_spare_label`, in the ten
+    places that looked for the name SPARE), should the person rename it in
+    File Explorer to match its label.
+- Decided here, to tell the user: the program keeps its own words and puts
+  the name beside them (the checklist and its copy are written with them,
+  and the rules are about what a drive is, not what it is called); three
+  drives are named, not the USB stick for the Mac nor the old 1 TB drive
+  (the section says so); the hand-off's READ ME for the Mac is not
+  changed.
+- Version 2026-11-13 (1).
+- "Nothing breaks": with `ARP_NAMES=1` both browser checks make their
+  whole run with the drives named (the rehearsal, Start, What is left,
+  Finalise, the checklist, the steps tab), and every check passes just as
+  without; CI runs both ways on both systems (report 86-pages-named.txt).
+  And with the names forgotten the page's own parts are compared with
+  what they were before: identical.
+- Tests here: unit tests 242 (and 242 with overflow checks; new: the
+  names' rules, the settings, SPARE's name in Windows, a name beside the
+  program's word, the copy's table and round trip, the new box and the
+  labels' tick following its rewording, the action end to end, 4,000
+  random sets of names, a name with PowerShell's own signs in a
+  notification), auto_check 133/133 (5 new), auto_ui_check 74/74 (15 new)
+  and ui_check 67/67 with both fonts, the same with the drives named
+  75/75 and 68/68, test_mapcheck 94/94, resume_check (seeds 5 and 179, 20
+  interruptions each) 17/17. Lint: no new warning.
+- Tried on a copy of the PC's own files as they were on 13 Nov (the ticks,
+  the settings, the copy in Obsidian MD files): 31 boxes, the 8 ticks
+  kept, the copy brought up to the new text; names given there: the box
+  ticked, the table filled in.
+
 ## Not done / ideas for later
 
 - A FAT-chained file whose chain passes through a FAT entry ddrescue never

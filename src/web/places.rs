@@ -126,7 +126,7 @@ fn stale(added: &[String], targets: &[String]) -> Vec<String> {
 fn spare_letter(app: &Arc<Mutex<App>>) -> String {
     crate::win::drives()
         .into_iter()
-        .find(|d| d.label.eq_ignore_ascii_case("SPARE"))
+        .find(|d| crate::names::is_spare_label(&d.label))
         .map(|d| d.letter)
         .unwrap_or_else(|| lock(app).setting("spare_letter"))
 }

@@ -3,6 +3,10 @@
 // the way a person would: every step, start to finish. Takes screenshots.
 //
 //   node tools/ui_check.js <recovery-probe> <work folder> <test disk image> <mapfile>
+//
+// With ARP_NAMES=1 in the environment, the whole run is made with the drives
+// named (1. Get ready: Your drives): every check must pass just the same with
+// the person's names shown beside the program's words all over the page.
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -116,6 +120,16 @@ const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok 
   // The page opens on Automatic; the checklist is built in, in its own tab.
   await page.waitForSelector("#view-auto:not([hidden]) #b-ready", { timeout: 10000 });
   check(true, "the page opens on the Automatic tab");
+  if (process.env.ARP_NAMES === "1") {
+    await page.waitForFunction(() => typeof S !== "undefined" && S && typeof CL !== "undefined" && CL && CLS, null, { timeout: 15000 });
+    await page.evaluate(async () => {
+      await act({ action: "names", recovered: "Blue Samsung", copy: "Big grey one", spare: "Dad's old drive" });
+      await refresh();
+      await loadChecklist();
+    });
+    const on = await page.waitForFunction(() => document.querySelectorAll(".dname:not(.keep)").length > 10, null, { timeout: 10000 }).then(() => true, () => false);
+    check(on, "this run is made with the drives named: every check below is made with the names shown all over the page");
+  }
   await page.click("#tab-checklist");
   await page.waitForSelector("#view-checklist:not([hidden]) input.tick", { timeout: 10000 });
   await page.waitForFunction(() => /\(\d+ of \d+\)/.test(document.getElementById("tab-count").textContent), null, { timeout: 10000 });

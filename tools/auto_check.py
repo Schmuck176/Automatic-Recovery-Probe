@@ -565,6 +565,37 @@ def main():
         back = prog.do(action="tick", i=str(i_mac), on="0")["state"]
         check(st["state"] == "done" and st["when"] and next(m for m in back["mine"] if m["i"] == i_mac)["state"] == "todo",
               "ticked by the person it is done (with when), and unticked it is to do again")
+        # The person's own names for the drives (1. Get ready: Your drives):
+        # refused when they would mix the drives up; kept, tidied; ticked in
+        # the checklist and listed in its copy. (They stay given from here
+        # on: Finalise and the rest run with the drives named.)
+        settings = lambda: prog.get("api/state")["settings"]
+        bad = [prog.do(action="names", recovered="Mine", copy="mine", spare="Other"),
+               prog.do(action="names", recovered="SPARE", copy="", spare=""),
+               prog.do(action="names", recovered="x" * 41, copy="", spare=""),
+               prog.do(action="set", name_spare="Other")]
+        said = [b.get("error") or "" for b in bad]
+        s0 = settings()
+        check(not any(b.get("ok") for b in bad) and "same name" in said[0] and "what the program calls SPARE" in said[1]
+              and "41 characters long" in said[2] and not any(k.startswith("name") for k in s0),
+              "names that would mix the drives up (or are too long for a label) are refused with why, and nothing is kept")
+        i_names = next(i for i, it in enumerate(cl_page["items"]) if it.get("sees") == "names")
+        check(prog.get("api/checklist-state")["ticked"][i_names] == 0, "no names given: the checklist's box for them is not ticked")
+        ok = prog.do(action="names", recovered="  Blue   one ", copy="", spare="Dad's | drive")
+        s1 = settings()
+        check(ok.get("ok") and s1.get("name_recovered") == "Blue one" and s1.get("name_copy") == "4 TB COPY"
+              and s1.get("name_spare") == "Dad's | drive" and s1.get("names_at"),
+              "names given are kept, tidied, and one left empty takes the suggestion (%s | %s | %s)"
+              % (s1.get("name_recovered"), s1.get("name_copy"), s1.get("name_spare")))
+        cs2 = prog.get("api/checklist-state")
+        copy_text = open(cs2["copy"], encoding="utf-8").read()
+        check(cs2["ticked"][i_names] == 1
+              and any(x["i"] == i_names and x["text"].startswith("Your drives have their names") for x in cs2["seen"])
+              and "- [x] **Your drives:**" in copy_text and "for the image | Blue one |" in copy_text
+              and "the whole time | 4 TB COPY |" in copy_text and "your copied files | Dad's \\| drive |" in copy_text,
+              "the checklist ticks Your drives, and its copy lists the names")
+        saved_state = open(os.path.join(home, "results", "recovery-probe-state.txt"), encoding="utf-8").read()
+        check("S\tname_recovered\tBlue one" in saved_state and "S\tname_spare\tDad's | drive" in saved_state, "the names are kept with the program's other settings")
         # What just happened: the page's lines, kept in the results folder too.
         feed = [e["text"] for e in s.get("feed") or []]
         check(feed and feed[0].startswith("Start is done"), "what just happened ends with Start done (%s)" % feed[:1])

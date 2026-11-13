@@ -550,6 +550,65 @@ ul.minelinks li > div { display: flex; flex-wrap: wrap; align-items: baseline; g
 ul.minelinks a { text-decoration: none; font-weight: 600; }
 ul.minelinks .mk { display: inline-flex; width: 1.4em; color: var(--turn); }
 ul.minelinks li.done .mk, ul.minelinks li.none .mk { color: var(--read); }
+/* Your own name for a drive, beside the program's word for it: a small
+   label, like the one on the drive itself. Its words are drawn from
+   data-name, so the text of the page stays exactly what it was (and what
+   reads it - a search, a screen copy, the checks - reads the same). It takes
+   the colour of the words it is in, so it sits right on a button, in a
+   warning, in the dark. */
+.dname {
+  display: inline-flex; align-items: baseline; max-width: 100%; margin: 0 0.12em 0 0.32em; padding: 0.02em 0.5em 0.02em 0.42em;
+  vertical-align: baseline; border: 1px solid color-mix(in srgb, currentColor 40%, transparent); border-radius: 0.3em 0.8em 0.8em 0.3em;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-family: var(--head); font-size: 0.84em; font-weight: 600; font-style: normal; line-height: 1.4; letter-spacing: 0.01em;
+  text-transform: none; text-decoration: none; cursor: help;
+}
+/* (The hole of the label. A label stays in one piece: one too long for
+   the line it is on is cut short there, and says the rest when pointed at.) */
+.dname::before {
+  content: ""; flex: none; align-self: center; width: 0.4em; height: 0.4em; margin-right: 0.42em;
+  border: 1px solid currentColor; border-radius: 50%; opacity: 0.75;
+}
+.dname::after { content: attr(data-name); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* (In a part's heading: smaller than the heading's own letters.) */
+h1 .dname, h2 .dname { font-size: 0.64em; vertical-align: 0.14em; font-stretch: 100%; }
+/* Your drives (1. Get ready): what the program expects each drive to be,
+   and the name you give it. */
+.drives { margin-top: 18px; padding: 16px 18px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; }
+.drives-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.drives-head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.16rem; }
+.drives-head h3 .ic { color: var(--act); flex: none; }
+.drives > p { margin: 8px 0 0; max-width: 80ch; }
+/* (One drive to a row: what it is on the left, its name on the right - or
+   underneath, where there is no room beside.) */
+ol.drivecards { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 12px; }
+.drivecard { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 22px; min-width: 0; padding: 16px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); }
+.dc-main { flex: 3 1 340px; min-width: 0; }
+.dc-head { display: flex; align-items: center; gap: 12px; }
+.dc-ic { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; flex: none; background: var(--sheet); border: 1px solid var(--rule); color: var(--act); }
+.dc-ic .ic { width: 23px; height: 23px; }
+.dc-head h4 { margin: 0; font-size: 1.1rem; }
+.dc-size { font: 600 0.86rem/1.3 var(--head); color: var(--ink-soft); }
+.drivecard dl { margin: 4px 0 0; }
+.drivecard dt { margin-top: 10px; font: 600 0.86rem/1.35 var(--head); color: var(--ink-soft); }
+.drivecard dd { margin: 1px 0 0; font-size: 0.93rem; line-height: 1.45; max-width: 68ch; }
+.dc-name { flex: 1 1 230px; min-width: 0; padding: 12px 14px 12px; border-radius: 10px; background: var(--sheet); border: 1px solid var(--rule); }
+.dc-name label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.dc-name label .ic { color: var(--act); width: 1.05em; height: 1.05em; }
+.dc-name input { margin-top: 6px; font-family: var(--head); font-weight: 600; letter-spacing: 0.01em; }
+.dc-name input::placeholder { font-weight: 400; color: var(--quiet); }
+.dc-name .hint { margin: 7px 0 0; max-width: none; font-size: 0.86rem; color: var(--ink-soft); min-height: 1.5em; }
+.drives > label.check { margin-top: 12px; max-width: none; }
+/* The names to write on the labels: in the box for the labels. */
+.towrite { margin: 8px 0 2px; padding: 9px 12px; border-radius: 8px; background: var(--paper); border: 1px dashed var(--rule-strong); }
+.towrite > p { margin: 0; max-width: none; }
+.towrite ul, .checklist .towrite ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.towrite li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.towrite li .ic { width: 1em; height: 1em; color: var(--ink-soft); align-self: center; }
+.towrite li b { font: 600 1.02rem/1.3 var(--head); overflow-wrap: anywhere; }
+.towrite .row { margin-top: 8px; }
+.checklist td.dn { font: 600 1rem/1.3 var(--head); overflow-wrap: anywhere; }
+.checklist td.dn.none { font: 400 0.875rem var(--body); color: var(--ink-soft); }
 /* The same boxes in the program's own parts (5. What is left, 8.
    Afterwards), each with its tick box. */
 .yoursdo { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--turn-bg); border: 1px solid var(--turn-line); }
@@ -896,10 +955,11 @@ PERFORMANCE OF THIS SOFTWARE. -->
 <symbol id="i-rotate-ccw-square" viewBox="0 0 24 24"><path d="M20 9V7a2 2 0 0 0-2-2h-6"/><path d="m15 2-3 3 3 3"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="i-unplug" viewBox="0 0 24 24"><path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
 <symbol id="i-monitor-cog" viewBox="0 0 24 24"><path d="M12 17v4"/><path d="m14.305 7.53.923-.382"/><path d="m15.228 4.852-.923-.383"/><path d="m16.852 3.228-.383-.924"/><path d="m16.852 8.772-.383.923"/><path d="m19.148 3.228.383-.924"/><path d="m19.53 9.696-.382-.924"/><path d="m20.772 4.852.924-.383"/><path d="m20.772 7.148.924.383"/><path d="M22 13v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><path d="M8 21h8"/><circle cx="18" cy="6" r="3"/></symbol>
 </defs></svg>
 <div class="shell">
-  <header class="masthead">
+  <header class="masthead" data-nonames="1">
     <div class="brand">
       <span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="#i-hard-drive"></use></svg></span>
       <div>
@@ -921,7 +981,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
 
   <div class="layout">
     <div class="side">
-      <nav class="rail" id="rail" aria-label="Where you are"></nav>
+      <nav class="rail" id="rail" aria-label="Where you are" data-nonames="1"></nav>
       <aside class="now" id="now" aria-label="What is happening now">
         <div class="now-card">
           <div class="now-head" id="now-head"></div>
@@ -948,7 +1008,7 @@ PERFORMANCE OF THIS SOFTWARE. -->
 
       <div id="view-auto" role="tabpanel" aria-labelledby="tab-auto">
         <section class="journey" aria-labelledby="journey-title">
-          <div class="journey-head">
+          <div class="journey-head" data-nonames="1">
             <h2 id="journey-title">Where your files go</h2>
             <p>The recovered SSD is read once and never written to. Everything after that works on copies.</p>
           </div>
@@ -965,6 +1025,55 @@ PERFORMANCE OF THIS SOFTWARE. -->
               <button class="second" id="b-ready-test"><svg class="ic" aria-hidden="true"><use href="#i-flask-conical"></use></svg>Run the self-test</button>
             </div>
             <div id="ar-ready"></div>
+            <section class="drives" id="a-drives" data-nonames="1" aria-labelledby="drives-title">
+              <div class="drives-head"><h3 id="drives-title"><svg class="ic" aria-hidden="true"><use href="#i-tag"></use></svg>Your drives: what each one is, and the name you give it</h3><span class="state" id="ast-drives"></span></div>
+              <p>The program works with three drives that you plug in, and has its own word for each. Read what it expects each one to be, then give each a name of your own: whatever you like, as long as the three differ. That name is what you write on the drive's label. From then on this page shows your name beside its own word, wherever it asks for a drive.</p>
+              <ol class="drivecards">
+                <li class="drivecard" data-drive="recovered">
+                  <div class="dc-main"><div class="dc-head"><span class="dc-ic"><svg class="ic" aria-hidden="true"><use href="#i-hard-drive"></use></svg></span><div><h4>The recovered SSD</h4><span class="dc-size">2 TB</span></div></div>
+                  <dl>
+                    <dt>What it is</dt><dd>The SSD that ddrescue copied your dead 1 TB drive onto. Until the image is made and checked, this one and the 4 TB SSD are the only copies of your files.</dd>
+                    <dt>When it is plugged in</dt><dd>Once, in 4. Start, when the page asks for it: in the USB case SPARE was rehearsed in. It arrives switched off, is read once to make the image, and is never written to. Then it goes back in its drawer for good.</dd>
+                    <dt>How the program knows it</dt><dd>By what is on it: a drive laid out exactly as your old one was<span id="dn-old-size"></span>, which it checks against the mapfile. The 4 TB SSD looks the same to it, so only the label tells those two apart.</dd>
+                  </dl></div>
+                  <div class="dc-name"><label for="dn-recovered"><svg class="ic" aria-hidden="true"><use href="#i-tag"></use></svg>Your name for it</label>
+                    <input type="text" id="dn-recovered" maxlength="40" placeholder="RECOVERED 2 TB" autocomplete="off" spellcheck="false">
+                    <p class="hint" id="dp-recovered"></p></div>
+                </li>
+                <li class="drivecard" data-drive="copy">
+                  <div class="dc-main"><div class="dc-head"><span class="dc-ic"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg></span><div><h4>The 4 TB SSD</h4><span class="dc-size">4 TB</span></div></div>
+                  <dl>
+                    <dt>What it is</dt><dd>A copy of the recovered SSD, made before: what you fall back on, should the recovered SSD fail.</dd>
+                    <dt>When it is plugged in</dt><dd>Not at all. It stays in its drawer the whole time. Should the program ever see it plugged in together with the recovered SSD, it refuses to go on (rule 1 of the checklist).</dd>
+                    <dt>How the program knows it</dt><dd>It cannot tell it from the recovered SSD: both hold your old drive, exactly. So of the three, this label matters most.</dd>
+                  </dl></div>
+                  <div class="dc-name"><label for="dn-copy"><svg class="ic" aria-hidden="true"><use href="#i-tag"></use></svg>Your name for it</label>
+                    <input type="text" id="dn-copy" maxlength="40" placeholder="4 TB COPY" autocomplete="off" spellcheck="false">
+                    <p class="hint" id="dp-copy"></p></div>
+                </li>
+                <li class="drivecard" data-drive="spare">
+                  <div class="dc-main"><div class="dc-head"><span class="dc-ic"><svg class="ic" aria-hidden="true"><use href="#i-usb"></use></svg></span><div><h4>SPARE</h4><span class="dc-size">1 TB</span></div></div>
+                  <dl>
+                    <dt>What it is</dt><dd>The empty 1 TB drive, formatted NTFS, that shows as SPARE in File Explorer.</dd>
+                    <dt>When it is plugged in</dt><dd>First in 2. The rehearsal, where it stands in for the recovered SSD in the same USB case. Then from 4. Start on: your copied files (WORK) and the repairs (REPAIR) go on it. In the end it is the copy you keep somewhere else.</dd>
+                    <dt>How the program knows it</dt><dd>By its name in Windows, SPARE, and after the rehearsal by its make and size too. That name can stay as it is: the name you give here is for the label. (If you do rename it in File Explorer, use exactly the name you give here, and the program still knows it.)</dd>
+                  </dl></div>
+                  <div class="dc-name"><label for="dn-spare"><svg class="ic" aria-hidden="true"><use href="#i-tag"></use></svg>Your name for it</label>
+                    <input type="text" id="dn-spare" maxlength="40" placeholder="SPARE 1 TB" autocomplete="off" spellcheck="false">
+                    <p class="hint" id="dp-spare"></p></div>
+                </li>
+              </ol>
+              <div class="row">
+                <button id="b-names-save"><svg class="ic" aria-hidden="true"><use href="#i-check"></use></svg>Save the names</button>
+                <button class="second" id="b-names-suggest"><svg class="ic" aria-hidden="true"><use href="#i-tag"></use></svg>Use the suggested names</button>
+              </div>
+              <label class="check" id="names-show-row" hidden><input type="checkbox" id="names-show" checked> <span>Show my names beside the program's words on this page</span></label>
+              <div id="ar-drives" role="status"></div>
+              <details class="more"><summary><svg class="ic" aria-hidden="true"><use href="#i-info"></use></svg>What a name changes, and what it does not</summary>
+                <div><p>A name is only what you call a drive. Nothing on any drive is changed for it: the recovered SSD and the 4 TB SSD are never written to, and SPARE keeps the name it has in Windows. The program goes on using its own words too (the checklist is written with them), with your name beside them. You can change the names whenever you like; the labels on the drives are then yours to change as well.</p>
+                <p>Two more things get plugged in that need no name here: a USB stick for the Mac (only if files are left for the Mac, in 5), and your old 1 TB drive itself, which this program never needs: keep it apart from these three.</p></div>
+              </details>
+            </section>
             <div id="ar-ready-mine"></div>
           </li>
 
@@ -2300,7 +2409,7 @@ function renderFeed() {
 function render() {
   if (!S) return;
   renderTop(); renderAuto(); renderTest(); renderMapStep(); renderConnect(); renderImage(); renderCheck(); renderCopy(); renderScan(); renderVerify(); renderRepair(); renderFinish(); renderJob(); drawMap();
-  renderPlaces(); renderJourney(); renderBack(); renderMine(); renderNow(); renderRail(); renderFeed(); renderTitle();
+  renderPlaces(); renderJourney(); renderBack(); renderMine(); renderNow(); renderRail(); renderFeed(); renderTitle(); renderNames();
   document.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => act({ action: "open", path: b.dataset.open }).catch((e) => alertNote(e)));
 }
 function alertNote(e) { console.log(e); }
@@ -2752,11 +2861,12 @@ function renderAuto() {
     } else if (verdict !== "passed") {
       // (To see for yourself: Windows' own answer, diskpart's SAN policy.)
       if (windows) h += `<div class="row"><span class="small soft">${ic("shield-check")} Windows now leaves new disks switched off.</span>${showMe("answers", "Show what Windows says")}</div>`;
-      // SPARE: a drive labelled SPARE; switched off with no drive letters
+      // SPARE: a drive labelled SPARE (or with the name given to it, if it
+      // was renamed in Windows too); switched off with no drive letters
       // (the server checks it is the disk the rehearsal saw before); or the
       // disk checked as SPARE before, still empty.
       const drv = (d) => d.drives || [];
-      const isSpare = (d) => drv(d).some((v) => (v.label || "").toUpperCase() === "SPARE") || (!drv(d).length && d.offline === true)
+      const isSpare = (d) => drv(d).some((v) => isSpareLabel(v.label)) || (!drv(d).length && d.offline === true)
         || (`${d.model}|${d.size}` === setting("spare_disk") && drv(d).length && drv(d).every((v) => v.total > 0 && v.total - v.free < 2 * 1024 ** 3));
       const cands = disks.filter((d) => !d.system && !isCopy(d) && !d.test);
       const offNow = verdict === "switch-off" && cands.find((d) => String(d.number) === setting("spare_number") && d.offline === false);
@@ -2945,6 +3055,7 @@ function mineItem(m, where) {
     `<div class="mine-head"><label for="${id}">${esc(m.it.title)}</label>${on ? fact("good", "check", "Ticked" + (m.when ? " " + esc(m.when) : "")) : ""}</div>` +
     (m.note && !on ? `<p class="mine-note">${esc(m.note)}</p>` : "") +
     `<div class="mine-text">${m.it.html}</div>` +
+    (m.it.name === "labels" ? namesToWrite(where) : "") +
     `<p class="small soft mine-why">${ic("info")} Why it is yours to tick: ${esc(m.it.why)}</p></li>`;
 }
 // Before any drive goes in: its own label.
@@ -2989,7 +3100,7 @@ function mineDue() {
   const after = afterDue() ? (mineOf("after") || []).filter((m) => m.state === "todo") : [];
   // (Where "Show me" goes: the first of them, in the tab that is open.)
   const part = ready.length ? "ready" : left.length ? "left" : "after";
-  const goto = { auto: { ready: "a-ready", left: "a-left", after: "a-after" }, steps: { ready: "s-connect", left: "s-repair", after: "s-finish" } };
+  const goto = { auto: { ready: "a-drives", left: "a-left", after: "a-after" }, steps: { ready: "s-connect", left: "s-repair", after: "s-finish" } };
   return { ready, left, after, all: ready.concat(left, after), go: (v) => (goto[v] || goto.auto)[part] };
 }
 function renderMine() {
@@ -3030,6 +3141,206 @@ document.addEventListener("change", async (e) => {
   }
   renderChecklist();
 });
+
+// ------------------------------------------------------------ your own names for the drives
+// The program has its own words for the three drives you plug in. What you
+// write on each drive's label is yours to choose: 1. Get ready says what
+// each drive is and takes a name for it (the action "names" checks the three
+// against each other and keeps them; names.rs). From then on the page shows
+// your name as a small label beside the program's word for the drive - the
+// first time each paragraph, button or heading names it - everywhere, by one
+// mechanism, so that no place is forgotten. The page's own text is never
+// changed: the label is an empty element whose words CSS draws from
+// data-name. None given: the page is left exactly as it is.
+const DRIVES = [
+  { key: "recovered", setting: "name_recovered", word: "the recovered SSD", find: "recovered SSD", suggest: "RECOVERED 2 TB" },
+  { key: "copy", setting: "name_copy", word: "the 4 TB SSD", find: "4 TB SSD", suggest: "4 TB COPY" },
+  { key: "spare", setting: "name_spare", word: "SPARE", find: "SPARE", suggest: "SPARE 1 TB" },
+];
+// The names given, by drive (null until they are given).
+function namesGiven() {
+  if (!setting("names_at")) return null;
+  const n = {};
+  for (const d of DRIVES) n[d.key] = setting(d.setting) || d.suggest;
+  return n;
+}
+// What SPARE may be called in Windows: SPARE, or the name given to it.
+function isSpareLabel(label) {
+  const l = String(label || "").trim().replace(/\s+/g, " ").toLowerCase(), g = namesGiven();
+  return l === "spare" || (!!g && !!l && l === g.spare.toLowerCase());
+}
+
+const NAME_RE = /recovered SSD|4 TB SSD|SPARE/;
+const NAME_SKIP = "script,style,textarea,input,select,option,svg,pre,.dname,.vh,[data-nonames]";
+const NAME_CODE = "code,kbd,samp,.path";
+const NAME_BLOCK = "p,li,h1,h2,h3,h4,h5,button,summary,td,th,label,dt,dd,figcaption,.msg-text,.fact,.how-title,.how-text,.state,.lead";
+const NAME_MORE = /[\p{L}\p{N}_\\/]/u; // part of a longer word, or of a path (SPARE\WORK is a folder)
+let namesNow = null;   // the names the page shows now, by drive (null: none)
+let namesKey = "null"; // the same as text, to see a change
+function nameLabel(d, name, keep) {
+  const c = document.createElement("span");
+  c.className = keep ? "dname keep" : "dname";
+  c.dataset.d = d.key;
+  c.dataset.name = name;
+  c.title = `Your name for ${d.word}`;
+  return c;
+}
+// One piece of the page's text: a label after the first place it names a
+// drive, unless its paragraph (button, heading...) has that drive's already.
+function nameText(node, names) {
+  let parent = node.parentElement;
+  if (!parent || parent.closest(NAME_SKIP)) return;
+  const code = parent.closest(NAME_CODE);
+  if (code) {
+    // (In code, only the drive's word alone - `SPARE` - and the label goes after it.)
+    const d = DRIVES.find((x) => code.textContent.trim() === x.find);
+    const block = d && code.parentElement && (code.parentElement.closest(NAME_BLOCK) || code.parentElement);
+    if (d && names[d.key] && block && !block.querySelector(`.dname[data-d="${d.key}"]`)) code.after(nameLabel(d, names[d.key]));
+    return;
+  }
+  const block = parent.closest(NAME_BLOCK) || parent;
+  const all = /(recovered SSD|4 TB SSD|SPARE)(['\u2019]s)?/g;
+  let m;
+  while ((m = all.exec(node.nodeValue))) {
+    const t = node.nodeValue, d = DRIVES.find((x) => x.find === m[1]), end = m.index + m[0].length;
+    if ((m.index && NAME_MORE.test(t[m.index - 1])) || (end < t.length && NAME_MORE.test(t[end]))) continue;
+    if (d.key === "spare" && t.startsWith(" 1 TB", end)) continue; // (the suggested label itself)
+    if (!names[d.key] || block.querySelector(`.dname[data-d="${d.key}"]`)) continue;
+    // (Straight inside a row or grid of things, a label would become a thing
+    // of its own and pull the words apart: the words are kept together first.)
+    if (/flex|grid|none/.test(getComputedStyle(parent).display)) {
+      const w = document.createElement("span");
+      w.className = "dwrap";
+      node.before(w);
+      w.appendChild(node);
+      parent = w;
+    }
+    const rest = node.splitText(end);
+    rest.before(nameLabel(d, names[d.key]));
+    node = rest;
+    all.lastIndex = 0;
+  }
+}
+function nameIn(root, names) {
+  if (root.nodeType === 3) { if (root.isConnected && NAME_RE.test(root.nodeValue)) nameText(root, names); return; }
+  if (root.nodeType !== 1 || !root.isConnected) return;
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const found = [];
+  while (walk.nextNode()) if (NAME_RE.test(walk.currentNode.nodeValue)) found.push(walk.currentNode);
+  for (const n of found) if (n.isConnected) nameText(n, names);
+}
+// Whatever the page draws from now on gets its labels too.
+const nameWatch = new MutationObserver((changes) => {
+  if (!namesNow) return;
+  for (const c of changes) {
+    if (c.type === "characterData") nameIn(c.target, namesNow);
+    else c.addedNodes.forEach((n) => nameIn(n, namesNow));
+  }
+  nameWatch.takeRecords(); // (the labels just added are not looked at again)
+});
+// The labels taken off again: the page as it was.
+function namesOff() {
+  document.querySelectorAll(".dname:not(.keep)").forEach((c) => { const p = c.parentNode; c.remove(); p.normalize(); });
+  document.querySelectorAll(".dwrap").forEach((w) => { const p = w.parentNode; w.replaceWith(...w.childNodes); p.normalize(); });
+}
+// The names as they stand now, on the page: none given (or not to be shown,
+// or a name that is the program's own word), no label.
+function applyNames() {
+  const g = namesGiven();
+  let shown = null;
+  if (g && setting("names_show") !== "0") {
+    shown = {};
+    for (const d of DRIVES) shown[d.key] = [d.find.toLowerCase(), d.word.toLowerCase()].includes(g[d.key].toLowerCase()) ? null : g[d.key];
+    if (!DRIVES.some((d) => shown[d.key])) shown = null;
+  }
+  const key = JSON.stringify(shown);
+  if (key === namesKey) return;
+  namesKey = key;
+  nameWatch.disconnect();
+  namesOff();
+  namesNow = shown;
+  if (!shown) return;
+  nameIn(document.body, shown);
+  nameWatch.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
+// The names to write on the labels: in the box for the labels (1. Get ready,
+// step 3, the checklist).
+function namesToWrite(where) {
+  const g = namesGiven();
+  const list = DRIVES.map((d) => `<li><span class="soft">${esc(d.word.replace(/^the /, "The "))}</span>${ic("arrow-right")}<b>${esc(g ? g[d.key] : d.suggest)}</b></li>`).join("");
+  const there = where === "a" ? "Your drives, just above" : "1. Get ready, under Your drives";
+  return `<div class="towrite" data-nonames="1"><p class="small">${g ? `<b>Write these on the labels:</b> the names you gave your drives (${esc(there)}).`
+    : `<b>You have not named your drives yet.</b> Do that first, in ${esc(there)}: until then, these are the names the program suggests.`}</p><ul>${list}</ul>` +
+    (where === "a" ? "" : `<div class="row"><button class="second" data-names-go="1">${ic("tag")}${g ? "Change the names" : "Name your drives"}</button></div>`) + `</div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-names-go]");
+  if (!b) return;
+  showView("auto", false);
+  goTo("a-drives");
+});
+// The section itself: the fields show the names kept (unless one is being
+// typed in), each with how it will look on the page.
+function nameFieldsChanged() {
+  const g = namesGiven();
+  return DRIVES.some((d) => $("dn-" + d.key).value.trim().replace(/\s+/g, " ") !== (g ? g[d.key] : ""));
+}
+function renderNames() {
+  const g = namesGiven();
+  for (const d of DRIVES) {
+    const el = $("dn-" + d.key);
+    if (!el.dataset.touched && document.activeElement !== el) { const v = g ? g[d.key] : ""; if (el.value !== v) el.value = v; }
+    // How it will look: the program's word, and the name as typed (or the suggestion).
+    const typed = el.value.trim().replace(/\s+/g, " ");
+    const hint = $("dp-" + d.key), key = typed + "|" + (g ? g[d.key] : "");
+    if (hint.dataset.key !== key) {
+      hint.dataset.key = key;
+      hint.textContent = typed ? "On this page: " + d.word + " " : `Left empty, it takes the program's suggestion: ${d.suggest}.`;
+      if (typed) hint.appendChild(nameLabel(d, typed, true));
+    }
+  }
+  const changed = nameFieldsChanged();
+  const st = $("ast-drives");
+  const [cls, text] = changed && (g || DRIVES.some((d) => $("dn-" + d.key).value.trim())) ? ["turn", "Not saved yet"] : g ? ["done", "Named"] : ["", "Not named yet"];
+  st.className = "state " + cls;
+  put(st, stateHtml(cls, text));
+  $("names-show-row").hidden = !g;
+  $("names-show").checked = setting("names_show") !== "0";
+  const od = domain();
+  put($("dn-old-size"), od ? ` (${esc(size(od))})` : "");
+  put($("ar-drives"), noteHtml("drives"));
+  // In the checklist: the table of the drives.
+  document.querySelectorAll("#cl-body td.dn").forEach((td) => {
+    const v = g ? g[td.dataset.drive] : "";
+    td.classList.toggle("none", !v);
+    const t = v || "not named yet";
+    if (td.textContent !== t) td.textContent = t;
+  });
+  applyNames();
+}
+async function saveNames(values) {
+  note("drives", "", "");
+  $("b-names-save").disabled = $("b-names-suggest").disabled = true;
+  try {
+    await act(Object.assign({ action: "names" }, values));
+    for (const d of DRIVES) delete $("dn-" + d.key).dataset.touched;
+    await refresh();
+    await loadChecklist();
+    note("drives", "ok", "Saved. Now write each name on a label on the drive itself (not only on its case), and tick the box below.");
+  } catch (err) { note("drives", "err", err.message); }
+  $("b-names-save").disabled = $("b-names-suggest").disabled = false;
+}
+for (const d of DRIVES) {
+  const el = $("dn-" + d.key);
+  el.addEventListener("input", () => { el.dataset.touched = "1"; renderNames(); });
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") $("b-names-save").click(); });
+}
+$("b-names-save").onclick = () => saveNames(Object.fromEntries(DRIVES.map((d) => [d.key, $("dn-" + d.key).value])));
+$("b-names-suggest").onclick = () => {
+  for (const d of DRIVES) $("dn-" + d.key).value = d.suggest;
+  saveNames(Object.fromEntries(DRIVES.map((d) => [d.key, d.suggest])));
+};
+$("names-show").addEventListener("change", () => save({ names_show: $("names-show").checked ? "1" : "0" }).catch((err) => note("drives", "err", err.message)));
 
 // Where the files go: the recovered SSD, the image, the copies, the repairs,
 // the second copy - each lit up as Start gets it done.
@@ -3721,6 +4032,15 @@ function renderChecklist() {
       if (!wn) { wn = document.createElement("div"); wn.className = "whynote"; li.appendChild(wn); }
       wn.textContent = why;
     } else if (wn) wn.remove();
+    // The drives' names: the box that asks for them goes to them, and the
+    // box for the labels says what to write.
+    const what = CL.items[i].sees === "names" ? "go" : CL.items[i].name === "labels" ? "write" : "";
+    if (what) {
+      let nb = li.querySelector(".namesbox");
+      if (!nb) { nb = document.createElement("div"); nb.className = "namesbox"; li.appendChild(nb); }
+      put(nb, what === "write" ? namesToWrite("c")
+        : `<div class="row"><button class="second" data-names-go="1">${ic("tag")}${namesGiven() ? "Change the names" : "Name your drives"}</button></div>`);
+    }
     // Ticked by the program: what it saw.
     let sn = li.querySelector(".seennote");
     if (seen[i] && on) {

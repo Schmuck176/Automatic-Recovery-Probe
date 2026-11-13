@@ -138,9 +138,9 @@ The parts of the Automatic tab:
    Start sets what it needs again when it carries on). Step 9 of the
    program's steps has the same button, by the same rule.
 
-The checklist (now 30 boxes, `docs/automatic-checklist.md`) and the program's
+The checklist (now 31 boxes, `docs/automatic-checklist.md`) and the program's
 steps one at a time are the other two tabs. The checklist ticks itself where the
-program can see a box done - 22 of the 30, besides the 3 checkpoints that tick
+program can see a box done - 23 of the 31, besides the 3 checkpoints that tick
 when their safety check passes - each with what it saw beside it, and its copy
 in Obsidian follows; a box unticked by hand stays so until the program sees it
 done again. Every box says who ticks it. The boxes only the person can tick -
@@ -155,7 +155,23 @@ tab where its turn comes, with its own tick box (the same box): the labels in
 1. Get ready, what is left for the person in 5. What is left, and the rest in
 a part of their own after 7, **8. Afterwards: what only you can
 do**; the parts' states and "Now" count them ("Yours: 2 to do"), and the steps
-tab shows them in step 3, in step 8 and at the end of step 9. The page shows each stage's results
+tab shows them in step 3, in step 8 and at the end of step 9.
+
+What the labels say is the person's to choose. **1. Get ready** has a section,
+**Your drives**, that first says what the program expects each of the three
+drives to be (what it is, when it is plugged in, how the program knows it) and
+then takes a name for each - anything that fits on a label, as long as the
+three differ and none is the program's word for another (`src/names.rs`; one
+left empty takes the checklist's suggestion). A name is only what the person
+calls the drive: nothing on any drive is changed. From then on the page shows
+each name as a small label beside the program's own word for the drive - the
+first time each paragraph, button or heading names it, everywhere, by one
+mechanism in `ui.html` that never changes the page's own text (the label's
+words are drawn by CSS) - the notifications say it, the box for the labels
+says what to write, the checklist ticks its box "Your drives" and lists the
+names in a table, in its copy too, and a drive called that in Windows is known
+as SPARE just as one called SPARE is, should the person rename it there. None
+given, the page is exactly as it was. The page shows each stage's results
 in the steps tab as if its button had been clicked, and both programs read the
 same results folder, so Recovery Probe can carry on from anything this one did.
 

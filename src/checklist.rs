@@ -34,6 +34,11 @@ pub const TICKS_NAME: &str = "automatic-checklist-ticks.txt";
 /// Lines whose wording changed since a checklist the person has ticked:
 /// (old, new), so a tick follows its line.
 const RENAMED: &[(&str, &str)] = &[
+    // 2026-11-13 (1): the label says the name the person gave the drive.
+    (
+        "✋ **Label each drive itself** (rule 5), not only its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.",
+        "✋ **Label each drive itself** (rule 5), not only its case, with the name you gave it (the table below). `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.",
+    ),
     // 2026-11-10 (1): the boxes only the person can tick are marked ✋.
     (
         "🍎 **For the Mac** (iPhone photos, camera RAW, Pages/Numbers/Keynote), if there are any: copy the folder `1 For the Mac` onto a USB stick formatted exFAT. On the Mac, double-click `Repair on the Mac.command` on the stick (if the Mac refuses: right-click → Open → Open). It tries each file with the Mac's own decoders and saves what it repairs into `returned` on the stick. **Never** plug the recovered SSD or the 4 TB SSD into the Mac.",
@@ -161,6 +166,7 @@ const KNOWN_CHECKLISTS: &[u64] = &[
     11539334781635225096, // 2026-11-04 (3)
     7714998951816333085,  // 2026-11-04 (4)
     4259271601855601757,  // 2026-11-06 (1)
+    7750294922806221425,  // 2026-11-10 (1)
 ];
 const KNOWN_MANIFESTS: &[u64] = &[];
 
@@ -403,6 +409,7 @@ pub const SEEN: &[(&str, &str)] = &[
     ("selftest", "**Run the self-test.**"),
     ("aim", "**AIM Toolkit:**"),
     ("tools", "**The tools:**"),
+    ("names", "**Your drives:**"),
     ("newdisks", "**2. The rehearsal → First: make Windows leave new disks switched off.**"),
     ("spare_in", "Plug `SPARE` in **exactly the way"),
     ("rehearsal", "click **This is SPARE: check it**"),
@@ -831,11 +838,42 @@ fn fnv64(s: &str) -> u64 {
 }
 
 const NUMBERS_HEADER: &str = "| Files on the SSD | Size in all |";
+/// The table of the drives, whose last column the program fills in with the
+/// names the person gave them (names.rs).
+const DRIVES_HEADER: &str = "| Your name for it |";
 
-/// A text as it is apart from ticks, Your numbers and line endings.
+/// A row of the Your drives table up to the cell its name goes in ("> | The
+/// recovered SSD | 2 TB: ... |"): what the program wrote there, whatever the
+/// name after it.
+fn drives_row_start(l: &str) -> Option<&str> {
+    l.match_indices('|').nth(2).map(|(k, _)| &l[..=k])
+}
+
+/// The drive a row of that table is about (an index into names::DRIVES), by
+/// its first cell.
+fn drives_row_of(l: &str) -> Option<usize> {
+    let first = l.split('|').nth(1)?;
+    crate::names::DRIVES.iter().position(|d| first.contains(d.find))
+}
+
+/// Where the lines of a text are in the Your drives table: 1 just after its
+/// header, 2 in its rows.
+fn drives_step(l: &str, before: u8) -> u8 {
+    if l.contains(DRIVES_HEADER) {
+        1
+    } else if before >= 1 && l.starts_with("> |") {
+        2
+    } else {
+        0
+    }
+}
+
+/// A text as it is apart from ticks, Your numbers, the names in Your drives
+/// and line endings.
 fn normal(text: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut numbers_row = 0;
+    let mut drives = 0;
     for line in text.replace("\r\n", "\n").lines() {
         let mut l = line.trim_end().to_string();
         if let Some((indent, true, rest)) = box_parts(&l) {
@@ -844,10 +882,36 @@ fn normal(text: &str) -> String {
         if numbers_row == 2 && l.starts_with("> |") {
             l = "> |  |  |".to_string();
         }
+        if drives == 2 && l.starts_with("> |") {
+            if let Some(start) = drives_row_start(&l) {
+                l = format!("{start}  |");
+            }
+        }
         numbers_row = if l.contains(NUMBERS_HEADER) { 1 } else if numbers_row == 1 { 2 } else { 0 };
+        drives = drives_step(&l, drives);
         out.push(l);
     }
     out.join("\n").trim_end().to_string()
+}
+
+/// The Your drives rows of a copy, when a name is written in any of them
+/// (the program's from before, or the person's own).
+pub fn drives_rows_in(copy: &str) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut drives = 0;
+    for line in copy.replace("\r\n", "\n").lines() {
+        let l = line.trim_end();
+        if drives == 2 && l.starts_with("> |") {
+            rows.push(l.to_string());
+        }
+        drives = drives_step(l, drives);
+    }
+    let named = |l: &String| drives_row_start(l).is_some_and(|s| !l[s.len()..].trim().trim_end_matches('|').trim().is_empty());
+    if rows.iter().any(named) {
+        rows
+    } else {
+        Vec::new()
+    }
 }
 
 /// The Your numbers row of a copy, when something is written in it (the
@@ -867,17 +931,28 @@ pub fn numbers_row_in(copy: &str) -> Option<String> {
 
 /// The checklist with these ticks, and Your numbers filled in when known.
 pub fn markdown(text: &str, items: &[Item], done: &[bool], numbers: Option<(u64, u64)>) -> String {
-    markdown_keeping(text, items, done, numbers, None)
+    markdown_keeping(text, items, done, numbers, None, None, &[])
 }
 
 /// The same, with Your numbers row as `row` when the program has no numbers
 /// (what the copy has in it already: while a map check runs again, say, its
 /// numbers are not known, and the row was emptied - numbers the person had
-/// written in it too).
-pub fn markdown_keeping(text: &str, items: &[Item], done: &[bool], numbers: Option<(u64, u64)>, row: Option<&str>) -> String {
+/// written in it too). And Your drives: each drive's name as the person gave
+/// it (`names`, in names::DRIVES' order); none given, the rows the copy has
+/// already (`drives_rows`: names the person wrote into them by hand stay).
+pub fn markdown_keeping(
+    text: &str,
+    items: &[Item],
+    done: &[bool],
+    numbers: Option<(u64, u64)>,
+    row: Option<&str>,
+    names: Option<&[String; 3]>,
+    drives_rows: &[String],
+) -> String {
     let by_line: HashMap<usize, usize> = items.iter().enumerate().map(|(i, it)| (it.line, i)).collect();
     let mut out = String::with_capacity(text.len() + 256);
     let mut numbers_row = 0;
+    let mut drives = 0;
     for (n, line) in text.lines().enumerate() {
         let mut l = line.to_string();
         if let (Some(&i), Some((indent, _, rest))) = (by_line.get(&n), box_parts(line)) {
@@ -890,7 +965,23 @@ pub fn markdown_keeping(text: &str, items: &[Item], done: &[bool], numbers: Opti
                 l = r.to_string();
             }
         }
+        let in_drives = drives == 2 && l.starts_with("> |");
         numbers_row = if l.contains(NUMBERS_HEADER) { 1 } else if numbers_row == 1 { 2 } else { 0 };
+        drives = drives_step(&l, drives);
+        if in_drives {
+            if let Some(start) = drives_row_start(&l).map(str::to_string) {
+                match (names, drives_row_of(&l)) {
+                    (Some(names), Some(k)) => l = format!("{start} {} |", crate::names::md_cell(&names[k])),
+                    // (The copy's own row for the same drive.)
+                    (None, _) => {
+                        if let Some(kept) = drives_rows.iter().find(|r| drives_row_start(r) == Some(start.as_str())) {
+                            l = kept.clone();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
         out.push_str(&l);
         out.push('\n');
     }
@@ -1152,7 +1243,10 @@ fn blocks(
             };
             let head = cells(raw);
             let numbers = raw.contains(NUMBERS_HEADER);
-            out.push_str("<div class=\"tablewrap\"><table><tr>");
+            // (Your drives: the page fills the names in itself, and shows
+            // no name beside the program's words there - the table says it.)
+            let drives = raw.contains(DRIVES_HEADER.trim_start_matches(['|', ' ']));
+            out.push_str(if drives { "<div class=\"tablewrap\" data-nonames=\"1\"><table class=\"drives\"><tr>" } else { "<div class=\"tablewrap\"><table><tr>" });
             for c in &head {
                 out.push_str(&format!("<th>{}</th>", inline(c)));
             }
@@ -1160,10 +1254,14 @@ fn blocks(
             i += 2;
             while i < lines.len() && lines[i].1.starts_with('|') {
                 out.push_str("<tr>");
-                for (k, c) in cells(&lines[i].1).iter().enumerate() {
+                let row = cells(&lines[i].1);
+                let drive = if drives { crate::names::DRIVES.iter().find(|d| row.first().is_some_and(|c| c.contains(d.find))) } else { None };
+                for (k, c) in row.iter().enumerate() {
                     if numbers {
                         let which = if k == 0 { "files" } else { "bytes" };
                         out.push_str(&format!("<td class=\"num\" data-num=\"{which}\">{}</td>", inline(c)));
+                    } else if let (Some(d), true) = (drive, k + 1 == row.len()) {
+                        out.push_str(&format!("<td class=\"dn\" data-drive=\"{}\"></td>", d.key));
                     } else {
                         out.push_str(&format!("<td>{}</td>", inline(c)));
                     }
@@ -1271,19 +1369,22 @@ pub fn page_json(text: &str) -> String {
         .map(|p| format!("{{\"title\":{},\"number\":{}}}", json_str(&p.title), json_str(&p.number)))
         .collect();
     let who = who_ticks(&items);
+    let mut sees = seen_names(&items).into_iter();
     let it: Vec<String> = items
         .iter()
         .zip(&who)
         .map(|(i, w)| {
             let (name, title, why) = w.yours().unwrap_or(("", "", ""));
             format!(
-                "{{\"phase\":{},\"checkpoint\":{},\"text\":{},\"who\":\"{}\",\"name\":{},\"part\":\"{}\",\"title\":{},\"why\":{},\
-                 \"html\":{}}}",
+                "{{\"phase\":{},\"checkpoint\":{},\"text\":{},\"who\":\"{}\",\"name\":{},\"sees\":{},\"part\":\"{}\",\"title\":{},\
+                 \"why\":{},\"html\":{}}}",
                 i.phase,
                 i.checkpoint,
                 json_str(&i.key),
                 w.word(),
                 json_str(name),
+                // (What the program looks for to tick it, by name: SEEN.)
+                json_str(sees.next().flatten().unwrap_or("")),
                 w.part(),
                 json_str(title),
                 json_str(why),
@@ -1576,6 +1677,71 @@ mod tests {
         assert_ne!(normal(&md.replace("copy\n", "copy - my note: E:\n")), normal(DOC));
     }
 
+    /// Your drives: the table of the three drives, whose last column is the
+    /// name the person gave each one (names.rs). The program fills it in;
+    /// none given, what the copy says there stays.
+    #[test]
+    fn the_copy_lists_the_drives_names() {
+        let (_, items) = parse(TEXT);
+        let done = vec![false; items.len()];
+        let plain = markdown(TEXT, &items, &done, None);
+        assert_eq!(plain, TEXT, "nothing given: the text as it is");
+        assert!(plain.contains("> | The recovered SSD | 2 TB: the copy ddrescue made of your dead 1 TB drive. Plugged in once, for the image |  |\n"), "{plain}");
+        assert!(drives_rows_in(&plain).is_empty(), "no name in it yet");
+        // Given: each in its drive's row (a | in a name does not end its cell).
+        let names = ["Blue | one".to_string(), "Green".to_string(), "Dad's drive".to_string()];
+        let md = markdown_keeping(TEXT, &items, &done, None, None, Some(&names), &[]);
+        assert!(md.contains("Plugged in once, for the image | Blue \\| one |\n"), "{md}");
+        assert!(md.contains("> | The 4 TB SSD | A copy of the recovered SSD. It stays in its drawer the whole time | Green |\n"), "{md}");
+        assert!(md.contains("> | `SPARE` | 1 TB, empty, NTFS: for the rehearsal, then for your copied files | Dad's drive |\n"), "{md}");
+        assert_eq!(md.lines().count(), TEXT.lines().count());
+        // It is still the program's own text (ticks and line endings aside too):
+        // a copy with names in it is brought up to date like any other.
+        assert_eq!(normal(&md), normal(TEXT));
+        assert!(is_unedited(&md, None) && is_unedited(&md.replace('\n', "\r\n"), None));
+        assert_eq!(drives_rows_in(&md).len(), 3);
+        // Written again with other names, and with none known: the rows the
+        // copy has stay (the names from before, or the person's own).
+        let other = ["A".to_string(), "B".to_string(), "C".to_string()];
+        let again = markdown_keeping(TEXT, &items, &done, None, None, Some(&other), &drives_rows_in(&md));
+        assert!(again.contains("for the image | A |\n") && !again.contains("Blue"), "{again}");
+        let kept = markdown_keeping(TEXT, &items, &done, None, None, None, &drives_rows_in(&md));
+        assert_eq!(kept, md);
+        let by_hand = plain.replace("the whole time |  |", "the whole time | my green one |");
+        assert!(is_unedited(&by_hand, None), "a name written in by hand is not an edit to be kept from the program");
+        let rows = drives_rows_in(&by_hand);
+        assert_eq!(rows.len(), 3);
+        let kept = markdown_keeping(TEXT, &items, &done, None, None, None, &rows);
+        assert_eq!(kept, by_hand);
+        // Anything else written into the table is the person's own.
+        assert!(!is_unedited(&plain.replace("It stays in its drawer the whole time", "It stays at my mother's"), None));
+        // The page: the names' cells are filled in by it, and the table shows no labels beside the program's words.
+        let page = html(TEXT, &items);
+        assert!(page.contains("<div class=\"tablewrap\" data-nonames=\"1\"><table class=\"drives\">"), "{page}");
+        for key in ["recovered", "copy", "spare"] {
+            assert_eq!(page.matches(&format!("<td class=\"dn\" data-drive=\"{key}\"></td>")).count(), 1, "{key}");
+        }
+        assert_eq!(page.matches("data-num=").count(), 2, "Your numbers is as it was");
+        // The checklists delivered before have no such table: they hash as they did.
+        assert_eq!(drives_step("> | 96 | 341 KB |", 0), 0);
+    }
+
+    /// The box for naming the drives is the program's to tick (it sees the
+    /// names given); the label on each drive stays the person's, and a tick
+    /// made on it before it was reworded follows it.
+    #[test]
+    fn naming_the_drives_is_seen_and_the_labels_tick_follows_its_box() {
+        let (_, items) = parse(TEXT);
+        let names = seen_names(&items);
+        let k = names.iter().position(|n| *n == Some("names")).expect("the box");
+        assert!(items[k].key.starts_with("**Your drives:**"));
+        let labels = items.iter().position(|it| it.key.contains("**Label each drive itself**")).unwrap();
+        assert_eq!(labels, k + 1, "name them, then label them");
+        assert_eq!(names[labels], None);
+        let old = "✋ **Label each drive itself** (rule 5), not only its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.";
+        assert_eq!(renamed(old), items[labels].key);
+    }
+
     #[test]
     fn copies_we_wrote_are_known_and_edited_ones_are_left_alone() {
         let (_, items) = parse(TEXT);
@@ -1688,10 +1854,12 @@ mod tests {
         assert_eq!(page.matches("\"who\":\"you\"").count(), YOURS.len());
         assert_eq!(page.matches("\"who\":\"ifany\"").count(), IF_ANY.len());
         assert_eq!(page.matches("\"who\":\"check\"").count(), 3);
-        assert!(page.contains("\"who\":\"you\",\"name\":\"spare_away\",\"part\":\"after\",\"title\":\"Keep SPARE somewhere else"), "{page}");
+        assert!(page.contains("\"who\":\"you\",\"name\":\"spare_away\",\"sees\":\"\",\"part\":\"after\",\"title\":\"Keep SPARE somewhere else"), "{page}");
         assert!(page.contains("\"html\":\"Keep <code>SPARE</code> somewhere else"), "without the ✋");
         assert_eq!(page.matches("<li class=\\\"box yours\\\"").count(), YOURS.len() + IF_ANY.len(), "marked in the HTML too");
-        assert!(page.contains("\"who\":\"program\",\"name\":\"\",\"part\":\"\",\"title\":\"\",\"why\":\"\",\"html\":\"\""));
+        // (A box the program ticks: what it looks for, by name.)
+        assert!(page.contains("\"who\":\"program\",\"name\":\"\",\"sees\":\"names\",\"part\":\"\",\"title\":\"\",\"why\":\"\",\"html\":\"\""), "{page}");
+        assert!(page.contains("\"who\":\"ifany\",\"name\":\"mac\",\"sees\":\"mac\",\"part\":\"left\""), "{page}");
         // A tick made before the boxes were marked follows its box.
         // (Not the box that is new with them: the labels.)
         for (name, part, _, _, _) in YOURS.iter().filter(|y| y.0 != "labels") {

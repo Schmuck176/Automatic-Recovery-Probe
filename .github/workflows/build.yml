@@ -184,6 +184,25 @@ jobs:
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
           exit $status
+      # The person can give the drives names of their own (1. Get ready: Your
+      # drives); the page then shows each name beside the program's word for
+      # the drive, everywhere. Both pages are driven through once more with
+      # the drives named: every check must pass just the same.
+      - name: Both pages again, with the drives named by the person
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        run: |
+          set +e -o pipefail
+          {
+            ARP_NAMES=1 node tools/ui_check.js target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/ui-named" target/selftest-build/disk.img src/selftest/disk.map; a=$?
+            ARP_NAMES=1 node tools/auto_ui_check.js target/release/automatic-recovery-probe.exe "$RUNNER_TEMP/aui-named" target/selftest-build/disk.img src/selftest/disk.map; b=$?
+            echo "With the drives named: the step-by-step page $([ $a -eq 0 ] && echo passed || echo FAILED), the Automatic tab $([ $b -eq 0 ] && echo passed || echo FAILED)"
+            [ $a -eq 0 ] && [ $b -eq 0 ]
+          } 2>&1 | tee "$RUNNER_TEMP/report/86-pages-named.txt"
+          status=$?
+          for f in auto-1-ready auto-yours auto-checklist-seen; do cp "$RUNNER_TEMP/aui-named/$f.png" "$RUNNER_TEMP/report/$f-named.png" 2>/dev/null || true; done
+          echo "::notice title=Pages, drives named::$(tail -n 1 "$RUNNER_TEMP/report/86-pages-named.txt")"
+          exit $status
       - name: Start stopped and killed at random moments, carried on each time
         if: ${{ !cancelled() }}
         timeout-minutes: 20
@@ -270,8 +289,11 @@ jobs:
           sudo apt-get install -y -qq zsh > /dev/null
           python3 tools/mac_script_check.py "$RUNNER_TEMP/mac" 2>&1 | tee "$RUNNER_TEMP/report/50-mac-script.txt"
           echo "::notice title=Mac script::$(tail -n 1 "$RUNNER_TEMP/report/50-mac-script.txt")"
+      # (A time limit: fetching the browser's packages has stalled before, for
+      # as long as the whole job is given.)
       - name: The step-by-step page, in a real browser
         if: ${{ !cancelled() }}
+        timeout-minutes: 15
         run: |
           set -o pipefail
           python3 tools/make_selftest_disk.py
@@ -307,6 +329,21 @@ jobs:
           status=$?
           cp "$RUNNER_TEMP"/aui/*.png "$RUNNER_TEMP/report/" 2>/dev/null || true
           echo "::notice title=Automatic page (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/84-automatic-page.txt")"
+          exit $status
+      - name: Both pages again, with the drives named by the person
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        run: |
+          set +e -o pipefail
+          {
+            ARP_NAMES=1 node tools/ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/ui-named" target/selftest-build/disk.img src/selftest/disk.map; a=$?
+            ARP_NAMES=1 node tools/auto_ui_check.js target/release/automatic-recovery-probe "$RUNNER_TEMP/aui-named" target/selftest-build/disk.img src/selftest/disk.map; b=$?
+            echo "With the drives named: the step-by-step page $([ $a -eq 0 ] && echo passed || echo FAILED), the Automatic tab $([ $b -eq 0 ] && echo passed || echo FAILED)"
+            [ $a -eq 0 ] && [ $b -eq 0 ]
+          } 2>&1 | tee "$RUNNER_TEMP/report/86-pages-named.txt"
+          status=$?
+          for f in auto-1-ready auto-yours auto-checklist-seen; do cp "$RUNNER_TEMP/aui-named/$f.png" "$RUNNER_TEMP/report/$f-named.png" 2>/dev/null || true; done
+          echo "::notice title=Pages, drives named (Linux)::$(tail -n 1 "$RUNNER_TEMP/report/86-pages-named.txt")"
           exit $status
       - name: Start stopped and killed at random moments, carried on each time
         if: ${{ !cancelled() }}

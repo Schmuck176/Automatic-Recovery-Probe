@@ -4,6 +4,10 @@
 // screenshots of each part.
 //
 //   node tools/auto_ui_check.js <automatic-recovery-probe> <work folder> <test disk image> <mapfile>
+//
+// With ARP_NAMES=1 in the environment, the whole run is made with the drives
+// named (1. Get ready: Your drives): every check must pass just the same with
+// the person's names shown beside the program's words all over the page.
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -18,6 +22,8 @@ fs.mkdirSync(home, { recursive: true });
 fs.copyFileSync(mapfile, path.join(home, "second attempt.log"));
 const results = [];
 const check = (ok, what) => { results.push([!!ok, what]); console.log((ok ? "ok   " : "FAIL ") + what); };
+const NAMED = process.env.ARP_NAMES === "1";
+const MY = { recovered: "Blue Samsung", copy: "Big grey one", spare: "Dad's old drive" };
 // A port nothing else uses, picked by the system (a fixed range can fall in
 // one Windows keeps for itself: "access forbidden", os error 10013).
 function freePort() {
@@ -68,6 +74,20 @@ function iconsWithoutWords(page) {
   try {
     await page.goto(url);
     await page.waitForSelector("#b-ready");
+    // The names given by the page's own action; forgotten again the same way.
+    const nameDrives = (n) => page.evaluate(async (names) => {
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      await act(Object.assign({ action: "names" }, names || { forget: "1" }));
+      await refresh();
+      await loadChecklist();
+    }, n);
+    const labels = () => page.evaluate(() => document.querySelectorAll(".dname:not(.keep)").length);
+    if (NAMED) {
+      await page.waitForFunction(() => typeof S !== "undefined" && S && typeof CL !== "undefined" && CL && CLS, null, { timeout: 15000 });
+      await nameDrives(MY);
+      const on = await page.waitForFunction(() => document.querySelectorAll(".dname:not(.keep)").length > 10, null, { timeout: 10000 }).then(() => true, () => false);
+      check(on, "this run is made with the drives named: every check below is made with the names shown all over the page (" + (await labels()) + " labels now)");
+    }
     check(await page.locator("#view-auto").isVisible(), "the page opens on the Automatic tab");
     check(!(await page.locator("#view-steps").isVisible()), "the steps are in their own tab");
     // 1. Get ready.
@@ -347,6 +367,148 @@ function iconsWithoutWords(page) {
     const allAgain = await page.evaluate(() => [...document.querySelectorAll("#cl-body li.box")].filter((li) => li.offsetParent !== null).length);
     check(only === 9 && allAgain === CLtotal(await page.textContent("#tab-count")), "the checklist can show only the boxes that are yours (" + only + " of " + allAgain + ")");
     await page.click("#tab-auto");
+    // Your drives (1. Get ready): what the program expects each of the three
+    // drives to be, and a name of the person's own for each - whatever they
+    // like, as long as the drives cannot be mixed up by it. None given: the
+    // page shows no name anywhere.
+    if (NAMED) await nameDrives(null);
+    await page.waitForFunction(() => document.getElementById("ast-drives").textContent.trim() === "Not named yet" && !document.querySelector(".dname"), null, { timeout: 10000 }).catch(() => {});
+    // (Parts of the page that never change by themselves: to see that the
+    // names change nothing of the page's own.)
+    const still = () => page.evaluate(() => ["#a-rehearse .part-head h2", "#a-rehearse .lead", "#a-rehearse ol.howto", "#a-rehearse details", "#a-back .lead", "#ph-0", "#s-connect .part-head h2", "#a-final .lead"]
+      .map((sel) => { const el = document.querySelector(sel); return el ? el.outerHTML : "(no " + sel + ")"; }).join("\n"));
+    const plain = await still();
+    const dr = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll("#a-drives .drivecard")];
+      return {
+        cards: cards.map((c) => c.dataset.drive).join(","),
+        told: cards.every((c) => c.querySelectorAll("dt").length === 3 && [...c.querySelectorAll("dd")].every((d) => d.textContent.trim().length > 60)),
+        asked: cards.map((c) => [...c.querySelectorAll("dt")].map((d) => d.textContent).join("/")).join(" | "),
+        titles: cards.map((c) => c.querySelector("h4").textContent + ", " + c.querySelector(".dc-size").textContent).join(" | "),
+        empty: DRIVES.every((d) => document.getElementById("dn-" + d.key).value === ""),
+        suggested: DRIVES.every((d) => document.getElementById("dn-" + d.key).placeholder === d.suggest && document.getElementById("dp-" + d.key).textContent.includes(d.suggest)),
+        state: document.getElementById("ast-drives").textContent.trim(),
+        labels: document.querySelectorAll(".dname").length,
+        wraps: document.querySelectorAll(".dwrap").length,
+        before: !!(document.getElementById("a-drives").compareDocumentPosition(document.getElementById("ar-ready-mine")) & Node.DOCUMENT_POSITION_FOLLOWING)
+          && !!document.querySelector("#a-ready #a-drives"),
+        towrite: (document.querySelector("#ar-ready-mine .towrite") || { textContent: "" }).textContent.replace(/\s+/g, " "),
+        showRow: document.getElementById("names-show-row").hidden,
+        cells: [...document.querySelectorAll("#cl-body td.dn")].map((td) => td.textContent).join(" | "),
+      };
+    });
+    check(dr.cards === "recovered,copy,spare" && dr.told && dr.titles === "The recovered SSD, 2 TB | The 4 TB SSD, 4 TB | SPARE, 1 TB" && dr.before
+      && dr.asked.split(" | ").every((a) => a === "What it is/When it is plugged in/How the program knows it"),
+      "1. Get ready says what the program expects each of the three drives to be, before the box for their labels (" + dr.titles + ")");
+    check(dr.empty && dr.suggested && dr.state === "Not named yet" && dr.labels === 0 && dr.wraps === 0 && dr.showRow
+      && /You have not named your drives yet/.test(dr.towrite) && /RECOVERED 2 TB/.test(dr.towrite) && dr.cells === "not named yet | not named yet | not named yet",
+      "no names given yet: each field is empty and suggests a name, and the page shows no name anywhere (" + dr.state + ")");
+    // A name typed shows how it will look; names that would mix the drives
+    // up are refused, with why.
+    await page.fill("#dn-recovered", "Zed");
+    await page.fill("#dn-copy", "zed");
+    const typing = await page.evaluate(() => [document.getElementById("ast-drives").textContent.trim(), document.getElementById("dp-recovered").textContent,
+      (document.querySelector("#dp-recovered .dname") || { dataset: {} }).dataset.name, document.querySelectorAll(".dname:not(.keep)").length]);
+    check(typing[0] === "Not saved yet" && /On this page: the recovered SSD/.test(typing[1]) && typing[2] === "Zed" && typing[3] === 0,
+      "a name typed shows how it will look on the page, and that it is not saved yet");
+    await page.click("#b-names-save");
+    const same = await page.waitForFunction(() => /have the same name/.test(document.getElementById("ar-drives").textContent), null, { timeout: 10000 }).then(() => true, () => false);
+    await page.fill("#dn-recovered", "spare");
+    await page.fill("#dn-copy", "");
+    await page.click("#b-names-save");
+    const theirs = await page.waitForFunction(() => /is what the program calls SPARE/.test(document.getElementById("ar-drives").textContent), null, { timeout: 10000 }).then(() => true, () => false);
+    const none = await page.evaluate(() => [setting("names_at"), setting("name_recovered"), document.querySelectorAll(".dname:not(.keep)").length, document.getElementById("dn-recovered").value]);
+    check(same && theirs && !none[0] && !none[1] && none[2] === 0 && none[3] === "spare",
+      "two drives with the same name, or one named as the program names another, are refused with why - and nothing is kept");
+    // Given (Enter saves too): tidied, one left empty takes the suggestion,
+    // and anything that can be typed is only ever shown as words.
+    const mine3 = ["Blue Samsung", "4 TB COPY", "Dad's <old> & \"drive\""];
+    await page.fill("#dn-recovered", "  Blue   Samsung ");
+    await page.fill("#dn-copy", "");
+    await page.fill("#dn-spare", mine3[2]);
+    await page.press("#dn-spare", "Enter");
+    const saved = await page.waitForFunction(() => document.getElementById("ast-drives").textContent.trim() === "Named" && document.querySelectorAll(".dname:not(.keep)").length > 10,
+      null, { timeout: 10000 }).then(() => true, () => false);
+    await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
+    await page.waitForTimeout(300);
+    const nm = await page.evaluate(() => {
+      const h2 = document.querySelector("#a-rehearse .part-head h2"), chip = h2.querySelector(".dname");
+      const why = [...document.querySelectorAll("#a-rehearse details p")].find((p) => /If SPARE arrives switched on/.test(p.textContent));
+      const codes = [...document.querySelectorAll("#cl-body code")];
+      // (A label right after it: nothing in between, not even words.)
+      const next = (el) => !!(el.nextSibling && el.nextSibling.nodeType === 1 && el.nextSibling.classList.contains("dname"));
+      const sc = document.querySelector("#s-connect .part-head h2");
+      return {
+        fields: DRIVES.map((d) => document.getElementById("dn-" + d.key).value),
+        kept: DRIVES.map((d) => setting(d.setting)),
+        note: document.getElementById("ar-drives").textContent,
+        n: document.querySelectorAll(".dname:not(.keep)").length,
+        h2: h2.textContent.trim(), h2chip: chip && chip.dataset.name, drawn: chip && getComputedStyle(chip, "::after").content, tip: chip && chip.title,
+        once: why ? why.querySelectorAll('.dname[data-d="spare"]').length + "," + why.querySelectorAll('.dname[data-d="recovered"]').length : "no such paragraph",
+        whyText: why ? why.textContent.replace(/\s+/g, " ").slice(0, 60) : "",
+        nowhere: document.querySelectorAll("#rail .dname, .masthead .dname, #a-drives .dname:not(.keep), .journey-head .dname, #cl-body table.drives .dname").length,
+        paths: codes.filter((c) => /SPARE[\\/]/.test(c.textContent)).length,
+        pathLabels: codes.filter((c) => /SPARE[\\/]/.test(c.textContent) && (next(c) || c.querySelector(".dname"))).length,
+        codeLabels: codes.filter((c) => c.textContent === "SPARE" && next(c)).length,
+        suggestions: [...document.querySelectorAll("#cl-body i")].filter((e) => e.textContent === "SPARE 1 TB").map((e) => !e.querySelector(".dname") && !next(e)),
+        steps: [sc.textContent.trim(), !!sc.querySelector(".dwrap .dname"), sc.children.length].join("|"),
+        journey: (document.querySelector("#journey .dname") || { dataset: {} }).dataset.name,
+        cells: [...document.querySelectorAll("#cl-body td.dn")].map((td) => td.textContent),
+        towrite: (document.querySelector("#ar-ready-mine .towrite") || { textContent: "" }).textContent.replace(/\s+/g, " "),
+        made: document.querySelectorAll("old").length,
+        ticked: CLS.ticked[CL.items.findIndex((it) => it.sees === "names")],
+        copy: CLS.copy,
+        showRow: document.getElementById("names-show-row").hidden,
+      };
+    });
+    const same3 = (a) => a.length === 3 && a.every((x, k) => x === mine3[k]);
+    check(saved && same3(nm.fields) && same3(nm.kept) && /Saved/.test(nm.note) && !nm.showRow,
+      "names given are kept as typed, tidied; one left empty takes the program's suggestion (" + nm.kept.join(" | ") + ")");
+    check(nm.n > 20 && nm.h2 === "The rehearsal with SPARE" && nm.h2chip === mine3[2] && nm.drawn === JSON.stringify(mine3[2]) && /Your name for SPARE/.test(nm.tip)
+      && nm.journey === mine3[0] && nm.made === 0,
+      "from then on the page shows each name as a label beside the program's word for the drive - the words themselves stay as they were (" + nm.n + " labels; " + nm.drawn + ")");
+    check(nm.once === "1,1" && /^If SPARE arrives switched on, click Switch SPARE off/.test(nm.whyText) && nm.nowhere === 0,
+      "once in each paragraph, however often it names the drive - and not in the list on the left, the page's head or Your drives itself (" + nm.once + ")");
+    check(nm.paths > 0 && nm.pathLabels === 0 && nm.codeLabels > 0 && nm.suggestions.length > 0 && nm.suggestions.every(Boolean),
+      "a folder's path (SPARE\\WORK) and the suggested label (SPARE 1 TB) get none; SPARE alone does (" + nm.paths + " paths, " + nm.codeLabels + " labelled)");
+    check(nm.steps === "Connect the recovered SSD, protected|true|2", "a heading keeps its words together with its label (" + nm.steps + ")");
+    const copyNames = fs.readFileSync(nm.copy, "utf8");
+    check(same3(nm.cells) && mine3.every((n) => nm.towrite.includes(n)) && /Write these on the labels/.test(nm.towrite) && nm.ticked === 1
+      && copyNames.includes("for the image | Blue Samsung |") && copyNames.includes("the whole time | 4 TB COPY |") && copyNames.includes("your copied files | " + mine3[2] + " |")
+      && /- \[x\] \*\*Your drives:\*\*/.test(copyNames),
+      "the box for the labels says what to write, the checklist ticks Your drives and lists the names - in its copy too");
+    // What the page draws later gets its labels as well.
+    const later = await page.evaluate(async () => {
+      note("rehearse", "warn", "Plug SPARE in now, then the recovered SSD.");
+      await new Promise((r) => setTimeout(r, 100));
+      const m = document.querySelector("#ar-rehearse .msg");
+      const r = m ? [m.textContent.trim(), m.querySelectorAll(".dname").length] : ["", 0];
+      note("rehearse", "", "");
+      return r;
+    });
+    check(later[0] === "Plug SPARE in now, then the recovered SSD." && later[1] === 2, "whatever the page says later has the names beside it too (" + later.join(" | ") + ")");
+    const named = await still();
+    // SPARE renamed in Windows to the name given here is still known as SPARE.
+    const inWindows = await page.evaluate(() => [isSpareLabel("SPARE"), isSpareLabel(" dad's  <OLD> & \"drive\" "), isSpareLabel("Blue Samsung"), isSpareLabel("4 TB COPY"), isSpareLabel("")]);
+    check(inWindows.join() === "true,true,false,false,false", "a drive called SPARE in Windows is SPARE, and so is one called what SPARE was named here - no other (" + inWindows.join() + ")");
+    // Not shown, if the person would rather: the names stay.
+    await page.uncheck("#names-show");
+    const hidden = await page.waitForFunction(() => !document.querySelector(".dname:not(.keep)") && !document.querySelector(".dwrap"), null, { timeout: 10000 }).then(() => true, () => false);
+    const kept = await page.evaluate(() => [setting("name_recovered"), (document.querySelector("#ar-ready-mine .towrite") || { textContent: "" }).textContent.includes("Blue Samsung")]);
+    const unshown = await still();
+    await page.check("#names-show");
+    const shownAgain = await page.waitForFunction(() => document.querySelectorAll(".dname:not(.keep)").length > 20, null, { timeout: 10000 }).then(() => true, () => false);
+    check(hidden && kept[0] === "Blue Samsung" && kept[1] && unshown === plain && shownAgain, "the names can be left off the page (the box for the labels still says them), and shown again");
+    // Forgotten: the page is exactly what it was.
+    await nameDrives(null);
+    const gone = await page.waitForFunction(() => !document.querySelector(".dname") && !document.querySelector(".dwrap") && document.getElementById("ast-drives").textContent.trim() === "Not named yet"
+      && DRIVES.every((d) => document.getElementById("dn-" + d.key).value === ""), null, { timeout: 10000 }).then(() => true, () => false);
+    check(gone && named !== plain && (await still()) === plain, "with no names, the page is exactly what it was before: its own words were never changed");
+    check(await page.evaluate(() => isSpareLabel("SPARE") && !isSpareLabel("Dad's <old> & \"drive\"")), "and only a drive called SPARE in Windows is SPARE again");
+    if (NAMED) {
+      await nameDrives(MY);
+      await page.waitForFunction(() => document.querySelectorAll(".dname:not(.keep)").length > 20, null, { timeout: 10000 }).catch(() => {});
+    }
     // 1. Get ready: the label on each drive itself is yours to do before any
     // drive goes in - shown there with its box, on the part's chip, in the
     // list on the left and in "Now" (first: it is the first of them).
@@ -361,10 +523,10 @@ function iconsWithoutWords(page) {
       steps: document.querySelectorAll("#sr-mine-ready input.minetick").length,
       copy: CLS.copy,
     }));
-    check(lab.n === 1 && /Label each drive itself/.test(lab.text) && /RECOVERED 2 TB/.test(lab.text) && /Why it is yours to tick/.test(lab.text)
+    check(lab.n === 1 && /Label each drive itself/.test(lab.text) && (NAMED ? /Blue Samsung/ : /RECOVERED 2 TB/).test(lab.text) && /Why it is yours to tick/.test(lab.text)
       && /Ready · Yours: 1 to do/.test(lab.state) && /\bturn\b/.test(lab.cls) && /Yours: 1 to do/.test(lab.rail),
       "1. Get ready shows the label on each drive as yours to do, with its box (" + lab.state + ")");
-    check(/Yours to do: \d+/.test(lab.now) && /Label each drive itself/.test(lab.now) && lab.go === "a-ready" && lab.steps === 1,
+    check(/Yours to do: \d+/.test(lab.now) && /Label each drive itself/.test(lab.now) && lab.go === "a-drives" && lab.steps === 1,
       "Now names it first and shows where; the steps tab has it in step 3 (" + lab.now.slice(0, 50).trim() + ")");
     const labBefore = Number((await page.textContent("#tab-count")).match(/\((\d+) of/)[1]);
     await page.click("#ar-ready-mine input.minetick");

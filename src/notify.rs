@@ -87,7 +87,9 @@ pub fn toast(title: &str, body: &str, warn: bool) {
     if !is_on() {
         return;
     }
-    let _ = spawn(&script(title, body, warn, 20));
+    // (With the person's own name for a drive beside the program's word for
+    // it, if they gave the drives names: "Plug in the recovered SSD ...".)
+    let _ = spawn(&script(&crate::names::beside(title), &crate::names::beside(body), warn, 20));
 }
 
 #[cfg(windows)]
@@ -156,6 +158,18 @@ mod tests {
         let curly = script("Done: Copy", "E:\\WORK\\Mum\u{2019}s iPhone\u{2019}; Remove-Item C:\\", false, 1);
         assert!(curly.contains("$b = 'E:\\WORK\\Mum\u{2019}\u{2019}s iPhone\u{2019}\u{2019}; Remove-Item C:\\';"), "{curly}");
         assert_eq!(cut(&"x".repeat(300), 240).chars().count(), 240);
+        // The person's own name for a drive, beside the program's word for
+        // it (names.rs): whatever is in the name, it stays words.
+        let named = script("Your turn", &crate::names::beside_with("Plug in the recovered SSD, then SPARE.", &odd_names()), false, 1);
+        assert!(
+            named.contains("$b = 'Plug in the recovered SSD (\u{201c}Dad\u{2019}\u{2019}s $(calc) `one`\u{201d}), then SPARE (\u{201c}it''s \"mine\"; exit\u{201d}).';"),
+            "{named}"
+        );
+    }
+
+    /// Names with everything in them that PowerShell could take for its own.
+    fn odd_names() -> [String; 3] {
+        ["Dad\u{2019}s $(calc) `one`".to_string(), "4 TB COPY".to_string(), "it's \"mine\"; exit".to_string()]
     }
 
     /// On Windows: the script is good PowerShell, and Windows shows it
@@ -163,15 +177,20 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_takes_it() {
-        let s = script("Automatic Recovery Probe", "A test of its notifications (from its own tests): Mum\u{2019}s \u{2018}photos\u{2019}.", false, 1);
-        let check = format!(
-            "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput({}, [ref]$null, [ref]$e); $e.Count",
-            ps_quote(&s)
-        );
         let ps = crate::win::system_program(r"WindowsPowerShell\v1.0\powershell.exe");
-        let r = crate::tools::run(&ps, &crate::tools::os(&["-NoProfile", "-NonInteractive", "-Command", &check]), None, std::time::Duration::from_secs(60), &|| false)
-            .unwrap();
-        assert_eq!(r.out.trim(), "0", "{}", r.text());
+        // (The second: with the person's own names for the drives in it.)
+        for s in [
+            script("Automatic Recovery Probe", "A test of its notifications (from its own tests): Mum\u{2019}s \u{2018}photos\u{2019}.", false, 1),
+            script("Your turn", &crate::names::beside_with("Plug in the recovered SSD, then SPARE.", &odd_names()), false, 1),
+        ] {
+            let check = format!(
+                "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput({}, [ref]$null, [ref]$e); $e.Count",
+                ps_quote(&s)
+            );
+            let r = crate::tools::run(&ps, &crate::tools::os(&["-NoProfile", "-NonInteractive", "-Command", &check]), None, std::time::Duration::from_secs(60), &|| false)
+                .unwrap();
+            assert_eq!(r.out.trim(), "0", "{}", r.text());
+        }
         match try_now("Automatic Recovery Probe", "A test of its notifications (from its own tests).") {
             Ok(way) => assert!(way == "toast" || way == "balloon", "{way}"),
             Err(e) => eprintln!("(not shown here: {e})"),

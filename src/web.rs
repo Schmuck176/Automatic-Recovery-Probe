@@ -810,6 +810,7 @@ pub fn serve(cfg: Config) -> i32 {
     let _ = std::fs::create_dir_all(&results);
     crate::live::feed_file(&results.join("what-happened.txt"));
     crate::notify::set_on(app.setting("notify") != "off");
+    crate::names::use_from(&app.settings);
     MAP_SIZE.store(mapfile_domain(&app.setting("mapfile")).map(|(s, e)| e.saturating_sub(s)).unwrap_or(0), Ordering::Relaxed);
     // A job that was running when the program was closed did not finish.
     for j in app.last.values_mut() {
@@ -1385,6 +1386,10 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             if let Some(w) = f.get("auto_work") {
                 auto::work_change_ok(app, w)?;
             }
+            // (The drives' names are checked against each other: "names", below.)
+            if f.keys().any(|k| k == crate::names::DECIDED || crate::names::DRIVES.iter().any(|d| d.setting == k)) {
+                return Err("the drives' names are given with their own action (names)".to_string());
+            }
             let mut a = lock(app);
             let copy2_before = a.setting("auto_copy2");
             for (k, v) in &f {
@@ -1423,6 +1428,28 @@ fn act(app: &Arc<Mutex<App>>, f: &HashMap<String, String>) -> String {
             if f.get("auto_videos").is_some_and(|v| v != "0") && !lock(app).job.as_ref().is_some_and(|j| j.state == "running") {
                 auto::videos_asked_for(app, false);
             }
+            Ok(String::new())
+        })(),
+        // The person's own names for the drives (1. Get ready: Your drives):
+        // checked against each other, kept, and in use at once. One left
+        // empty takes the checklist's suggestion. "forget": as if never given.
+        "names" => (|| -> Result<String, String> {
+            use crate::names::{DECIDED, DRIVES};
+            let mut a = lock(app);
+            if on("forget") {
+                for d in &DRIVES {
+                    a.settings.remove(d.setting);
+                }
+                a.settings.remove(DECIDED);
+            } else {
+                let names = crate::names::check(&[g("recovered"), g("copy"), g("spare")])?;
+                for (d, n) in DRIVES.iter().zip(names) {
+                    a.settings.insert(d.setting.to_string(), n);
+                }
+                a.settings.insert(DECIDED.to_string(), local_now());
+            }
+            a.save();
+            crate::names::use_from(&a.settings);
             Ok(String::new())
         })(),
         "alarm-read" => {
@@ -1975,14 +2002,16 @@ fn suggested_folders(app: &Arc<Mutex<App>>, map: &str) -> (String, String, Strin
     // Folders to suggest. The image and the second copy: a drive of the PC
     // (NTFS, not SPARE) with room for the image - another drive than
     // Windows' own if one has room, Windows' own if only it has (as on a PC
-    // whose second drive is small). The copies: the drive labelled SPARE (or
-    // the letter it had at the rehearsal, if it is switched off now).
+    // whose second drive is small). The copies: the drive labelled SPARE - or
+    // with the name the person gave SPARE, if they renamed it in Windows too
+    // (names.rs) - or the letter it had at the rehearsal, if it is switched
+    // off now.
     let drives = crate::win::drives();
     let windows_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string()).to_uppercase();
     let need = mapfile_domain(&map).map(|(s, e)| e.saturating_sub(s) + (1 << 30)).unwrap_or(0);
     let fixed: Vec<&crate::win::Drive> = drives
         .iter()
-        .filter(|d| d.kind == "fixed" && d.fs.eq_ignore_ascii_case("NTFS") && !d.label.eq_ignore_ascii_case("SPARE"))
+        .filter(|d| d.kind == "fixed" && d.fs.eq_ignore_ascii_case("NTFS") && !crate::names::is_spare_label(&d.label))
         .collect();
     let is_windows = |d: &&&crate::win::Drive| d.letter.eq_ignore_ascii_case(&windows_drive);
     let image_drive = fixed
@@ -1995,7 +2024,7 @@ fn suggested_folders(app: &Arc<Mutex<App>>, map: &str) -> (String, String, Strin
         .map(|d| d.letter.clone());
     let spare = drives
         .iter()
-        .find(|d| d.label.eq_ignore_ascii_case("SPARE"))
+        .find(|d| crate::names::is_spare_label(&d.label))
         .map(|d| d.letter.clone())
         .or_else(|| Some(lock(app).setting("spare_letter")).filter(|l| !l.is_empty()));
     let sug = |l: &Option<String>, f: &str| l.as_ref().map(|l| format!("{l}\\{f}")).unwrap_or_default();
@@ -2130,13 +2159,17 @@ fn checklist_sync(app: &Arc<Mutex<App>>) -> String {
     let st = cl::statuses(&items, &ticks, &history);
     let done = cl::ticked(&items, &ticks, &st);
     let numbers = ssd_totals(&map_check).and_then(|s| s.bytes.map(|b| (s.files, b)));
-    // (No numbers known: the row the copy has stays as it is.)
-    let kept_row = if numbers.is_none() {
-        std::fs::read(&target).ok().and_then(|b| cl::numbers_row_in(&String::from_utf8_lossy(&b)))
+    // (No numbers known: the row the copy has stays as it is. The same for
+    // the drives' names: none given, what the copy says of them stays.)
+    let names = crate::names::given(&lock(app).settings);
+    let copy_now = if numbers.is_none() || names.is_none() {
+        std::fs::read(&target).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
     } else {
         None
     };
-    let md = cl::markdown_keeping(cl::TEXT, &items, &done, numbers, kept_row.as_deref());
+    let kept_row = if numbers.is_none() { copy_now.as_deref().and_then(cl::numbers_row_in) } else { None };
+    let kept_drives = if names.is_none() { copy_now.as_deref().map(cl::drives_rows_in).unwrap_or_default() } else { Vec::new() };
+    let md = cl::markdown_keeping(cl::TEXT, &items, &done, numbers, kept_row.as_deref(), names.as_ref(), &kept_drives);
     // (Read as bytes: a copy that is not UTF-8 - saved by another editor -
     // is the person's own, and is never written over for want of reading it.)
     match std::fs::read(&target) {
@@ -2214,6 +2247,12 @@ fn checklist_seen(app: &Arc<Mutex<App>>) -> (HashMap<&'static str, crate::checkl
     use crate::tools::Tool;
     if [Tool::SevenZip, Tool::Ffmpeg, Tool::Mp3val, Tool::Untrunc, Tool::Qpdf].iter().all(|t| crate::tools::find(*t, &a.home).is_some()) {
         put("tools", None, "7-Zip, FFmpeg, MP3val, untrunc and qpdf are all found.".to_string());
+    }
+    // (Which names is not said here: they can change, and what the program
+    // saw is written down once. The page shows the names as they are now.)
+    let named_at = a.setting(crate::names::DECIDED);
+    if crate::names::given(&a.settings).is_some() {
+        put("names", Some(named_at.clone()), format!("Your drives have their names{}.", shown(&named_at)));
     }
     let rehearsal = a.setting("rehearsal");
     let rehearsed_at = a.setting("rehearsal_when");
@@ -3355,6 +3394,86 @@ mod tests {
         );
         let (_, waiting) = checklist_seen(&app);
         assert_eq!(waiting["library"], "What is left names a Photos library with damage inside.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The person's own names for the drives (1. Get ready: Your drives):
+    /// checked against each other, kept in the settings, in use at once (the
+    /// notifications, SPARE's name in Windows), ticked in the checklist and
+    /// listed in its copy.
+    #[test]
+    fn the_drives_names_are_checked_kept_and_used() {
+        use crate::checklist as cl;
+        let dir = std::env::temp_dir().join(format!("arp-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("results")).unwrap();
+        let app = app_in(&dir, &[]);
+        let form = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let (_, items) = cl::parse(cl::TEXT);
+        let names_box = cl::seen_names(&items).iter().position(|n| *n == Some("names")).unwrap();
+        // None given yet: nothing seen, nothing in the copy.
+        assert!(!checklist_seen(&app).0.contains_key("names"));
+        let state = checklist_sync(&app);
+        let copy = cl::find_copy(&dir).expect("the copy is written");
+        assert!(std::fs::read_to_string(&copy).unwrap().contains("for the image |  |"), "{state}");
+        // Names that would mix the drives up are refused, and nothing is kept.
+        let r = act(&app, &form(&[("action", "names"), ("recovered", "Zq blue"), ("copy", "zq BLUE"), ("spare", "Zq red")]));
+        assert!(r.contains("\"ok\":false") && r.contains("same name"), "{r}");
+        let r = act(&app, &form(&[("action", "names"), ("recovered", "SPARE"), ("copy", ""), ("spare", "")]));
+        assert!(r.contains("\"ok\":false") && r.contains("what the program calls SPARE"), "{r}");
+        assert!(crate::names::given(&lock(&app).settings).is_none());
+        // (Nor by the way of the other settings: they would not be checked.)
+        let r = act(&app, &form(&[("action", "set"), ("name_spare", "Zq red")]));
+        assert!(r.contains("\"ok\":false"), "{r}");
+        assert_eq!(lock(&app).setting("name_spare"), "");
+        // Given: tidied, kept (in the state file too), one left empty takes the suggestion.
+        let r = act(&app, &form(&[("action", "names"), ("recovered", "  Zq  blue | one "), ("copy", ""), ("spare", "Zq Dad's drive")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        let want = ["Zq blue | one".to_string(), "4 TB COPY".to_string(), "Zq Dad's drive".to_string()];
+        assert_eq!(crate::names::given(&lock(&app).settings).as_ref(), Some(&want));
+        assert!(!lock(&app).setting("names_at").is_empty());
+        let saved = std::fs::read_to_string(lock(&app).state_file()).unwrap();
+        assert!(saved.contains("S\tname_recovered\tZq blue | one\r\n") && saved.contains("S\tname_copy\t4 TB COPY\r\n"), "{saved}");
+        let mut again = App {
+            elevated: false,
+            home: dir.clone(),
+            results: dir.join("results"),
+            settings: HashMap::new(),
+            job: None,
+            last: HashMap::new(),
+            next_id: 1,
+            test_disks: Vec::new(),
+            auto: auto::State::new(),
+        };
+        again.load();
+        assert_eq!(crate::names::given(&again.settings).as_ref(), Some(&want), "read back when the program opens again");
+        // In use at once: a notification says the name, and a drive called that in Windows is SPARE.
+        assert_eq!(crate::names::now().as_ref(), Some(&want));
+        assert_eq!(crate::names::beside("Plug SPARE in."), "Plug SPARE (\u{201c}Zq Dad's drive\u{201d}) in.");
+        assert!(crate::names::is_spare_label("ZQ DAD'S DRIVE") && crate::names::is_spare_label("SPARE") && !crate::names::is_spare_label("Zq blue | one"));
+        // The checklist: the program ticks the box, and the copy lists the names.
+        let (seen, _) = checklist_seen(&app);
+        assert!(seen["names"].what.starts_with("Your drives have their names"), "{:?}", seen["names"]);
+        let state = checklist_sync(&app);
+        let ticked: Vec<&str> = state.split("\"ticked\":[").nth(1).unwrap().split(']').next().unwrap().split(',').collect();
+        assert_eq!(ticked[names_box], "1", "{state}");
+        let text = std::fs::read_to_string(&copy).unwrap();
+        assert!(text.contains("for the image | Zq blue \\| one |") && text.contains("the whole time | 4 TB COPY |") && text.contains("your copied files | Zq Dad's drive |"), "{text}");
+        assert!(text.contains("- [x] **Your drives:**"), "{text}");
+        assert!(cl::is_unedited(&text, None), "still the program's own text");
+        // Changed: the copy follows. Forgotten: as if never given (what the copy says stays).
+        let r = act(&app, &form(&[("action", "names"), ("recovered", "Zq one"), ("copy", "Zq two"), ("spare", "Zq three")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        checklist_sync(&app);
+        let text = std::fs::read_to_string(&copy).unwrap();
+        assert!(text.contains("for the image | Zq one |") && !text.contains("Zq blue"), "{text}");
+        let r = act(&app, &form(&[("action", "names"), ("forget", "1")]));
+        assert!(r.contains("\"ok\":true"), "{r}");
+        assert!(crate::names::given(&lock(&app).settings).is_none() && crate::names::now().is_none());
+        assert_eq!(crate::names::beside("Plug SPARE in."), "Plug SPARE in.");
+        assert!(!crate::names::is_spare_label("Zq three"));
+        checklist_sync(&app);
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), text);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

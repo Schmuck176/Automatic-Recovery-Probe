@@ -101,7 +101,7 @@ pub(super) fn still_plugged(app: &Arc<Mutex<App>>) -> Vec<String> {
         if copy {
             out.push(format!("A copy of the old drive: the recovered SSD or the 4 TB SSD ({at})"));
         } else if (!spare_id.is_empty() && format!("{}|{}", d.model, d.size) == spare_id)
-            || d.drives.iter().any(|v| v.label.eq_ignore_ascii_case("SPARE"))
+            || d.drives.iter().any(|v| crate::names::is_spare_label(&v.label))
         {
             out.push(format!("SPARE ({at})"));
         }

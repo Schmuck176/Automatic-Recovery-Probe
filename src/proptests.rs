@@ -1,7 +1,7 @@
 //! Round trips over many random inputs (a fixed seed: the same every run),
 //! for the small pieces everything else stands on: the lists (CSV), the
 //! checksums and their saved state, the mapfile, the [R0012] numbers, names
-//! made safe for Windows.
+//! made safe for Windows, the person's own names for the drives.
 
 /// xorshift64*: enough randomness for tests, no crate needed.
 struct Rng(u64);
@@ -144,6 +144,58 @@ fn every_copy_name_carries_exactly_its_own_number() {
         assert_eq!(crate::repair::tag_in(&t).as_deref(), Some(id.as_str()), "{name:?} -> {t:?}");
         assert!(t.encode_utf16().count() <= 240);
     }
+}
+
+/// The person's own names for the drives (names.rs): whatever is typed, the
+/// names kept are tidy, differ from each other and say nothing of another
+/// drive; they go into the checklist's copy and it stays the program's own
+/// text; and beside the program's words they leave the words as they were.
+#[test]
+fn any_names_for_the_drives_are_kept_safely_and_fit_everywhere() {
+    use crate::checklist as cl;
+    use crate::names;
+    let mut r = Rng(0x5eed_0007);
+    let words: &[&str] = &["SPARE", "recovered SSD", "the 4 TB SSD", " ", "Blue", "x", "|", "\\", "é", "日", "'s", "1 TB", "\n", "\u{0}", "😀", "<b>", "\"", "*", "`", "/", "_"];
+    let (_, items) = cl::parse(cl::TEXT);
+    let done = vec![false; items.len()];
+    let mut kept = 0;
+    for _ in 0..4000 {
+        let typed = [r.text(words, 6), r.text(words, 6), r.text(words, 6)];
+        // Beside the program's words, in any text: the text itself is all still there, in order.
+        let text = r.text(words, 30);
+        let fake = ["[one]".to_string(), "[two]".to_string(), "[three]".to_string()];
+        let said = names::beside_with(&text, &fake);
+        let mut plain = said.clone();
+        for n in &fake {
+            plain = plain.replace(&format!(" (\u{201c}{n}\u{201d})"), "");
+        }
+        assert_eq!(plain, text, "{said:?}");
+        let Ok(n) = names::check(&typed) else { continue };
+        kept += 1;
+        for (i, name) in n.iter().enumerate() {
+            assert!(!name.is_empty() && name.chars().count() <= names::LONGEST, "{name:?}");
+            assert!(!name.chars().any(|c| c.is_control()) && name.trim() == name && !name.contains("  "), "{name:?}");
+            for (j, other) in n.iter().enumerate() {
+                assert!(i == j || name.to_lowercase() != other.to_lowercase(), "{n:?}");
+                assert!(i == j || name.to_lowercase() != names::DRIVES[j].find.to_lowercase(), "{n:?}");
+            }
+        }
+        assert_eq!(names::check(&n).as_ref(), Ok(&n), "kept names are kept as they are");
+        // In the checklist's copy: one line each, and the copy is still the program's own.
+        let md = cl::markdown_keeping(cl::TEXT, &items, &done, None, None, Some(&n), &[]);
+        assert_eq!(md.lines().count(), cl::TEXT.lines().count(), "{n:?}");
+        assert!(cl::is_unedited(&md, None), "{n:?}");
+        assert_eq!(cl::ticks_in(&md).len(), items.len(), "{n:?}");
+        let rows = cl::drives_rows_in(&md);
+        assert_eq!(rows.len(), 3, "{n:?}");
+        for (row, name) in rows.iter().zip(&n) {
+            assert!(row.ends_with(&format!(" {} |", names::md_cell(name))), "{row:?} for {name:?}");
+        }
+        // Written again with nothing given: those rows stay.
+        assert_eq!(cl::markdown_keeping(cl::TEXT, &items, &done, None, None, None, &rows), md, "{n:?}");
+        let _ = cl::html(&md, &items);
+    }
+    assert!(kept > 500, "only {kept} sets of names were kept: the test tests little");
 }
 
 #[test]

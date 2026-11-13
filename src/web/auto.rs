@@ -252,7 +252,7 @@ pub(super) fn work_elsewhere(work: &str, spare_id: &str) -> Option<String> {
     }
     let disks = crate::win::disks();
     let is_spare = |d: &crate::win::Drive| {
-        d.label.eq_ignore_ascii_case("SPARE")
+        crate::names::is_spare_label(&d.label)
             || (!spare_id.is_empty()
                 && d.disk.and_then(|n| disks.iter().find(|x| x.number == n)).is_some_and(|x| format!("{}|{}", x.model, x.size) == spare_id))
     };
@@ -1282,7 +1282,7 @@ fn work_drive_ok(app: &Arc<Mutex<App>>, work: &str) -> Result<(), String> {
     let spare_id = lock(app).setting("spare_disk");
     let disk = d.disk.and_then(|n| crate::win::disks().into_iter().find(|x| x.number == n));
     let usb = disk.as_ref().is_some_and(|x| x.bus == "USB" || x.removable);
-    if !usb || d.label.eq_ignore_ascii_case("SPARE") || spare_id.is_empty() {
+    if !usb || crate::names::is_spare_label(&d.label) || spare_id.is_empty() {
         return Ok(());
     }
     if disk.as_ref().is_some_and(|x| format!("{}|{}", x.model, x.size) == spare_id) {
@@ -1328,7 +1328,7 @@ fn stage_copy(app: &Arc<Mutex<App>>, ctx: &Ctx, plan: &Plan) -> Result<End, Stri
         switch_spare_on(app, ctx);
         let elsewhere = crate::win::drives()
             .into_iter()
-            .find(|d| d.label.eq_ignore_ascii_case("SPARE") && !plan.work.to_uppercase().starts_with(&d.letter.to_uppercase()));
+            .find(|d| crate::names::is_spare_label(&d.label) && !plan.work.to_uppercase().starts_with(&d.letter.to_uppercase()));
         let msg = match elsewhere {
             Some(d) => format!(
                 "SPARE is plugged in, but as {} now, and the copies are to go into {}. Click Stop, change the copies folder to \
@@ -2073,7 +2073,7 @@ fn is_spare(app: &Arc<Mutex<App>>, d: &crate::win::Disk) -> Result<(), String> {
         return Err(format!("disk {} holds Windows itself: plug in SPARE", d.number));
     }
     if !d.drives.is_empty() {
-        if d.drives.iter().any(|v| v.label.eq_ignore_ascii_case("SPARE")) {
+        if d.drives.iter().any(|v| crate::names::is_spare_label(&v.label)) {
             return Ok(());
         }
         // The disk checked as SPARE before (labelled otherwise), still empty.
@@ -2206,7 +2206,7 @@ pub(super) fn rehearse(app: &Arc<Mutex<App>>, n: u32) -> Result<String, String> 
         let mut a = lock(app);
         a.settings.insert("spare_disk".to_string(), id);
         a.settings.insert("spare_number".to_string(), n.to_string());
-        if let Some(l) = d.drives.iter().find(|v| v.label.eq_ignore_ascii_case("SPARE")).or(d.drives.first()).map(|v| v.letter.clone()) {
+        if let Some(l) = d.drives.iter().find(|v| crate::names::is_spare_label(&v.label)).or(d.drives.first()).map(|v| v.letter.clone()) {
             a.settings.insert("spare_letter".to_string(), l);
         }
         a.settings.insert("rehearsal".to_string(), verdict.to_string());

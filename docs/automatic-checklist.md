@@ -1,6 +1,6 @@
 # Automatic Recovery Checklist — Recovered SSD → safe, checked, repaired copies
 
-*Version 2026-11-10 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
+*Version 2026-11-13 (1) — for Automatic Recovery Probe (`automatic-recovery-probe.exe`), written with Claude Opus 5.5.
 It replaces the long checklist for the steps the program now does by itself: that one stays in Obsidian as it is,
 with your ticks, for reference.*
 
@@ -38,8 +38,9 @@ say — the program ticks it.)
    own put-back is the only change ever made there, and every one is listed in `WORK\repair-returns.csv`.
 4. **If the program stops and says a check found something, stop too.** Read what it says; if it isn't clear, ask
    Claude before pressing Start again.
-5. **Put a label on each drive itself**, not only on its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. SPARE and
-   the recovered SSD take turns in the same case, so they are easy to mix up. (It has a box of its own in Phase 1.)
+5. **Put a label on each drive itself**, not only on its case, with a name of your own: **1. Get ready → Your
+   drives** says what each drive is, and takes the names (it suggests *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*).
+   SPARE and the recovered SSD take turns in the same case, so they are easy to mix up. (Phase 1 has the boxes.)
 6. **Only one program at a time:** the old Recovery Probe (`recovery-probe.exe`) stays closed while this one is open.
 
 > **How the program works:** double-click `automatic-recovery-probe.exe` in `C:\RECOVERY-TOOLS` and click **Yes**
@@ -57,7 +58,16 @@ say — the program ticks it.)
 - [ ] **Run the self-test.** A few seconds: it must say *"Every check passed: the program works on this PC."*
 - [ ] **AIM Toolkit:** if it shows **Install AIM Toolkit**, click it, click **Install** in the window that opens, and **Yes** if Windows asks about the Arsenal Image Mounter driver. Then **Check this PC** again, and click **Try it**: it opens a small test image read-only and closes it again — you want *"AIM Toolkit works"*. (Without it everything still works, but the map check can't check itself against Windows' own reading.)
 - [ ] **The tools:** 7-Zip, FFmpeg, MP3val and untrunc should show a version (you installed them). If **qpdf** shows **Download it**, click it (it comes from qpdf's own GitHub page, checked by its SHA-256), then **Check this PC** again.
-- [ ] ✋ **Label each drive itself** (rule 5), not only its case: *RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*. `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.
+- [ ] **Your drives:** in **1. Get ready**, read what each of the three drives is, then type the name you want for each one and click **Save the names** — or click **Use the suggested names** (*RECOVERED 2 TB*, *4 TB COPY*, *SPARE 1 TB*). From then on the page shows your name beside its own word for a drive wherever it asks for one, its notifications say it, and the table below lists it. A name is only what you call the drive: nothing on any drive is changed.
+- [ ] ✋ **Label each drive itself** (rule 5), not only its case, with the name you gave it (the table below). `SPARE` and the recovered SSD take turns in the same case from Phase 2 on, so they are easy to mix up.
+
+> **Your drives**, as you named them (the program fills the names in).
+>
+> | The program calls it | What it is | Your name for it |
+> |---|---|---|
+> | The recovered SSD | 2 TB: the copy ddrescue made of your dead 1 TB drive. Plugged in once, for the image |  |
+> | The 4 TB SSD | A copy of the recovered SSD. It stays in its drawer the whole time |  |
+> | `SPARE` | 1 TB, empty, NTFS: for the rehearsal, then for your copied files |  |
 
 ---
 
