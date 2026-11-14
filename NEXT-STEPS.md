@@ -2410,12 +2410,17 @@ scratchpad's nov10-plan.md, check-ins in checkins-nov10.txt.)
 - The program CI built: automatic-recovery-probe.exe, 6,525,952 bytes,
   SHA-256 6df399fb3886b40312fe1c8964b643169430257273c64be9b3576cc104c9747a
   (in the session's outputs, v2026-11-13 (1)).
-- NOT YET ON THE PC (13 Nov 2026, 18:35 GMT): the program was open there
-  (C:\RECOVERY-TOOLS\automatic-recovery-probe.exe locked; nothing running
-  in it - its results unchanged since 10 Nov), so its file could not be
-  replaced. The user is asked to close it; check-ins try again. Until it
-  is installed, main stays at 2026-11-10 (1) (4e2445d) and dev holds this
-  version.
+- Delivered 13 Nov 2026, 23:42 GMT: version 2026-11-13 (1),
+  C:\RECOVERY-TOOLS\automatic-recovery-probe.exe, 6,525,952 bytes, SHA-256
+  6df399fb3886b40312fe1c8964b643169430257273c64be9b3576cc104c9747a (staged
+  back and compared). It waited five hours for that: from 18:35 the
+  program was open on the PC and its file locked (four tries; the user
+  had closed the page, but the program runs until its own black window
+  is closed - told so, they closed it at 23:41). main moved to it; the
+  2026-11-10 (1) main is kept as branch version-2026-11-10-1.
+- For next time: check-ins made to carry work over a break in usage were
+  all set for the same evening (10 Nov) and fired while usage was still
+  out; the work sat for three days. Spread them over days, not hours.
 
 ## Not done / ideas for later
 
